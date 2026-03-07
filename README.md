@@ -14,14 +14,6 @@ Project made by:
 
 <img style="vertical-align: center;" src="https://discord.c99.nl/widget/theme-4/451627446941515817.png"/>
 
-# 🔗 Support + Try out the bot!
-
-If you have any questions, need assistance or want news on updates, please join our dedicated Discord server. You can ask your questions there and leave once you have the help you need, or stay and be part of the community!
-
-You can also try out this project in our server, in the [#italiano](https://discord.com/channels/1269313927150309491/1270821127001866311) channel! Click the image below to join.
-
-[![Discord Banner 2](https://discord.com/api/guilds/1269313927150309491/widget.png?style=banner2)](https://discord.gg/yUWmzQBV4P)
-
 ## 📸 Preview of Text Responses
 ![Example 1](https://i.imgur.com/MdfzY9C.png)
 
