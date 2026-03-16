@@ -7,10 +7,10 @@ This is a [Python](https://www.python.org)-based Discord selfbot using the `disc
 ### **❗ Important:**  
 *I take no responsibility for any actions taken against your account for using these selfbots or how users use my open-source code.*
 
-
 <strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned in _very_ rare cases.</strong>
 
-
+Preview :
+blob:https://imgur.com/12ed1567-8db0-47dd-b3ed-fa61d1df5b63
 
 > Note: This analysis is based on the user's message history and is obviously not accurate at all. It is just for fun and should not be taken seriously.
 
