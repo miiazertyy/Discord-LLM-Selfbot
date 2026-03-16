@@ -1,5 +1,6 @@
 import discord
 import asyncio
+import os
 
 from discord.ext import commands
 from utils.ai import generate_response
@@ -10,6 +11,30 @@ from utils.error_notifications import webhook_log
 class General(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @commands.command(name="instructions")
+    async def instructions(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        if not ctx.message.attachments:
+            await ctx.send("Please attach a `.txt` file with your instructions.", delete_after=10)
+            return
+
+        attachment = ctx.message.attachments[0]
+
+        if not attachment.filename.endswith(".txt"):
+            await ctx.send("Only `.txt` files are supported.", delete_after=10)
+            return
+
+        content = await attachment.read()
+
+        instructions_path = os.path.join("config", "instructions.txt")
+        with open(instructions_path, "w", encoding="utf-8") as f:
+            f.write(content.decode("utf-8"))
+
+        self.bot.instructions = content.decode("utf-8")
+        await ctx.send("✅ Instructions updated successfully!", delete_after=10)
 
     @commands.command(name="ping")
     @commands.cooldown(1, 30, commands.BucketType.user)
@@ -39,8 +64,6 @@ Bot Commands:
 {prefix}restart - Restarts the entire bot
 {prefix}shutdown - Shuts down the entire bot
 
-Created by @najmul (451627446941515817) (Discord Server: /yUWmzQBV4P)
-https://github.com/Najmul190/Discord-AI-Selfbot```
 """
         await ctx.send(help_text, delete_after=30)
 
@@ -53,9 +76,7 @@ https://github.com/Najmul190/Discord-AI-Selfbot```
         temp = await ctx.send(f"Analysing {user.name}'s message history...")
 
         message_history = []
-        async for message in ctx.channel.history(
-            limit=1500
-        ):  # easiest way i could think of that seems to work + fairly fast
+        async for message in ctx.channel.history(limit=1500):
             if message.author == user:
                 message_history.append(message.content)
 
@@ -68,9 +89,7 @@ https://github.com/Najmul190/Discord-AI-Selfbot```
         async def generate_response_in_thread(prompt):
             response = await generate_response(prompt, instructions, history=None)
             chunks = split_response(response)
-
             await temp.delete()
-
             for chunk in chunks:
                 await ctx.reply(chunk)
 
