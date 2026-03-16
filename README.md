@@ -10,22 +10,8 @@ This is a [Python](https://www.python.org)-based Discord selfbot using the `disc
 
 <strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned in _very_ rare cases.</strong>
 
-Project made by: 
+Project forked by me idk
 
-<img style="vertical-align: center;" src="https://discord.c99.nl/widget/theme-4/451627446941515817.png"/>
-
-## 📸 Preview of Text Responses
-![Example 1](https://i.imgur.com/MdfzY9C.png)
-
-![Example 2](https://i.imgur.com/AMnx8a9.png)
-
-## Preview of Image Responses
-
-![Example](https://i.imgur.com/xp2z2iN.png)
-
-## 📸 Preview of Analyse command:
-
-![image](https://i.imgur.com/rn4Ru09.png)
 
 > Note: This analysis is based on the user's message history and is obviously not accurate at all. It is just for fun and should not be taken seriously.
 
@@ -143,20 +129,16 @@ Windows:
 
 Linux:
 
--   If you're on Linux, then run `cd the\bot\files\directory` to change directory to the bot files directory
--   Create a virtual environment by running `python3 -m venv bot-env`
--   Activate the virtual environment by running `source bot-env/bin/activate`
--   Run `pip install -r requirements.txt` to install all the dependencies
 -   Fill out `example.env` with your own credentials and rename it to `.env`
 -   Fill out the `config.yaml` file with your own settings
--   Run the bot using `python3 main.py`
+-   Run the bot using `run.sh`
 
 # 🗨️ How to talk to the bot
 
 -   To activate it in a channel use **~toggleactive channelid** (channelid is optional).
--   To see all commands use **~help**
+-   To see all commands use **(prefix)help**
 -   Bear in mind that the bot will only respond to **other accounts** and not itself, including any commands.
--   You must also set a trigger word within the `config.yaml`, this is the word that the bot will respond to. For example, if you set the trigger word to `John`, people must say "Hey `John`, how are you today?" for the bot to respond.
+-   You can also set a trigger word within the `config.yaml`, this is the word that the bot will respond to. For example, if you set the trigger word to `John`, people must say "Hey `John`, how are you today?" for the bot to respond.
 
 
 # 💭 Changing the Personality of the bot
