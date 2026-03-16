@@ -156,7 +156,7 @@ class Management(commands.Cog):
     )
     async def restart(self, ctx):
         if ctx.author.id == self.bot.owner_id:
-            await ctx.message.add_reaction("✅")
+            await ctx.send("Restarting...")
 
             print("Restarting bot...")
 
@@ -182,9 +182,9 @@ class Management(commands.Cog):
     )
     async def shutdown(self, ctx):
         if ctx.author.id == self.bot.owner_id:
-            await ctx.message.add_reaction("✅")
+            await ctx.send("Shutting down...")
 
-            print("Shutting down bot...")
+            print("Shutting down...")
 
             await ctx.bot.close()
             sys.exit(0)

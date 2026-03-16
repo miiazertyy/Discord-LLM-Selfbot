@@ -1,6 +1,13 @@
 import os
 import sys
 import yaml
+import random
+
+def get_batch_wait_time():
+    wait_times = config["bot"]["batch_wait_times"]
+    times = [item["time"] for item in wait_times]
+    weights = [item["weight"] for item in wait_times]
+    return random.choices(times, weights=weights, k=1)[0]
 
 
 def clear_console():

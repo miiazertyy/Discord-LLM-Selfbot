@@ -7,6 +7,7 @@ import random
 import sys
 import time
 import requests
+import random
 
 from utils.helpers import (
     clear_console,
@@ -15,45 +16,31 @@ from utils.helpers import (
     load_instructions,
     load_config,
 )
+
 from utils.db import init_db, get_channels, get_ignored_users
 from utils.error_notifications import webhook_log
 from colorama import init, Fore, Style
 
+from utils.logger import (
+    log_incoming,
+    log_response,
+    log_rate_limit,
+    log_error,
+    log_cooldown,
+    separator
+)
+
+
 init()
 
 
-def check_config():
-    env_path = resource_path("config/.env")
-    config_path = resource_path("config/config.yaml")
-    if not os.path.exists(env_path) or not os.path.exists(config_path):
-        print("Config files are not setup! Running setup...")
-        import utils.setup as setup
-
-        setup.create_config()
+def get_batch_wait_time():
+    wait_times = config["bot"]["batch_wait_times"]
+    times = [item["time"] for item in wait_times]
+    weights = [item["weight"] for item in wait_times]
+    return random.choices(times, weights=weights, k=1)[0]
 
 
-def check_for_update():
-    url = "https://api.github.com/repos/Najmul190/Discord-AI-Selfbot/releases/latest"
-    response = requests.get(url)
-
-    if response.status_code == 200:
-        return response.json()["tag_name"]
-    else:
-        return None
-
-
-current_version = "v2.0.1"
-latest_version = check_for_update()
-update_available = latest_version and latest_version != current_version
-
-if update_available:
-    print(
-        f"{Fore.RED}A new version of the AI Selfbot is available! Please update to {latest_version} at: \nhttps://github.com/Najmul190/Discord-AI-Selfbot/releases/latest{Style.RESET_ALL}"
-    )
-
-    time.sleep(5)
-
-check_config()
 config = load_config()
 
 from utils.ai import init_ai
@@ -79,6 +66,7 @@ TRIGGER = config["bot"]["trigger"].lower().split(",")
 DISABLE_MENTIONS = config["bot"]["disable_mentions"]
 
 bot = commands.Bot(command_prefix=PREFIX, help_command=None)
+bot.retry_queue = deque()  # Store messages waiting for rate limit reset
 
 bot.owner_id = OWNER_ID
 bot.active_channels = set(get_channels())
@@ -91,7 +79,6 @@ bot.help_command_enabled = config["bot"]["help_command_enabled"]
 bot.realistic_typing = config["bot"]["realistic_typing"]
 bot.anti_age_ban = config["bot"]["anti_age_ban"]
 bot.batch_messages = config["bot"]["batch_messages"]
-bot.batch_wait_time = float(config["bot"]["batch_wait_time"])
 bot.hold_conversation = config["bot"]["hold_conversation"]
 bot.user_message_counts = {}
 bot.user_cooldowns = {}
@@ -125,7 +112,7 @@ def create_border(char="═"):
 def print_header():
     width = get_terminal_size()
     border = create_border()
-    title = "AI Selfbot by Najmul"
+    title = "AI Selfbot Discord"
     padding = " " * ((width - len(title) - 2) // 2)
 
     print(f"{Fore.CYAN}╔{border}╗")
@@ -177,7 +164,7 @@ async def on_ready():
         print(f"Bot is currently not active in any channel, use {PREFIX}toggleactive command to activate it in a channel.")
 
     print(
-        f"\n{Fore.LIGHTBLACK_EX}Join the Discord server for support and news on updates: https://discord.gg/yUWmzQBV4P{Style.RESET_ALL}"
+        f"\n{Fore.LIGHTBLACK_EX}Join the Discord server for support and news on updates: https://discord.gg/connard{Style.RESET_ALL}"
     )
 
     print_separator()
@@ -250,152 +237,101 @@ def update_message_history(author_id, message_content):
 
 
 async def generate_response_and_reply(message, prompt, history, image_url=None):
-    if not bot.realistic_typing:
-        async with message.channel.typing():
-            if image_url:
-                response = await generate_response_image(
-                    prompt, bot.instructions, image_url, history
-                )
+    max_retries = 3
+    response = None
+
+    for attempt in range(max_retries):
+        try:
+            if not bot.realistic_typing:
+                async with message.channel.typing():
+                    if image_url:
+                        response = await generate_response_image(prompt, bot.instructions, image_url, history)
+                    else:
+                        response = await generate_response(prompt, bot.instructions, history)
             else:
-                response = await generate_response(prompt, bot.instructions, history)
-    else:
-        if image_url:
-            response = await generate_response_image(
-                prompt, bot.instructions, image_url, history
-            )
-        else:
-            response = await generate_response(prompt, bot.instructions, history)
+                if image_url:
+                    response = await generate_response_image(prompt, bot.instructions, image_url, history)
+                else:
+                    response = await generate_response(prompt, bot.instructions, history)
+
+            if response:
+                break
+
+        except Exception as e:
+            error_msg = str(e)
+
+            if "Rate limit reached" in error_msg:
+                time_match = re.search(r"try again in (?:(\d+)m)?\s*(?:(\d+(?:\.\d+)?))s", error_msg)
+                if time_match:
+                    minutes = int(time_match.group(1)) if time_match.group(1) else 0
+                    seconds = float(time_match.group(2)) if time_match.group(2) else 0
+                    total_wait = int((minutes * 60) + seconds + 5)
+                    log_rate_limit(total_wait)
+                    bot.paused = True
+                    await asyncio.sleep(total_wait)
+                    bot.paused = False
+                    continue
+
+            log_error("AI Error", error_msg)
+            if attempt == max_retries - 1:
+                return "Sorry, I'm currently having trouble connecting to my brain."
+            await asyncio.sleep(2)
+            continue
+
+    if not response:
+        return "Sorry, I couldn't generate a response."
 
     chunks = split_response(response)
-
     if len(chunks) > 3:
         chunks = chunks[:3]
-        print(f"{datetime.now().strftime('[%H:%M:%S]')} Response too long, truncating.")
 
     for chunk in chunks:
         if DISABLE_MENTIONS:
-            chunk = chunk.replace(
-                "@", "@\u200b"
-            )  # prevent mentions by replacing them with a hidden whitespace
+            chunk = chunk.replace("@", "@\u200b")
 
         if bot.anti_age_ban:
             chunk = re.sub(
                 r"(?<!\d)([0-9]|1[0-2])(?!\d)|\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
-                "\u200b",
-                chunk,
-                flags=re.IGNORECASE,
+                "\u200b", chunk, flags=re.IGNORECASE
             )
 
-        print(
-            f'{datetime.now().strftime("[%H:%M:%S]")} {message.author.name}: {prompt}'
-        )
-        print(
-            f'{datetime.now().strftime("[%H:%M:%S]")} Responding to {message.author.name}: {chunk}'
-        )
-        print_separator()
+        channel_name = getattr(message.channel, 'name', 'DM')
+        guild_name = getattr(message.guild, 'name', 'DM')
+        log_incoming(message.author.name, channel_name, guild_name, prompt)
+        log_response(message.author.name, chunk)
+        separator()
 
         try:
             if bot.realistic_typing:
-                await asyncio.sleep(random.randint(10, 30))
-
+                await asyncio.sleep(random.randint(2, 5))
                 async with message.channel.typing():
-                    characters_per_second = random.uniform(5.0, 6.0)
-                    await asyncio.sleep(
-                        int(len(chunk) / characters_per_second)
-                    )  # around 50-70 wpm which is average typing speed
+                    cps = random.uniform(10, 15)
+                    await asyncio.sleep(len(chunk) / cps)
 
-            try:
-                if isinstance(message.channel, discord.DMChannel):
-                    sent_message = await message.channel.send(chunk)
-                else:
-                    sent_message = await message.reply(
-                        chunk,
-                        mention_author=(True if config["bot"]["reply_ping"] else False),
-                    )
+            if isinstance(message.channel, discord.DMChannel):
+                await message.channel.send(chunk)
+            else:
+                await message.reply(chunk, mention_author=config["bot"]["reply_ping"])
 
-                conv_key = f"{message.author.id}-{message.channel.id}"
-                bot.active_conversations[conv_key] = time.time()
-
-                if chunk == chunks[-1]:
-                    channel_id = message.channel.id
-                    batch_start_time = time.time()
-
-                    try:
-
-                        def check(m):
-                            return (
-                                m.author.id == message.author.id
-                                and m.channel.id == message.channel.id
-                                and not m.content.startswith(PREFIX)
-                            )
-
-                        if bot.hold_conversation:
-                            while time.time() - batch_start_time <= bot.batch_wait_time:
-                                try:
-                                    follow_up = await bot.wait_for(
-                                        "message",
-                                        timeout=bot.batch_wait_time
-                                        - (time.time() - batch_start_time),
-                                        check=check,
-                                    )
-
-                                    if follow_up.content.startswith(PREFIX):
-                                        await bot.process_commands(follow_up)
-                                        continue
-
-                                    if channel_id not in bot.message_queues:
-                                        bot.message_queues[channel_id] = deque()
-                                        bot.processing_locks[channel_id] = Lock()
-
-                                    bot.message_queues[channel_id].append(follow_up)
-
-                                except asyncio.TimeoutError:
-                                    break
-
-                    except asyncio.TimeoutError:
-                        pass
-
-                    if (
-                        bot.message_queues[channel_id]
-                        and not bot.processing_locks[channel_id].locked()
-                    ):
-                        asyncio.create_task(process_message_queue(channel_id))
-
-            except discord.errors.HTTPException as e:
-                print(
-                    f"{datetime.now().strftime('[%H:%M:%S]')} Error replying to message, original message may have been deleted."
-                )
-                print_separator()
-
-                await webhook_log(message, e)
-            except discord.errors.Forbidden:
-                print(
-                    f"{datetime.now().strftime('[%H:%M:%S]')} Missing permissions to send message, bot may be muted."
-                )
-                print_separator()
-
-                await webhook_log(message, e)
-            except Exception as e:
-                print(f"{datetime.now().strftime('[%H:%M:%S]')} Error: {e}")
-                print_separator()
-
-                await webhook_log(message, e)
-        except discord.errors.Forbidden:
-            print(
-                f"{datetime.now().strftime('[%H:%M:%S]')} Missing permissions to send message, bot may be muted."
-            )
+        except discord.errors.HTTPException as e:
+            print(f"{datetime.now().strftime('[%H:%M:%S]')} Error replying to message, original message may have been deleted.")
             print_separator()
-
-            await webhook_log(
-                message, "Missing permissions to send message, bot may be muted."
-            )
+            await webhook_log(message, e)
+        except discord.errors.Forbidden as e:
+            print(f"{datetime.now().strftime('[%H:%M:%S]')} Missing permissions to send message, bot may be muted.")
+            print_separator()
+            await webhook_log(message, e)
+        except Exception as e:
+            print(f"{datetime.now().strftime('[%H:%M:%S]')} Error: {e}")
+            print_separator()
+            await webhook_log(message, e)
 
     return response
 
 
 @bot.event
 async def on_message(message):
-    if should_ignore_message(message) and not message.author.id == bot.owner_id:
+    if should_ignore_message(message):
         return
 
     if message.content.startswith(PREFIX):
@@ -415,9 +351,7 @@ async def on_message(message):
             cooldown_end = bot.user_cooldowns[user_id]
             if current_time < cooldown_end:
                 remaining = int(cooldown_end - current_time)
-                print(
-                    f"{datetime.now().strftime('[%H:%M:%S]')} User {message.author.name} is on cooldown for {remaining}s"
-                )
+                log_cooldown(message.author.name, remaining)
                 return
             else:
                 del bot.user_cooldowns[user_id]
@@ -435,9 +369,7 @@ async def on_message(message):
 
         if len(bot.user_message_counts[user_id]) > SPAM_MESSAGE_THRESHOLD:
             bot.user_cooldowns[user_id] = current_time + COOLDOWN_DURATION
-            print(
-                f"{datetime.now().strftime('[%H:%M:%S]')} User {message.author.name} has been put on {COOLDOWN_DURATION}s cooldown for spam"
-            )
+            log_cooldown(message.author.name, int(COOLDOWN_DURATION))
             bot.user_message_counts[user_id] = []
             return
 
@@ -470,7 +402,7 @@ async def process_message_queue(channel_id):
                     }
                     bot.user_message_batches[batch_key]["messages"].append(message)
 
-                    await asyncio.sleep(bot.batch_wait_time)
+                    await asyncio.sleep(get_batch_wait_time())
 
                     while bot.message_queues[channel_id]:
                         next_message = bot.message_queues[channel_id][0]
