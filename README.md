@@ -50,7 +50,7 @@ Project forked by me idk
 # ❔ Getting Started:
 
 ### Step 1: Download the Selfbot
-- Go to the Releases and download
+- Install the files
 
 ### Step 2: Extract the files
 - Extract the files to a folder of your choice, using 7Zip or Windows Explorer.
