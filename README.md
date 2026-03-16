@@ -1,10 +1,10 @@
-# 🤖 Discord LLM Selfbot
+# 🌙 Discord LLM Selfbot
 
 This is a [Python](https://www.python.org)-based Discord selfbot using the `discord.py-self` library. The selfbot automatically responds to messages that mention it's trigger word and holds conversations using Groq API's Llama-3, one of the highest performing models, **all for completely free**. You can also add your own API key for ChatGPT functionality, but this is not required. It functions as a normal Discord bot, but on a real Discord account, allowing other people to talk to it within DMs, servers and even group chats without you needing to invite a bot or add the bot to the server - making it seem like a real user to others.
 
 > There is always the slight risk of a ban when using selfbots, so make sure to use this selfbot on an account you don't mind losing, but the risk is incredibly low and I have used it for over a year without any issues.
 
-### **⚠️ Important:**  
+### **❗ Important:**  
 *I take no responsibility for any actions taken against your account for using these selfbots or how users use my open-source code.*
 
 
@@ -15,7 +15,7 @@ Project forked by me idk
 
 > Note: This analysis is based on the user's message history and is obviously not accurate at all. It is just for fun and should not be taken seriously.
 
-# ✨ Features
+# ☮️ Features
 
 -   [x] Discord Selfbot: Runs on a genuine Discord account, allowing you to use it without even needing to invite a bot.
 -   [x] Custom AI Instructions: You can replace the text inside of `instructions.txt` and make the AI act however you'd like!
@@ -32,7 +32,7 @@ Project forked by me idk
 -   [x] Secure Credential Management: Keep your credentials secure using environment variables.
 -   [x] Crafted with Care: Made with lots of love and attention to detail.
 
-## 🤖 Commands
+## 📜 Commands
 
 -   pause - Pause the bot from producing AI responses
 -   analyse [user] - Analyze a user's message history and provides a - gical profile
@@ -47,10 +47,10 @@ Project forked by me idk
 -   restart - Restarts the entire bot
 -   shutdown - Shuts down the bot
 
-# ⭐ Getting Started:
+# ❔ Getting Started:
 
 ### Step 1: Download the Selfbot
-- Go to the [Releases](https://github.com/Najmul190/Discord-AI-Selfbot/releases/latest) page and download the latest release for your operating system.
+- Go to the Releases and download
 
 ### Step 2: Extract the files
 - Extract the files to a folder of your choice, using 7Zip or Windows Explorer.
@@ -144,9 +144,3 @@ Linux:
 # 💭 Changing the Personality of the bot
 
 To change the personality of the bot and set custom instructions, simply go into the `config` folder and edit the default instructions in `instructions.txt` to whatever you want! 
-
-# ❤️ Donate
-
-If you appreciate this project and want to support its development, feel free to donate by clicking this button!
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/E1E1Q7XEZ)
