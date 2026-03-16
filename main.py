@@ -8,6 +8,7 @@ import sys
 import time
 import requests
 import random
+import utils.ai as ai_module
 
 from utils.helpers import (
     clear_console,
@@ -27,6 +28,7 @@ from utils.logger import (
     log_rate_limit,
     log_error,
     log_cooldown,
+    log_system,
     separator
 )
 
@@ -43,10 +45,9 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai
+from utils.ai import init_ai, generate_response, generate_response_image
 from dotenv import load_dotenv
 from discord.ext import commands
-from utils.ai import generate_response, generate_response_image
 from utils.split_response import split_response
 from datetime import datetime
 from collections import deque
@@ -142,9 +143,8 @@ async def on_ready():
     clear_console()
 
     print_header()
-    print(
-        f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n"
-    )
+    print(f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n")
+    log_system(f" Using model: {ai_module.model}")
 
     if update_available:
         print(

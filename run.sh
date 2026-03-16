@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # location of your project
-cd /root/AI-Selfbot || { echo "Directory /root/AI-Selfbot not found"; exit 1; }
+cd /root/LLMselfbot || { echo "Directory /root/LLMselfbot not found"; exit 1; }
 
 clear
 echo "Installing AI Selfbot..."

@@ -1,11 +1,11 @@
 import sys
 
 from groq import AsyncGroq, RateLimitError
-from openai import AsyncOpenAI as OpenAI
 from os import getenv
 from dotenv import load_dotenv
 from utils.helpers import get_env_path, load_config
 from utils.error_notifications import webhook_log, print_error
+from utils.logger import log_model_fallback
 
 client = None
 model = None
@@ -20,30 +20,27 @@ def init_ai():
 
     load_dotenv(dotenv_path=env_path)
 
-    if getenv("OPENAI_API_KEY"):
-        client = OpenAI(api_key=getenv("OPENAI_API_KEY"))
-        model = config["bot"]["openai_model"]
-    elif getenv("GROQ_API_KEY"):
-        client = AsyncGroq(api_key=getenv("GROQ_API_KEY"))
-        groq_models = config["bot"]["groq_models"]
-        current_model_index = 0
-        model = groq_models[0]
-    else:
-        print("No API keys found, exiting.")
+    api_key = getenv("GROQ_API_KEY")
+    if not api_key:
+        print("No GROQ_API_KEY found, exiting.")
         sys.exit(1)
 
+    client = AsyncGroq(api_key=api_key)
+    groq_models = config["bot"]["groq_models"]
+    current_model_index = 0
+    model = groq_models[0]
 
 def fallback_model():
-    """Switch to the next model in the list. Returns False if all exhausted."""
     global model, current_model_index
     if not groq_models:
         return False
+    old_model = model
     current_model_index += 1
     if current_model_index >= len(groq_models):
-        current_model_index = 0  # reset for next time
+        current_model_index = 0
         return False
     model = groq_models[current_model_index]
-    print(f"[AI] Rate limited, switching to fallback model: {model}")
+    log_model_fallback(old_model, model)
     return True
 
 
