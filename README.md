@@ -10,7 +10,6 @@ This is a [Python](https://www.python.org)-based Discord selfbot using the `disc
 
 <strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned in _very_ rare cases.</strong>
 
-Project forked by me idk
 
 
 > Note: This analysis is based on the user's message history and is obviously not accurate at all. It is just for fun and should not be taken seriously.
@@ -20,7 +19,7 @@ Project forked by me idk
 -   [x] Discord Selfbot: Runs on a genuine Discord account, allowing you to use it without even needing to invite a bot.
 -   [x] Custom AI Instructions: You can replace the text inside of `instructions.txt` and make the AI act however you'd like!
 -   [x] Realistic Typing: The bot types like a real person, with varying speeds and pauses.
--   [x] Free LLM Model: Enjoy the powerful capabilities of this language model without spending a dime.
+-   [x] Free LLM Model: Enjoy the powerful capabilities of this language model without spending a dime. Automatically switches to another LLM when no enough token on your account.
 -   [x] Mention Recognition: The bot only responds when you mention it or say its trigger word.
 -   [x] Reply Recognition: If replied to, the bot will continue to reply to you. It's like having a conversation with a real person!
 -   [x] Message Handling: The bot knows when you're replying to someone else, so it won't cause confusion. It's like having a mind reader in your server; It can also handle numerous messages at once!
@@ -30,7 +29,6 @@ Project forked by me idk
 -   [x] Psychoanalysis Command: Use the `~analyse` command to analyse a mentioned user's messages and find insights on their personality. It's like having a therapist in your server!
 -   [x] Runs on Meta AI's Llama-3: The bot uses the Llama-3 model from Meta AI, which is one of the most powerful models available.
 -   [x] Secure Credential Management: Keep your credentials secure using environment variables.
--   [x] Crafted with Care: Made with lots of love and attention to detail.
 
 ## 📜 Commands
 
