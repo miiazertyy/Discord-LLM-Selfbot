@@ -296,7 +296,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None):
             error_msg = str(e)
 
             if "Rate limit reached" in error_msg:
-                time_match = re.search(r"try again in (?:(\d+)m)?\s*(?:(\d+(?:\.\d+)?))s", error_msg)
+                time_match = re.search(r"try again in (?:(\d+)m\s*)?(?:(\d+(?:\.\d+)?)s)?", error_msg)
                 if time_match:
                     minutes = int(time_match.group(1)) if time_match.group(1) else 0
                     seconds = float(time_match.group(2)) if time_match.group(2) else 0
