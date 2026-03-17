@@ -37,6 +37,7 @@ Bot Commands:
 {prefix}ignore [user] - Stop a user from using the bot
 {prefix}reload - Reloads all cogs and the instructions
 {prefix}instructions - Attach a .txt to change the other one
+{prefix}getinstructions - Get the instructions.txt in chat
 {prefix}prompt [prompt / clear] - View, set or clear the prompt for the AI
 {prefix}restart - Restarts the entire bot
 {prefix}shutdown - Shuts down the entire bot
