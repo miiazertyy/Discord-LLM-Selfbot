@@ -7,7 +7,6 @@ import random
 import sys
 import time
 import requests
-import random
 import utils.ai as ai_module
 
 from utils.helpers import (
@@ -67,7 +66,7 @@ TRIGGER = config["bot"]["trigger"].lower().split(",")
 DISABLE_MENTIONS = config["bot"]["disable_mentions"]
 
 bot = commands.Bot(command_prefix=PREFIX, help_command=None)
-bot.retry_queue = deque()  # Store messages waiting for rate limit reset
+bot.retry_queue = deque()
 
 bot.owner_id = OWNER_ID
 bot.active_channels = set(get_channels())
@@ -99,6 +98,57 @@ COOLDOWN_DURATION = 60.0
 
 MAX_HISTORY = 15
 
+# Anti-detection: 10% chance to ignore a message
+IGNORE_CHANCE = 0.10
+
+
+# --- Anti-detection: typo injection ---
+def add_typo(text):
+    """Rarely introduces a small typo into a response."""
+    if len(text) < 5 or random.random() > 0.25:
+        return text
+
+    typo_type = random.choice(["swap", "double", "miss"])
+    words = text.split()
+    if not words:
+        return text
+
+    word_idx = random.randint(0, len(words) - 1)
+    word = words[word_idx]
+
+    if len(word) < 3:
+        return text
+
+    char_idx = random.randint(1, len(word) - 2)
+
+    if typo_type == "swap" and char_idx < len(word) - 1:
+        # swap two adjacent characters
+        word = word[:char_idx] + word[char_idx + 1] + word[char_idx] + word[char_idx + 2:]
+    elif typo_type == "double":
+        # double a character
+        word = word[:char_idx] + word[char_idx] + word[char_idx:]
+    elif typo_type == "miss":
+        # drop a character
+        word = word[:char_idx] + word[char_idx + 1:]
+
+    words[word_idx] = word
+    return " ".join(words)
+
+
+# --- Anti-detection: random status loop ---
+async def random_status_loop():
+    await bot.wait_until_ready()
+    statuses = [
+        discord.Status.online,
+        discord.Status.idle,
+        discord.Status.dnd,
+    ]
+    while not bot.is_closed():
+        status = random.choice(statuses)
+        await bot.change_presence(status=status)
+        # Wait between 30 minutes and 3 hours
+        await asyncio.sleep(random.randint(1800, 10800))
+
 
 def get_terminal_size():
     columns, _ = shutil.get_terminal_size()
@@ -107,7 +157,7 @@ def get_terminal_size():
 
 def create_border(char="═"):
     width = get_terminal_size()
-    return char * (width - 2)  # -2 for the corner characters
+    return char * (width - 2)
 
 
 def print_header():
@@ -127,29 +177,23 @@ def print_separator():
 
 @bot.event
 async def on_ready():
-    # check if owner_id is the default value or matches the bot's user id
     if config["bot"]["owner_id"] == 123456789012345678:
         print(f"{Fore.RED}Error: Please set a valid owner_id in config.yaml{Style.RESET_ALL}")
         await bot.close()
-        sys.exit(1) # exit the program
-    
+        sys.exit(1)
+
     if config["bot"]["owner_id"] == bot.user.id:
         print(f"{Fore.RED}Error: owner_id in config.yaml cannot be the same as the bot account's user ID{Style.RESET_ALL}")
         await bot.close()
-        sys.exit(1) # exit the program
+        sys.exit(1)
 
-    bot.selfbot_id = bot.user.id  # this has to be here, or else it won't work
+    bot.selfbot_id = bot.user.id
 
     clear_console()
 
     print_header()
     print(f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n")
     log_system(f" Using model: {ai_module.model}")
-
-    if update_available:
-        print(
-            f"{Fore.RED}A new version of the AI Selfbot is available! Please update to {latest_version} at: \nhttps://github.com/Najmul190/Discord-AI-Selfbot/releases/latest{Style.RESET_ALL}\n"
-        )
 
     if len(bot.active_channels) > 0:
         print("Active in the following channels:")
@@ -169,10 +213,14 @@ async def on_ready():
 
     print_separator()
 
+    # Start anti-detection status loop
+    asyncio.create_task(random_status_loop())
 
-@bot.event
+
 async def setup_hook():
-    await load_extensions()  # this loads the cogs on bot startup
+    await load_extensions()
+
+bot.setup_hook = setup_hook
 
 
 def should_ignore_message(message):
@@ -295,6 +343,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None):
                 "\u200b", chunk, flags=re.IGNORECASE
             )
 
+        # Anti-detection: rarely add a typo
+        chunk = add_typo(chunk)
+
         channel_name = getattr(message.channel, 'name', 'DM')
         guild_name = getattr(message.guild, 'name', 'DM')
         log_incoming(message.author.name, channel_name, guild_name, prompt)
@@ -303,9 +354,10 @@ async def generate_response_and_reply(message, prompt, history, image_url=None):
 
         try:
             if bot.realistic_typing:
-                await asyncio.sleep(random.randint(2, 5))
+                # Anti-detection: more varied response delay (2-8 seconds)
+                await asyncio.sleep(random.uniform(2, 8))
                 async with message.channel.typing():
-                    cps = random.uniform(10, 15)
+                    cps = random.uniform(7, 18)
                     await asyncio.sleep(len(chunk) / cps)
 
             if isinstance(message.channel, discord.DMChannel):
@@ -347,6 +399,11 @@ async def on_message(message):
     is_trigger = is_trigger_message(message)
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
+
+        # Anti-detection: 10% chance to silently ignore the message
+        if random.random() < IGNORE_CHANCE:
+            return
+
         if user_id in bot.user_cooldowns:
             cooldown_end = bot.user_cooldowns[user_id]
             if current_time < cooldown_end:
@@ -418,7 +475,6 @@ async def process_message_queue(channel_id):
                                 bot.user_message_batches[batch_key]["messages"].append(
                                     next_message
                                 )
-
                             if (
                                 not bot.user_message_batches[batch_key]["image_url"]
                                 and next_message.attachments
@@ -429,9 +485,7 @@ async def process_message_queue(channel_id):
                         else:
                             break
 
-                    messages_to_process = bot.user_message_batches[batch_key][
-                        "messages"
-                    ]
+                    messages_to_process = bot.user_message_batches[batch_key]["messages"]
                     seen = set()
                     unique_messages = []
                     for msg in messages_to_process:
@@ -466,6 +520,9 @@ async def process_message_queue(channel_id):
             if message_to_reply_to.channel.id in bot.active_channels or (
                 isinstance(message_to_reply_to.channel, discord.DMChannel)
                 and bot.allow_dm
+            ) or (
+                isinstance(message_to_reply_to.channel, discord.GroupChannel)
+                and bot.allow_gc
             ):
                 response = await generate_response_and_reply(
                     message_to_reply_to, combined_content, history, image_url
