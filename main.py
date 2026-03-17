@@ -207,10 +207,6 @@ async def on_ready():
     else:
         print(f"Bot is currently not active in any channel, use {PREFIX}toggleactive command to activate it in a channel.")
 
-    print(
-        f"\n{Fore.LIGHTBLACK_EX}Join the Discord server for support and news on updates: https://discord.gg/connard{Style.RESET_ALL}"
-    )
-
     print_separator()
 
     # Start anti-detection status loop
@@ -340,6 +336,8 @@ async def generate_response_and_reply(message, prompt, history, image_url=None):
 
     if not response:
         return None
+
+    chunks = split_response(response)
     if len(chunks) > 3:
         chunks = chunks[:3]
 
