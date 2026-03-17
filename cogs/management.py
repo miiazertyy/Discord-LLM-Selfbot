@@ -172,43 +172,74 @@ class Management(commands.Cog):
 
     @commands.command(
         name="instructions",
-        description="View or change the AI prompt.",
-        aliases=["prompt", "setprompt", "sp"],
+        description="Attach a .txt file to update the bot instructions.",
+        aliases=["setinstructions"],
     )
-    async def instructions(self, ctx, *, prompt=None):
+    async def instructions(self, ctx):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        if ctx.message.attachments:
-            attachment = ctx.message.attachments[0]
-            if not attachment.filename.endswith(".txt"):
-                await ctx.send("Only `.txt` files are supported.", delete_after=10)
-                return
-            content = await attachment.read()
-            try:
-                text = content.decode("utf-8")
-            except UnicodeDecodeError:
-                await ctx.send("Could not read file, make sure it's valid UTF-8.", delete_after=10)
-                return
-            self.bot.instructions = text
-            with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
-                f.write(text)
-            await ctx.send("✅ Instructions updated from file!", delete_after=10)
+        if not ctx.message.attachments:
+            await ctx.send("Please attach a `.txt` file to update the instructions.", delete_after=10)
+            return
 
-        elif prompt is None:
+        attachment = ctx.message.attachments[0]
+        if not attachment.filename.endswith(".txt"):
+            await ctx.send("Only `.txt` files are supported.", delete_after=10)
+            return
+
+        content = await attachment.read()
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            await ctx.send("Could not read file, make sure it's valid UTF-8.", delete_after=10)
+            return
+
+        self.bot.instructions = text
+        with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
+            f.write(text)
+        await ctx.send("✅ Instructions updated from file!", delete_after=10)
+
+    @commands.command(
+        name="getinstructions",
+        description="Sends the current instructions.txt file.",
+        aliases=["gi"],
+    )
+    async def getinstructions(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        instructions_path = resource_path("config/instructions.txt")
+
+        if not os.path.exists(instructions_path):
+            await ctx.send("No instructions file found.", delete_after=10)
+            return
+
+        await ctx.send(file=discord.File(instructions_path, filename="instructions.txt"))
+
+    @commands.command(
+        name="prompt",
+        description="View, set or clear the prompt for the AI.",
+        aliases=["setprompt", "sp"],
+    )
+    async def prompt(self, ctx, *, text=None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        if text is None:
             await ctx.send(
                 f"Current prompt:\n{f'```{self.bot.instructions}```' if self.bot.instructions != '' else 'No prompt is currently set.'}"
             )
-        elif prompt.lower() == "clear":
+        elif text.lower() == "clear":
             self.bot.instructions = ""
             with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
                 f.write("")
             await ctx.send("Cleared prompt.")
         else:
-            self.bot.instructions = prompt
+            self.bot.instructions = text
             with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
-                f.write(prompt)
-            await ctx.send(f"Updated prompt to:\n```{prompt}```")
+                f.write(text)
+            await ctx.send(f"Updated prompt to:\n```{text}```")
 
 
 async def setup(bot):
