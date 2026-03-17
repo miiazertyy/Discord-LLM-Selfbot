@@ -4,7 +4,9 @@ echo Waiting for bot to shut down...
 timeout /t 3 /nobreak > nul
 
 echo Pulling latest changes from GitHub...
+git stash --include-untracked
 git pull
+git stash pop
 
 echo Deleting bot-env...
 rmdir /s /q bot-env
