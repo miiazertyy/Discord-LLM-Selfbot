@@ -190,14 +190,16 @@ class Management(commands.Cog):
         except Exception:
             pass
 
-        await ctx.send(f"Updating to {latest if latest else 'latest'}... brb")
-        await ctx.bot.close()
+        msg = await ctx.send(f"Updating to {latest if latest else 'latest'}... brb")
 
         if sys.platform == "win32":
             subprocess.Popen(["cmd", "/c", "start", "updater.bat"], shell=True)
         else:
             subprocess.Popen(["bash", "updater.sh"])
 
+        await msg.edit(content="✅ Updated! Relaunching...")
+        await asyncio.sleep(1)
+        await ctx.bot.close()
         sys.exit(0)
 
     @commands.command(
