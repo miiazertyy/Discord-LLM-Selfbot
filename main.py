@@ -196,18 +196,6 @@ async def on_ready():
     print(f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n")
     log_system(f" Using model: {ai_module.model}")
 
-    if len(bot.active_channels) > 0:
-        print("Active in the following channels:")
-        for channel_id in bot.active_channels:
-            channel = bot.get_channel(channel_id)
-            if channel:
-                try:
-                    print(f"- #{channel.name} in {channel.guild.name}")
-                except Exception:
-                    pass
-    else:
-        print(f"Bot is currently not active in any channel, use {PREFIX}toggleactive command to activate it in a channel.")
-
     print_separator()
 
     # Start anti-detection status loop
@@ -250,9 +238,13 @@ def is_trigger_message(message):
         and not isinstance(message.channel, discord.TextChannel)
     )
 
-    content_has_trigger = any(
-        re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
-        for keyword in TRIGGER
+    is_server = isinstance(message.channel, discord.TextChannel)
+
+    content_has_trigger = (
+        not is_server and any(
+            re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
+            for keyword in TRIGGER
+        )
     )
 
     if (
