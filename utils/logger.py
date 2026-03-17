@@ -61,3 +61,13 @@ def log_cooldown(username: str, remaining: int):
     print(
         f"{timestamp()} {Fore.YELLOW}⏱ {username} is on cooldown for {remaining}s{Style.RESET_ALL}"
     )
+
+
+def log_received(author: str, channel: str, guild: str, wait: int):
+    wait_str = f"{wait}s" if wait < 60 else f"{wait // 60}m {wait % 60}s" if wait % 60 else f"{wait // 60}m"
+    print(
+        f"{timestamp()} "
+        f"{Fore.WHITE}{Style.BRIGHT}{author}{Style.RESET_ALL} "
+        f"{Fore.LIGHTBLACK_EX}in #{channel} ({guild}){Style.RESET_ALL} "
+        f"{Fore.MAGENTA}→ waiting {wait_str} before responding{Style.RESET_ALL}"
+    )
