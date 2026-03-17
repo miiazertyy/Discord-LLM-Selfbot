@@ -88,13 +88,9 @@ async def generate_response(prompt, instructions, history=None):
 async def generate_response_image(prompt, instructions, image_url, history=None):
     if not client:
         init_ai()
-
-    config = load_config()
-    image_model = config["bot"].get("groq_image_model", model)
-
     try:
         image_response = await client.chat.completions.create(
-            model=image_model,
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
             messages=[
                 {
                     "role": "user",
@@ -154,6 +150,11 @@ Return ONLY valid JSON, nothing else."""
         )
         text = response.choices[0].message.content.strip()
         text = text.replace("```json", "").replace("```", "").strip()
-        return json.loads(text)
-    except Exception:
+        parsed = json.loads(text)
+        return parsed
+    except json.JSONDecodeError as e:
+        print_error("Memory Extract JSON Error", f"{e} | raw: {text[:200]}")
+        return {}
+    except Exception as e:
+        print_error("Memory Extract Error", e)
         return {}
