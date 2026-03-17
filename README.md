@@ -25,11 +25,13 @@ Preview :
 -   [x] Reply Recognition: If replied to, the bot will continue to reply to you. It's like having a conversation with a real person!
 -   [x] Message Handling: The bot knows when you're replying to someone else, so it won't cause confusion. It's like having a mind reader in your server; It can also handle numerous messages at once!
 -   [x] Image Recognition: The bot can recognize images and respond to them in character!
--   [x] Channel-Specific Responses: Use the `~toggleactive` command to pick what channel the bot responds in.
+-   [x] Channel-Specific Responses: Use the `,toggleactive` command to pick what channel the bot responds in.
 -   [x] Anti-spam: The bot has a built-in anti-spam feature to prevent people from abusing it.
--   [x] Psychoanalysis Command: Use the `~analyse` command to analyse a mentioned user's messages and find insights on their personality. It's like having a therapist in your server!
+-   [x] Psychoanalysis Command: Use the `,analyse` command to analyse a mentioned user's messages and find insights on their personality. It's like having a therapist in your server!
 -   [x] Runs on Meta AI's Llama-3: The bot uses the Llama-3 model from Meta AI, which is one of the most powerful models available.
 -   [x] Secure Credential Management: Keep your credentials secure using environment variables.
+-   [x] Priority prefix "=" to bypass wait times between responses usable by everyone
+-   [x] Auto switch LLM when out of tokens
 
 ## 📜 Commands
 
