@@ -88,9 +88,13 @@ async def generate_response(prompt, instructions, history=None):
 async def generate_response_image(prompt, instructions, image_url, history=None):
     if not client:
         init_ai()
+
+    config = load_config()
+    image_model = config["bot"].get("groq_image_model", model)
+
     try:
         image_response = await client.chat.completions.create(
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            model=image_model,
             messages=[
                 {
                     "role": "user",
@@ -149,7 +153,6 @@ Return ONLY valid JSON, nothing else."""
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.choices[0].message.content.strip()
-        # Strip markdown code fences if present
         text = text.replace("```json", "").replace("```", "").strip()
         return json.loads(text)
     except Exception:
