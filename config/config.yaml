@@ -10,9 +10,9 @@ bot:
 
   # Models to use from Groq (will fallback to next on rate limit)
   groq_models:
-    - "meta-llama/llama-4-scout-17b-16e-instruct"
     - "llama-3.3-70b-versatile"
     - "openai/gpt-oss-120b"
+    - "meta-llama/llama-4-scout-17b-16e-instruct"
 
   # Model used for image description (must support vision)
   # If not set or model not found, falls back to primary groq model
