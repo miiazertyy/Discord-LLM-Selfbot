@@ -196,6 +196,18 @@ async def on_ready():
     print(f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n")
     log_system(f" Using model: {ai_module.model}")
 
+    if len(bot.active_channels) > 0:
+        print("Active in the following channels:")
+        for channel_id in bot.active_channels:
+            channel = bot.get_channel(channel_id)
+            if channel:
+                try:
+                    print(f"- #{channel.name} in {channel.guild.name}")
+                except Exception:
+                    pass
+    else:
+        print(f"Bot is currently not active in any channel, use {PREFIX}toggleactive command to activate it in a channel.")
+
     print_separator()
 
     # Start anti-detection status loop
@@ -238,13 +250,9 @@ def is_trigger_message(message):
         and not isinstance(message.channel, discord.TextChannel)
     )
 
-    is_server = isinstance(message.channel, discord.TextChannel)
-
-    content_has_trigger = (
-        not is_server and any(
-            re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
-            for keyword in TRIGGER
-        )
+    content_has_trigger = any(
+        re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
+        for keyword in TRIGGER
     )
 
     if (
@@ -461,11 +469,19 @@ async def process_message_queue(channel_id):
                     }
                     bot.user_message_batches[batch_key]["messages"].append(message)
 
-                    wait_time = get_batch_wait_time()
-                    channel_name = getattr(message.channel, 'name', 'DM')
-                    guild_name = getattr(message.guild, 'name', 'DM')
-                    log_received(message.author.name, channel_name, guild_name, wait_time)
-                    await asyncio.sleep(wait_time)
+                    priority = message.content.startswith("=")
+
+                    if priority:
+                        wait_time = 0
+                        channel_name = getattr(message.channel, 'name', 'DM')
+                        guild_name = getattr(message.guild, 'name', 'DM')
+                        log_received(message.author.name, channel_name, guild_name, 0)
+                    else:
+                        wait_time = get_batch_wait_time()
+                        channel_name = getattr(message.channel, 'name', 'DM')
+                        guild_name = getattr(message.guild, 'name', 'DM')
+                        log_received(message.author.name, channel_name, guild_name, wait_time)
+                        await asyncio.sleep(wait_time)
 
                     while bot.message_queues[channel_id]:
                         next_message = bot.message_queues[channel_id][0]
@@ -500,6 +516,8 @@ async def process_message_queue(channel_id):
                             unique_messages.append(msg)
 
                     combined_content = "\n".join(msg.content for msg in unique_messages)
+                    if combined_content.startswith("="):
+                        combined_content = combined_content[1:].lstrip()
                     message_to_reply_to = unique_messages[-1]
                     image_url = bot.user_message_batches[batch_key]["image_url"]
 
