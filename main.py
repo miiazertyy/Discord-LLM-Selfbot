@@ -329,8 +329,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     for key, value in facts.items():
                         if value:
                             set_memory(message.author.id, key, str(value))
-                except Exception:
-                    pass
+                            log_system(f"Memory saved for {message.author.name}: {key} = {value}")
+                except Exception as mem_err:
+                    log_error("Memory Error", str(mem_err))
 
                 # Prepend late opener to response
                 if late_opener:
