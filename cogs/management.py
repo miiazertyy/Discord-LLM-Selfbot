@@ -5,6 +5,7 @@ import subprocess
 import yaml
 import re
 import asyncio
+import requests
 
 from discord.ext import commands
 from utils.helpers import load_instructions, load_config, resource_path
@@ -169,6 +170,35 @@ class Management(commands.Cog):
             print("Shutting down...")
             await ctx.bot.close()
             sys.exit(0)
+
+    @commands.command(
+        name="update",
+        description="Pulls the latest update from GitHub and relaunches the bot.",
+    )
+    async def update(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        latest = None
+        try:
+            response = requests.get(
+                "https://api.github.com/repos/miiazertyy/Discord-LLM-Selfbot/releases/latest",
+                timeout=10
+            )
+            if response.status_code == 200:
+                latest = response.json().get("tag_name", "unknown")
+        except Exception:
+            pass
+
+        await ctx.send(f"Updating to {latest if latest else 'latest'}... brb")
+        await ctx.bot.close()
+
+        if sys.platform == "win32":
+            subprocess.Popen(["cmd", "/c", "start", "updater.bat"], shell=True)
+        else:
+            subprocess.Popen(["bash", "updater.sh"])
+
+        sys.exit(0)
 
     @commands.command(
         name="instructions",
