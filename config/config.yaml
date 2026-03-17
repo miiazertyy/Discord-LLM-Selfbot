@@ -62,6 +62,83 @@ bot:
   # Whether the bot should ping on replies
   reply_ping: true
 
+  # --- Mood system ---
+  mood:
+    # Enable or disable the mood system entirely
+    enabled: true
+
+    # How often mood shifts (in seconds). Random between min and max.
+    shift_interval_min: 1800   # 30 minutes
+    shift_interval_max: 3600   # 60 minutes
+
+    # Available moods and the prompt injected into instructions for each
+    moods:
+      chill: "You are in a relaxed, calm mood. Replies are easy-going and unbothered."
+      playful: "You are in a playful, energetic mood. More teasing and fun than usual."
+      busy: "You are a bit busy or distracted. Replies are shorter and slightly impatient."
+      tired: "You are tired. Replies are slower, shorter, a bit low energy."
+      annoyed: "You are mildly annoyed. Not rude, but less patient and more blunt."
+      flirty: "You are in a flirty mood. More suggestive and playful than usual."
+
+  # --- Random status loop ---
+  status:
+    # Enable or disable the random status loop
+    enabled: true
+
+    # How often status changes (in seconds). Random between min and max.
+    change_interval_min: 1800    # 30 minutes
+    change_interval_max: 10800   # 3 hours
+
+    # Statuses to cycle through: online, idle, dnd, invisible
+    statuses:
+      - online
+      - idle
+      - dnd
+
+  # --- Late reply openers ---
+  late_reply:
+    # Enable or disable late reply openers
+    enabled: true
+
+    # How long a wait (in seconds) before a late opener is used
+    threshold: 300   # 5 minutes
+
+    # Openers in English
+    openers_en:
+      - "sorry was watching tiktok lol "
+      - "omg sorry just saw this "
+      - "sorry was busy haha "
+      - "oh sorry didn't see this "
+      - "lol sorry took a while "
+      - "sorry was distracted "
+      - "oh wait i just saw this lol "
+
+    # Openers in French
+    openers_fr:
+      - "déso je viens de voir lol "
+      - "pardon j'étais occupée haha "
+      - "mdrr déso je t'avais pas vu "
+      - "oh pardon je regardais tiktok "
+      - "déso j'ai mis du temps "
+
+    # Words used to detect if a message is in French
+    french_indicators:
+      - "bonjour"
+      - "salut"
+      - "coucou"
+      - "quoi"
+      - "tu"
+      - "vous"
+      - "je"
+      - "moi"
+      - "ouais"
+      - "non"
+      - "oui"
+      - "bah"
+      - "wesh"
+      - "mdrr"
+      - "ptdr"
+
 notifications:
   error_webhook: "" 
   ratelimit_notifications: true
