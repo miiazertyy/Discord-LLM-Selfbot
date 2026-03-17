@@ -1,7 +1,8 @@
 # 🌙 Discord LLM Selfbot
 
-This is a [Python](https://www.python.org)-based Discord selfbot using the `discord.py-self` library. The selfbot automatically responds to messages that mention it's trigger word and holds conversations using Groq API's Llama-3, one of the highest performing models, **all for completely free**. You can also add your own API key for ChatGPT functionality, but this is not required. It functions as a normal Discord bot, but on a real Discord account, allowing other people to talk to it within DMs, servers and even group chats without you needing to invite a bot or add the bot to the server - making it seem like a real user to others.
-**JOIN** https://discord.gg/connard
+Made with python, uses Groq LLM provider **ALL FOR FREE**
+
+> JOIN IF YOU NEED HELP : https://discord.gg/connard
 
 > There is always the slight risk of a ban when using selfbots, so make sure to use this selfbot on an account you don't mind losing, but the risk is incredibly low and I have used it for over a year without any issues.
 
@@ -41,6 +42,7 @@ Preview :
 -   togglegc - Toggle if the bot should be active in group chats or not
 -   ignore [user] - Stop a user from using the bot
 -   reload - Reloads all cogs
+-   instruction - Changes the instruction.txt directly from Discord DMs
 -   prompt [prompt / clear] - View, set or clear the prompt for the AI
 -   restart - Restarts the entire bot
 -   shutdown - Shuts down the bot
@@ -48,7 +50,7 @@ Preview :
 # ❔ Getting Started:
 
 ### Step 1: Download the Selfbot
-- Install the files
+- Clone the repo's files
 
 ### Step 2: Extract the files
 - Extract the files to a folder of your choice, using 7Zip or Windows Explorer.
