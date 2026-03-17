@@ -50,7 +50,7 @@ And a bunch other quality of life features
 -   reload - Reloads all cogs
 -   instructions - Changes the instruction.txt directly from Discord DMs
 -   getinstructions - Get the instructions.txt in chat
--   getdb - Get database with user's memory
+-   getdb - Get database with users memorys
 -   prompt [prompt / clear] - View, set or clear the prompt for the AI
 -   restart - Restarts the entire bot
 -   shutdown - Shuts down the bot
