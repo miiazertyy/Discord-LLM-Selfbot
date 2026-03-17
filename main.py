@@ -28,6 +28,7 @@ from utils.logger import (
     log_error,
     log_cooldown,
     log_system,
+    log_received,
     separator
 )
 
@@ -467,7 +468,11 @@ async def process_message_queue(channel_id):
                     }
                     bot.user_message_batches[batch_key]["messages"].append(message)
 
-                    await asyncio.sleep(get_batch_wait_time())
+                    wait_time = get_batch_wait_time()
+                    channel_name = getattr(message.channel, 'name', 'DM')
+                    guild_name = getattr(message.guild, 'name', 'DM')
+                    log_received(message.author.name, channel_name, guild_name, wait_time)
+                    await asyncio.sleep(wait_time)
 
                     while bot.message_queues[channel_id]:
                         next_message = bot.message_queues[channel_id][0]
