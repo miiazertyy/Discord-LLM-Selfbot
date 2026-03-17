@@ -1,16 +1,33 @@
 #!/bin/bash
 set -euo pipefail
 
-# location of your project
-cd /root/LLMselfbot || { echo "Directory /root/LLMselfbot not found"; exit 1; }
+cd "$(dirname "$0")"
 
 clear
-echo "Installing AI Selfbot..."
+echo "Starting AI Selfbot..."
+
+# Install git if missing
+if ! command -v git >/dev/null; then
+    echo "git not found, installing..."
+    if command -v apt-get >/dev/null; then
+        apt-get install -y git
+    elif command -v dnf >/dev/null; then
+        dnf install -y git
+    fi
+fi
+
+# Initialize git repo if not already done
+if [ ! -d ".git" ]; then
+    echo "Initializing git repo..."
+    git init
+    git remote add origin https://github.com/miiazertyy/Discord-LLM-Selfbot.git
+    git fetch
+    git checkout main
+fi
 
 if [ ! -d "bot-env" ]; then
     echo "'bot-env' folder not found. Installing..."
 
-    # try create venv; if it fails, try to install venv support
     if ! python3 -m venv bot-env 2>/dev/null; then
         echo "python3 venv creation failed. Attempting to install python3-venv..."
         if command -v dnf >/dev/null; then
@@ -25,8 +42,6 @@ if [ ! -d "bot-env" ]; then
         python3 -m venv bot-env
     fi
 
-    # activate and install dependencies
-    # shellcheck source=/dev/null
     source bot-env/bin/activate
 
     if [ -f "requirements.txt" ]; then
@@ -43,12 +58,9 @@ if [ ! -d "bot-env" ]; then
     echo "Installed."
 fi
 
-# activate venv and run the bot
-# shellcheck source=/dev/null
 source bot-env/bin/activate
 
 echo "Starting bot..."
 python3 main.py
 
-# keep terminal open
 read -p "Press Enter to exit..."
