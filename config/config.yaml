@@ -6,7 +6,7 @@ bot:
   prefix: ","
   
   # The word(s) you want the AI to respond to
-  trigger: "Hey, Hello, Hi"
+  trigger: "Alicia, Aliciaa, Ali"
 
   # Model of the AI you'd like to use from Groq
   # Models to use from Groq (will fallback to next on rate limit)
@@ -43,6 +43,9 @@ bot:
   # Anti-detection settings
   ignore_chance: 0.03       # Chance to ignore a message
   typo_chance: 0.05         # Chance of a typo per message
+
+  # Priority prefix to bypass batch wait times
+  priority_prefix: "="
 
   # Whether the bot should keep replying to people, even if there's no trigger
   hold_conversation: true
