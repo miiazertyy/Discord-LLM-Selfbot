@@ -15,9 +15,6 @@ bot:
     - "llama-3.3-70b-versatile"
     - "openai/gpt-oss-120b"
 
-  # Model of the AI you'd like to use from OpenAI
-  openai_model: "gpt-4o"
-
   # Whether the bot should respond to DM's from people
   allow_dm: true
 
@@ -30,18 +27,26 @@ bot:
   # Whether to wait and collect multiple messages before responding
   batch_messages: true 
 
-  # How long to wait for additional messages (in seconds)
+  # Time before responding
   batch_wait_times:
-    - time: 10    # short reply
+    - time: 8       # quick reply, saw it immediately
+      weight: 30
+    - time: 25      # normal reply, took a few seconds to think
       weight: 25
-    - time: 20    # normal thoughtful reply
+    - time: 90      # slightly distracted
       weight: 20
-    - time: 60    # 1 minute
-      weight: 15
-    - time: 180   # 3 minutes
-      weight: 7
-    - time: 1800  # 30 minutes
-      weight: 3
+    - time: 300     # 5 mins, doing something else
+      weight: 12
+    - time: 600     # 10 mins, actually busy
+      weight: 8
+    - time: 1800    # 30 mins, forgot/phone down
+      weight: 4
+    - time: 3600    # 1 hour, genuinely away
+      weight: 1
+
+  # Anti-detection settings
+  ignore_chance: 0.03       # 0.10 = 10% chance to ignore a message
+  typo_chance: 0.25         # 0.25 = 25% chance of a typo per message
 
   # Whether the bot should keep replying to people, even if there's no trigger
   hold_conversation: true
