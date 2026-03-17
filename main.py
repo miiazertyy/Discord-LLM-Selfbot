@@ -247,6 +247,7 @@ def is_trigger_message(message):
         conv_key in bot.active_conversations
         and time.time() - bot.active_conversations[conv_key] < CONVERSATION_TIMEOUT
         and bot.hold_conversation
+        and not isinstance(message.channel, discord.TextChannel)
     )
 
     content_has_trigger = any(
