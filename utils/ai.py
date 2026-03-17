@@ -1,4 +1,5 @@
 import sys
+import json
 
 from groq import AsyncGroq, RateLimitError
 from os import getenv
@@ -29,6 +30,7 @@ def init_ai():
     groq_models = config["bot"]["groq_models"]
     current_model_index = 0
     model = groq_models[0]
+
 
 def fallback_model():
     global model, current_model_index
@@ -128,3 +130,27 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
         print_error("AI image Error", e)
         await webhook_log(None, e)
         raise
+
+
+async def extract_memory(user_message: str, assistant_reply: str) -> dict:
+    """Ask the LLM to extract any new personal facts the user revealed."""
+    prompt = f"""You are a memory extraction assistant. Given a conversation exchange, extract any NEW personal facts the user revealed about themselves.
+
+User said: "{user_message}"
+Assistant replied: "{assistant_reply}"
+
+Extract facts as a JSON object with simple keys like: name, age, location, job, hobby, game, relationship_status, etc.
+Only include facts clearly stated by the USER, not assumed. If no new facts, return {{}}.
+Return ONLY valid JSON, nothing else."""
+
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.choices[0].message.content.strip()
+        # Strip markdown code fences if present
+        text = text.replace("```json", "").replace("```", "").strip()
+        return json.loads(text)
+    except Exception:
+        return {}
