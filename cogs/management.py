@@ -42,9 +42,7 @@ class Management(commands.Cog):
             self.bot.allow_dm = not self.bot.allow_dm
 
             config = load_config()
-
             config["bot"]["allow_dm"] = self.bot.allow_dm
-
             self.save_config(config)
 
             await ctx.send(
@@ -57,9 +55,7 @@ class Management(commands.Cog):
             self.bot.allow_gc = not self.bot.allow_gc
 
             config = load_config()
-
             config["bot"]["allow_gc"] = self.bot.allow_gc
-
             self.save_config(config)
 
             await ctx.send(
@@ -72,17 +68,12 @@ class Management(commands.Cog):
             if ctx.author.id == self.bot.owner_id:
                 if user.id in self.bot.ignore_users:
                     self.bot.ignore_users.remove(user.id)
-
                     remove_ignored_user(user.id)
-
                     await ctx.send(f"Unignored {user.name}.")
                 else:
                     self.bot.ignore_users.append(user.id)
-
                     add_ignored_user(user.id)
-
                     await ctx.send(f"Ignoring {user.name}.")
-
         except Exception as e:
             await ctx.send(f"Error: {e}")
 
@@ -138,16 +129,13 @@ class Management(commands.Cog):
                     try:
                         await self.bot.unload_extension(f"cogs.{filename[:-3]}")
                         await self.bot.load_extension(f"cogs.{filename[:-3]}")
-
                     except Exception as e:
                         print(f"Failed to reload extension {filename}. Error: {e}")
-
                         await ctx.send(
                             f"Failed to reload {filename}. Check logs for details."
                         )
 
             self.bot.instructions = load_instructions()
-
             await ctx.send("Reloaded all cogs.")
 
     @commands.command(
@@ -157,22 +145,17 @@ class Management(commands.Cog):
     async def restart(self, ctx):
         if ctx.author.id == self.bot.owner_id:
             await ctx.send("Restarting...")
-
             print("Restarting bot...")
 
             if getattr(sys, "frozen", False):
                 exe_path = sys.executable
-
                 os.startfile(exe_path)
-
                 await asyncio.sleep(3)
-
                 await ctx.bot.close()
                 sys.exit(0)
             else:
                 python = sys.executable
                 subprocess.Popen([python] + sys.argv)
-
                 await ctx.bot.close()
                 sys.exit(0)
 
@@ -183,9 +166,7 @@ class Management(commands.Cog):
     async def shutdown(self, ctx):
         if ctx.author.id == self.bot.owner_id:
             await ctx.send("Shutting down...")
-
             print("Shutting down...")
-
             await ctx.bot.close()
             sys.exit(0)
 
@@ -195,25 +176,39 @@ class Management(commands.Cog):
         aliases=["prompt", "setprompt", "sp"],
     )
     async def instructions(self, ctx, *, prompt=None):
-        if ctx.author.id == self.bot.owner_id:
-            if prompt is None:
-                await ctx.send(
-                    f"Current prompt:\n{f'```{self.bot.instructions}```' if self.bot.instructions != '' else 'No prompt is currently set.'}"
-                )
-            elif prompt.lower() == "clear":
-                self.bot.instructions = ""
+        if ctx.author.id != self.bot.owner_id:
+            return
 
-                with open(resource_path("config/instructions.txt"), "w") as file:
-                    file.write("")
+        if ctx.message.attachments:
+            attachment = ctx.message.attachments[0]
+            if not attachment.filename.endswith(".txt"):
+                await ctx.send("Only `.txt` files are supported.", delete_after=10)
+                return
+            content = await attachment.read()
+            try:
+                text = content.decode("utf-8")
+            except UnicodeDecodeError:
+                await ctx.send("Could not read file, make sure it's valid UTF-8.", delete_after=10)
+                return
+            self.bot.instructions = text
+            with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
+                f.write(text)
+            await ctx.send("✅ Instructions updated from file!", delete_after=10)
 
-                await ctx.send("Cleared prompt.")
-            else:
-                self.bot.instructions = prompt
-
-                with open(resource_path("config/instructions.txt"), "w") as file:
-                    file.write(prompt)
-
-                await ctx.send(f"Updated prompt to:\n```{prompt}```")
+        elif prompt is None:
+            await ctx.send(
+                f"Current prompt:\n{f'```{self.bot.instructions}```' if self.bot.instructions != '' else 'No prompt is currently set.'}"
+            )
+        elif prompt.lower() == "clear":
+            self.bot.instructions = ""
+            with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
+                f.write("")
+            await ctx.send("Cleared prompt.")
+        else:
+            self.bot.instructions = prompt
+            with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
+                f.write(prompt)
+            await ctx.send(f"Updated prompt to:\n```{prompt}```")
 
 
 async def setup(bot):
