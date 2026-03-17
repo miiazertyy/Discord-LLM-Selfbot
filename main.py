@@ -101,6 +101,7 @@ MAX_HISTORY = 15
 
 # Anti-detection: 10% chance to ignore a message
 IGNORE_CHANCE = config["bot"]["ignore_chance"]
+PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
 
 # --- Anti-detection: typo injection ---
@@ -469,7 +470,7 @@ async def process_message_queue(channel_id):
                     }
                     bot.user_message_batches[batch_key]["messages"].append(message)
 
-                    priority = message.content.startswith("=")
+                    priority = message.content.startswith(PRIORITY_PREFIX)
 
                     if priority:
                         wait_time = 0
@@ -516,8 +517,8 @@ async def process_message_queue(channel_id):
                             unique_messages.append(msg)
 
                     combined_content = "\n".join(msg.content for msg in unique_messages)
-                    if combined_content.startswith("="):
-                        combined_content = combined_content[1:].lstrip()
+                    if combined_content.startswith(PRIORITY_PREFIX):
+                        combined_content = combined_content[len(PRIORITY_PREFIX):].lstrip()
                     message_to_reply_to = unique_messages[-1]
                     image_url = bot.user_message_batches[batch_key]["image_url"]
 
