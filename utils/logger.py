@@ -64,6 +64,14 @@ def log_cooldown(username: str, remaining: int):
 
 
 def log_received(author: str, channel: str, guild: str, wait: int):
+    if wait == 0:
+        print(
+            f"{timestamp()} "
+            f"{Fore.WHITE}{Style.BRIGHT}{author}{Style.RESET_ALL} "
+            f"{Fore.LIGHTBLACK_EX}in #{channel} ({guild}){Style.RESET_ALL} "
+            f"{Fore.RED}→ priority, responding immediately{Style.RESET_ALL}"
+        )
+        return
     wait_str = f"{wait}s" if wait < 60 else f"{wait // 60}m {wait % 60}s" if wait % 60 else f"{wait // 60}m"
     print(
         f"{timestamp()} "
