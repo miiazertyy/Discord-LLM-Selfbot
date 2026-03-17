@@ -1,14 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-# Must be run from the bot's root directory
 cd "$(dirname "$0")"
 
 echo "Waiting for bot to shut down..."
 sleep 3
 
 echo "Pulling latest changes from GitHub..."
-git pull
+git pull origin main
 
 echo "Deleting bot-env..."
 rm -rf bot-env
