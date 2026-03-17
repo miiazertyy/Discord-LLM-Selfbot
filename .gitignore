@@ -156,3 +156,7 @@ config/.env
 # Bot specific
 bot-env/
 config/bot_data.db
+
+# Sensitive info
+config/bot_data.db
+config/.env
