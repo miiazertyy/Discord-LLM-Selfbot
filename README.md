@@ -43,6 +43,7 @@ Preview :
 -   ignore [user] - Stop a user from using the bot
 -   reload - Reloads all cogs
 -   instruction - Changes the instruction.txt directly from Discord DMs
+-   getinstructions - Get the instructions.txt in chat
 -   prompt [prompt / clear] - View, set or clear the prompt for the AI
 -   restart - Restarts the entire bot
 -   shutdown - Shuts down the bot
