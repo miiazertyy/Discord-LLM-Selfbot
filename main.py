@@ -32,6 +32,9 @@ from utils.logger import (
     separator
 )
 
+from utils.mood import get_mood, get_mood_prompt, mood_loop, shift_mood
+from utils.memory import init_memory, get_memory, set_memory, format_memory_for_prompt
+
 
 init()
 
@@ -45,7 +48,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -59,6 +62,7 @@ load_dotenv(dotenv_path=env_path, override=True)
 
 init_db()
 init_ai()
+init_memory()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = config["bot"]["prefix"]
@@ -99,12 +103,40 @@ COOLDOWN_DURATION = 60.0
 
 MAX_HISTORY = 15
 
-# Anti-detection: chance to ignore a message
 IGNORE_CHANCE = config["bot"]["ignore_chance"]
 PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
+# Late reply openers keyed by language guess — English default, French if message is french
+LATE_OPENERS_EN = [
+    "sorry was watching tiktok lol ",
+    "omg sorry just saw this ",
+    "sorry was busy haha ",
+    "oh sorry didn't see this ",
+    "lol sorry took a while ",
+    "sorry was distracted ",
+    "oh wait i just saw this lol ",
+]
 
-# --- Anti-detection: typo injection ---
+LATE_OPENERS_FR = [
+    "déso je viens de voir lol ",
+    "pardon j'étais occupée haha ",
+    "mdrr déso je t'avais pas vu ",
+    "oh pardon je regardais tiktok ",
+    "déso j'ai mis du temps ",
+]
+
+LATE_REPLY_THRESHOLD = 300  # 5 minutes
+
+
+def get_late_opener(prompt: str) -> str:
+    """Return a late opener based on detected language of the prompt."""
+    french_indicators = ["bonjour", "salut", "coucou", "quoi", "tu", "vous", "je", "moi", "ouais", "non", "oui", "bah", "wesh", "mdrr", "ptdr"]
+    prompt_lower = prompt.lower()
+    is_french = any(word in prompt_lower.split() for word in french_indicators)
+    openers = LATE_OPENERS_FR if is_french else LATE_OPENERS_EN
+    return random.choice(openers)
+
+
 def add_typo(text):
     """Rarely introduces a small typo into a response."""
     if len(text) < 5 or random.random() > config["bot"]["typo_chance"]:
@@ -124,20 +156,16 @@ def add_typo(text):
     char_idx = random.randint(1, len(word) - 2)
 
     if typo_type == "swap" and char_idx < len(word) - 1:
-        # swap two adjacent characters
         word = word[:char_idx] + word[char_idx + 1] + word[char_idx] + word[char_idx + 2:]
     elif typo_type == "double":
-        # double a character
         word = word[:char_idx] + word[char_idx] + word[char_idx:]
     elif typo_type == "miss":
-        # drop a character
         word = word[:char_idx] + word[char_idx + 1:]
 
     words[word_idx] = word
     return " ".join(words)
 
 
-# --- Anti-detection: random status loop ---
 async def random_status_loop():
     await bot.wait_until_ready()
     statuses = [
@@ -148,7 +176,6 @@ async def random_status_loop():
     while not bot.is_closed():
         status = random.choice(statuses)
         await bot.change_presence(status=status)
-        # Wait between 30 minutes and 3 hours
         await asyncio.sleep(random.randint(1800, 10800))
 
 
@@ -195,11 +222,15 @@ async def on_ready():
 
     print_header()
     print(f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n")
-    log_system(f" Using model: {ai_module.model}")
+    log_system(f"Using model: {ai_module.model}")
+
+    # Set initial random mood and start mood loop
+    shift_mood()
+    log_system(f"Starting mood: {get_mood()}")
+    asyncio.create_task(mood_loop())
 
     print_separator()
 
-    # Start anti-detection status loop
     asyncio.create_task(random_status_loop())
 
 
@@ -271,7 +302,18 @@ def update_message_history(author_id, message_content):
     bot.message_history[author_id] = bot.message_history[author_id][-MAX_HISTORY:]
 
 
-async def generate_response_and_reply(message, prompt, history, image_url=None):
+async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
+    # Build enriched instructions with mood + memory
+    memory = get_memory(message.author.id)
+    memory_block = format_memory_for_prompt(memory)
+    mood_block = f"\nCurrent mood: {get_mood_prompt()}"
+    enriched_instructions = bot.instructions + mood_block + memory_block
+
+    # Late reply opener if the wait was long
+    late_opener = ""
+    if wait_time >= LATE_REPLY_THRESHOLD:
+        late_opener = get_late_opener(prompt)
+
     max_retries = 3
     response = None
 
@@ -280,16 +322,29 @@ async def generate_response_and_reply(message, prompt, history, image_url=None):
             if not bot.realistic_typing:
                 async with message.channel.typing():
                     if image_url:
-                        response = await generate_response_image(prompt, bot.instructions, image_url, history)
+                        response = await generate_response_image(prompt, enriched_instructions, image_url, history)
                     else:
-                        response = await generate_response(prompt, bot.instructions, history)
+                        response = await generate_response(prompt, enriched_instructions, history)
             else:
                 if image_url:
-                    response = await generate_response_image(prompt, bot.instructions, image_url, history)
+                    response = await generate_response_image(prompt, enriched_instructions, image_url, history)
                 else:
-                    response = await generate_response(prompt, bot.instructions, history)
+                    response = await generate_response(prompt, enriched_instructions, history)
 
             if response:
+                # Extract and save new facts about the user
+                try:
+                    facts = await extract_memory(prompt, response)
+                    for key, value in facts.items():
+                        if value:
+                            set_memory(message.author.id, key, str(value))
+                except Exception:
+                    pass
+
+                # Prepend late opener to response
+                if late_opener:
+                    response = late_opener + response
+
                 break
 
         except Exception as e:
@@ -314,14 +369,13 @@ async def generate_response_and_reply(message, prompt, history, image_url=None):
             continue
 
     if not response:
-        # Wait 2 minutes and try one final time
         log_error("AI Error", "All retries exhausted, waiting 2 minutes before final attempt...")
         await asyncio.sleep(120)
         try:
             if image_url:
-                response = await generate_response_image(prompt, bot.instructions, image_url, history)
+                response = await generate_response_image(prompt, enriched_instructions, image_url, history)
             else:
-                response = await generate_response(prompt, bot.instructions, history)
+                response = await generate_response(prompt, enriched_instructions, history)
         except Exception:
             pass
 
@@ -342,7 +396,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None):
                 "\u200b", chunk, flags=re.IGNORECASE
             )
 
-        # Anti-detection: rarely add a typo
         chunk = add_typo(chunk)
 
         channel_name = getattr(message.channel, 'name', 'DM')
@@ -353,7 +406,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None):
 
         try:
             if bot.realistic_typing:
-                # Anti-detection: more varied response delay (2-8 seconds)
                 await asyncio.sleep(random.uniform(2, 8))
                 async with message.channel.typing():
                     cps = random.uniform(7, 18)
@@ -399,7 +451,6 @@ async def on_message(message):
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
 
-        # Anti-detection: 10% chance to silently ignore the message
         if random.random() < IGNORE_CHANCE:
             return
 
@@ -445,6 +496,7 @@ async def process_message_queue(channel_id):
             message = bot.message_queues[channel_id].popleft()
             batch_key = f"{message.author.id}-{channel_id}"
             current_time = time.time()
+            message_age = current_time - message.created_at.timestamp()
 
             if bot.batch_messages:
                 if batch_key not in bot.user_message_batches:
@@ -515,6 +567,7 @@ async def process_message_queue(channel_id):
                 combined_content = message.content
                 message_to_reply_to = message
                 image_url = message.attachments[0].url if message.attachments else None
+                wait_time = 0
 
             for mention in message_to_reply_to.mentions:
                 combined_content = combined_content.replace(
@@ -530,6 +583,9 @@ async def process_message_queue(channel_id):
             )
             history = bot.message_history[key]
 
+            # Total delay = batch wait time + how old the message was when picked up
+            total_wait = wait_time + message_age
+
             if message_to_reply_to.channel.id in bot.active_channels or (
                 isinstance(message_to_reply_to.channel, discord.DMChannel)
                 and bot.allow_dm
@@ -538,7 +594,8 @@ async def process_message_queue(channel_id):
                 and bot.allow_gc
             ):
                 response = await generate_response_and_reply(
-                    message_to_reply_to, combined_content, history, image_url
+                    message_to_reply_to, combined_content, history, image_url,
+                    wait_time=total_wait
                 )
                 if response:
                     bot.message_history[key].append(
