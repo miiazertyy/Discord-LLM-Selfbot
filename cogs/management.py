@@ -274,5 +274,22 @@ class Management(commands.Cog):
             await ctx.send(f"Updated prompt to:\n```{text}```")
 
 
+    @commands.command(
+        name="getdb",
+        description="Sends the bot_data.db file to Discord.",
+    )
+    async def getdb(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        db_path = resource_path("config/bot_data.db")
+
+        if not os.path.exists(db_path):
+            await ctx.send("No database file found.", delete_after=10)
+            return
+
+        await ctx.send(file=discord.File(db_path, filename="bot_data.db"))
+
+
 async def setup(bot):
     await bot.add_cog(Management(bot))
