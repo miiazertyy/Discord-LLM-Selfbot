@@ -63,7 +63,10 @@ async def _create_completion(messages):
             return response
         except RateLimitError:
             if not fallback_model():
-                raise  # all models exhausted, let caller handle it
+                raise
+        except Exception:
+            if not fallback_model():
+                raise
 
 
 async def generate_response(prompt, instructions, history=None):
@@ -81,7 +84,7 @@ async def generate_response(prompt, instructions, history=None):
     except Exception as e:
         print_error("AI Error", e)
         await webhook_log(None, e)
-        return "Sorry, I couldn't generate a response."
+        raise
 
 
 async def generate_response_image(prompt, instructions, image_url, history=None):
@@ -128,4 +131,4 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
     except Exception as e:
         print_error("AI image Error", e)
         await webhook_log(None, e)
-        return "???"
+        raise
