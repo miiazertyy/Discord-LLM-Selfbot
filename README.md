@@ -44,7 +44,7 @@ Preview :
 -   togglegc - Toggle if the bot should be active in group chats or not
 -   ignore [user] - Stop a user from using the bot
 -   reload - Reloads all cogs
--   instruction - Changes the instruction.txt directly from Discord DMs
+-   instructions - Changes the instruction.txt directly from Discord DMs
 -   getinstructions - Get the instructions.txt in chat
 -   prompt [prompt / clear] - View, set or clear the prompt for the AI
 -   restart - Restarts the entire bot
