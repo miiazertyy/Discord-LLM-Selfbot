@@ -29,24 +29,20 @@ bot:
 
   # Time before responding
   batch_wait_times:
-    - time: 8       # quick reply, saw it immediately
-      weight: 30
-    - time: 25      # normal reply, took a few seconds to think
+    - time: 9       # quick reply, saw it immediately
+      weight: 50
+    - time: 20      # normal reply, took a few seconds to think
       weight: 25
     - time: 90      # slightly distracted
       weight: 20
-    - time: 300     # 5 mins, doing something else
-      weight: 12
     - time: 600     # 10 mins, actually busy
-      weight: 8
-    - time: 1800    # 30 mins, forgot/phone down
       weight: 4
-    - time: 3600    # 1 hour, genuinely away
+    - time: 1600    # less than 30 mins, genuinely away
       weight: 1
 
   # Anti-detection settings
-  ignore_chance: 0.03       # 0.10 = 10% chance to ignore a message
-  typo_chance: 0.25         # 0.25 = 25% chance of a typo per message
+  ignore_chance: 0.03       # Chance to ignore a message
+  typo_chance: 0.05         # Chance of a typo per message
 
   # Whether the bot should keep replying to people, even if there's no trigger
   hold_conversation: true
