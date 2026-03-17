@@ -152,3 +152,7 @@ cython_debug/
 
 # Config
 config/.env
+
+# Bot specific
+bot-env/
+config/bot_data.db
