@@ -99,7 +99,7 @@ COOLDOWN_DURATION = 60.0
 
 MAX_HISTORY = 15
 
-# Anti-detection: 10% chance to ignore a message
+# Anti-detection: chance to ignore a message
 IGNORE_CHANCE = config["bot"]["ignore_chance"]
 PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
@@ -196,18 +196,6 @@ async def on_ready():
     print_header()
     print(f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n")
     log_system(f" Using model: {ai_module.model}")
-
-    if len(bot.active_channels) > 0:
-        print("Active in the following channels:")
-        for channel_id in bot.active_channels:
-            channel = bot.get_channel(channel_id)
-            if channel:
-                try:
-                    print(f"- #{channel.name} in {channel.guild.name}")
-                except Exception:
-                    pass
-    else:
-        print(f"Bot is currently not active in any channel, use {PREFIX}toggleactive command to activate it in a channel.")
 
     print_separator()
 
