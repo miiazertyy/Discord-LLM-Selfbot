@@ -12,30 +12,6 @@ class General(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="instructions")
-    async def instructions(self, ctx):
-        if ctx.author.id != self.bot.owner_id:
-            return
-
-        if not ctx.message.attachments:
-            await ctx.send("Please attach a `.txt` file with your instructions.", delete_after=10)
-            return
-
-        attachment = ctx.message.attachments[0]
-
-        if not attachment.filename.endswith(".txt"):
-            await ctx.send("Only `.txt` files are supported.", delete_after=10)
-            return
-
-        content = await attachment.read()
-
-        instructions_path = os.path.join("config", "instructions.txt")
-        with open(instructions_path, "w", encoding="utf-8") as f:
-            f.write(content.decode("utf-8"))
-
-        self.bot.instructions = content.decode("utf-8")
-        await ctx.send("✅ Instructions updated successfully!", delete_after=10)
-
     @commands.command(name="ping")
     @commands.cooldown(1, 30, commands.BucketType.user)
     async def ping(self, ctx):
@@ -60,11 +36,12 @@ Bot Commands:
 {prefix}togglegc - Toggle if the bot should be active in group chats or not
 {prefix}ignore [user] - Stop a user from using the bot
 {prefix}reload - Reloads all cogs and the instructions
+{prefix}instructions - Attach a .txt to change the other one
 {prefix}prompt [prompt / clear] - View, set or clear the prompt for the AI
 {prefix}restart - Restarts the entire bot
 {prefix}shutdown - Shuts down the entire bot
+```"""
 
-"""
         await ctx.send(help_text, delete_after=30)
 
     @commands.command(
@@ -87,14 +64,17 @@ Bot Commands:
         prompt = "".join(message_history)
 
         async def generate_response_in_thread(prompt):
-            response = await generate_response(prompt, instructions, history=None)
-            chunks = split_response(response)
-            await temp.delete()
-            for chunk in chunks:
-                await ctx.reply(chunk)
+            try:
+                response = await generate_response(prompt, instructions, history=None)
+                chunks = split_response(response)
+                await temp.delete()
+                for chunk in chunks:
+                    await ctx.reply(chunk)
+            except Exception as e:
+                await temp.delete()
+                await webhook_log(ctx.message, e)
 
-        async with ctx.channel.typing():
-            asyncio.create_task(generate_response_in_thread(prompt))
+        asyncio.create_task(generate_response_in_thread(prompt))
 
 
 async def setup(bot):
