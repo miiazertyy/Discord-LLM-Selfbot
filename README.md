@@ -1,8 +1,9 @@
 # 🌙 Discord LLM Selfbot
 
 Made with python, uses Groq LLM provider **ALL FOR FREE**
+Mostly supports French and fully supports English
 
-> JOIN IF YOU NEED HELP : https://discord.gg/connard
+### JOIN IF YOU NEED HELP : https://discord.gg/connard
 
 > There is always the slight risk of a ban when using selfbots, so make sure to use this selfbot on an account you don't mind losing, but the risk is incredibly low and I have used it for over a year without any issues.
 
@@ -30,8 +31,11 @@ Preview :
 -   [x] Psychoanalysis Command: Use the `,analyse` command to analyse a mentioned user's messages and find insights on their personality. It's like having a therapist in your server!
 -   [x] Runs on Meta AI's Llama-3: The bot uses the Llama-3 model from Meta AI, which is one of the most powerful models available.
 -   [x] Secure Credential Management: Keep your credentials secure using environment variables.
--   [x] Priority prefix "=" to bypass wait times between responses usable by everyone
--   [x] Auto switch LLM when out of tokens
+-   [x] Priority prefix "=" to bypass wait times between responses usable by everyone.
+-   [x] Auto switch LLM when out of tokens.
+-   [x] Auto Mood changing.
+-   [x] Per user memory stocked in SQL.
+And a bunch other quality of life features
 
 ## 📜 Commands
 
