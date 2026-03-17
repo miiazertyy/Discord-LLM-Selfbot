@@ -107,33 +107,13 @@ IGNORE_CHANCE = config["bot"]["ignore_chance"]
 PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
 # Late reply openers keyed by language guess — English default, French if message is french
-LATE_OPENERS_EN = [
-    "sorry was watching tiktok lol ",
-    "omg sorry just saw this ",
-    "sorry was busy haha ",
-    "oh sorry didn't see this ",
-    "lol sorry took a while ",
-    "sorry was distracted ",
-    "oh wait i just saw this lol ",
-]
-
-LATE_OPENERS_FR = [
-    "déso je viens de voir lol ",
-    "pardon j'étais occupée haha ",
-    "mdrr déso je t'avais pas vu ",
-    "oh pardon je regardais tiktok ",
-    "déso j'ai mis du temps ",
-]
-
-LATE_REPLY_THRESHOLD = 300  # 5 minutes
-
-
 def get_late_opener(prompt: str) -> str:
     """Return a late opener based on detected language of the prompt."""
-    french_indicators = ["bonjour", "salut", "coucou", "quoi", "tu", "vous", "je", "moi", "ouais", "non", "oui", "bah", "wesh", "mdrr", "ptdr"]
+    late_cfg = config["bot"]["late_reply"]
+    french_indicators = late_cfg.get("french_indicators", [])
     prompt_lower = prompt.lower()
     is_french = any(word in prompt_lower.split() for word in french_indicators)
-    openers = LATE_OPENERS_FR if is_french else LATE_OPENERS_EN
+    openers = late_cfg["openers_fr"] if is_french else late_cfg["openers_en"]
     return random.choice(openers)
 
 
@@ -168,15 +148,22 @@ def add_typo(text):
 
 async def random_status_loop():
     await bot.wait_until_ready()
-    statuses = [
-        discord.Status.online,
-        discord.Status.idle,
-        discord.Status.dnd,
-    ]
+    status_map = {
+        "online": discord.Status.online,
+        "idle": discord.Status.idle,
+        "dnd": discord.Status.dnd,
+        "invisible": discord.Status.invisible,
+    }
     while not bot.is_closed():
-        status = random.choice(statuses)
-        await bot.change_presence(status=status)
-        await asyncio.sleep(random.randint(1800, 10800))
+        status_cfg = config["bot"]["status"]
+        status_names = status_cfg.get("statuses", ["online", "idle", "dnd"])
+        statuses = [status_map[s] for s in status_names if s in status_map]
+        if statuses:
+            await bot.change_presence(status=random.choice(statuses))
+        await asyncio.sleep(random.randint(
+            status_cfg.get("change_interval_min", 1800),
+            status_cfg.get("change_interval_max", 10800)
+        ))
 
 
 def get_terminal_size():
@@ -225,13 +212,15 @@ async def on_ready():
     log_system(f"Using model: {ai_module.model}")
 
     # Set initial random mood and start mood loop
-    shift_mood()
-    log_system(f"Starting mood: {get_mood()}")
-    asyncio.create_task(mood_loop())
+    if config["bot"]["mood"].get("enabled", True):
+        shift_mood()
+        log_system(f"Starting mood: {get_mood()}")
+        asyncio.create_task(mood_loop())
 
     print_separator()
 
-    asyncio.create_task(random_status_loop())
+    if config["bot"]["status"].get("enabled", True):
+        asyncio.create_task(random_status_loop())
 
 
 async def setup_hook():
@@ -306,12 +295,14 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     # Build enriched instructions with mood + memory
     memory = get_memory(message.author.id)
     memory_block = format_memory_for_prompt(memory)
-    mood_block = f"\nCurrent mood: {get_mood_prompt()}"
+    mood_cfg = config["bot"]["mood"]
+    mood_block = f"\nCurrent mood: {get_mood_prompt()}" if mood_cfg.get("enabled", True) else ""
     enriched_instructions = bot.instructions + mood_block + memory_block
 
     # Late reply opener if the wait was long
+    late_reply_cfg = config["bot"]["late_reply"]
     late_opener = ""
-    if wait_time >= LATE_REPLY_THRESHOLD:
+    if late_reply_cfg.get("enabled", True) and wait_time >= late_reply_cfg.get("threshold", 300):
         late_opener = get_late_opener(prompt)
 
     max_retries = 3
