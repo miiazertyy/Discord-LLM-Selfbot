@@ -56,10 +56,6 @@ async def _create_completion(messages):
                 model=model,
                 messages=messages,
             )
-            # Reset to primary model on success
-            if groq_models and model != groq_models[0]:
-                model = groq_models[0]
-                current_model_index = 0
             return response
         except RateLimitError:
             if not fallback_model():
