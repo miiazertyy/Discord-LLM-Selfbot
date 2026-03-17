@@ -8,12 +8,15 @@ bot:
   # The word(s) you want the AI to respond to
   trigger: "Alicia, Aliciaa, Ali"
 
-  # Model of the AI you'd like to use from Groq
   # Models to use from Groq (will fallback to next on rate limit)
   groq_models:
     - "meta-llama/llama-4-scout-17b-16e-instruct"
     - "llama-3.3-70b-versatile"
     - "openai/gpt-oss-120b"
+
+  # Model used for image description (must support vision)
+  # If not set or model not found, falls back to primary groq model
+  groq_image_model: "meta-llama/llama-4-scout-17b-16e-instruct"
 
   # Whether the bot should respond to DM's from people
   allow_dm: true
@@ -64,14 +67,9 @@ bot:
 
   # --- Mood system ---
   mood:
-    # Enable or disable the mood system entirely
     enabled: true
-
-    # How often mood shifts (in seconds). Random between min and max.
     shift_interval_min: 1800   # 30 minutes
     shift_interval_max: 3600   # 60 minutes
-
-    # Available moods and the prompt injected into instructions for each
     moods:
       chill: "You are in a relaxed, calm mood. Replies are easy-going and unbothered."
       playful: "You are in a playful, energetic mood. More teasing and fun than usual."
@@ -82,14 +80,9 @@ bot:
 
   # --- Random status loop ---
   status:
-    # Enable or disable the random status loop
     enabled: true
-
-    # How often status changes (in seconds). Random between min and max.
-    change_interval_min: 1800    # 30 minutes
-    change_interval_max: 10800   # 3 hours
-
-    # Statuses to cycle through: online, idle, dnd, invisible
+    change_interval_min: 1800
+    change_interval_max: 10800
     statuses:
       - online
       - idle
@@ -97,13 +90,8 @@ bot:
 
   # --- Late reply openers ---
   late_reply:
-    # Enable or disable late reply openers
     enabled: true
-
-    # How long a wait (in seconds) before a late opener is used
     threshold: 300   # 5 minutes
-
-    # Openers in English
     openers_en:
       - "sorry was watching tiktok lol "
       - "omg sorry just saw this "
@@ -112,16 +100,12 @@ bot:
       - "lol sorry took a while "
       - "sorry was distracted "
       - "oh wait i just saw this lol "
-
-    # Openers in French
     openers_fr:
       - "déso je viens de voir lol "
       - "pardon j'étais occupée haha "
       - "mdrr déso je t'avais pas vu "
       - "oh pardon je regardais tiktok "
       - "déso j'ai mis du temps "
-
-    # Words used to detect if a message is in French
     french_indicators:
       - "bonjour"
       - "salut"
