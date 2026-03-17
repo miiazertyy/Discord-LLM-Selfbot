@@ -502,18 +502,25 @@ async def process_message_queue(channel_id):
                     bot.user_message_batches[batch_key]["messages"].append(message)
 
                     priority = message.content.startswith(PRIORITY_PREFIX)
+                    wait_time = 0 if priority else get_batch_wait_time()
 
-                    if priority:
-                        wait_time = 0
-                        channel_name = getattr(message.channel, 'name', 'DM')
-                        guild_name = getattr(message.guild, 'name', 'DM')
-                        log_received(message.author.name, channel_name, guild_name, 0)
-                    else:
-                        wait_time = get_batch_wait_time()
-                        channel_name = getattr(message.channel, 'name', 'DM')
-                        guild_name = getattr(message.guild, 'name', 'DM')
-                        log_received(message.author.name, channel_name, guild_name, wait_time)
-                        await asyncio.sleep(wait_time)
+                    channel_name = getattr(message.channel, 'name', 'DM')
+                    guild_name = getattr(message.guild, 'name', 'DM')
+                    log_received(message.author.name, channel_name, guild_name, wait_time)
+
+                    if not priority:
+                        elapsed = 0.0
+                        interval = 1.0
+                        while elapsed < wait_time:
+                            await asyncio.sleep(min(interval, wait_time - elapsed))
+                            elapsed += interval
+                            if any(
+                                m.author.id == message.author.id and m.content.startswith(PRIORITY_PREFIX)
+                                for m in bot.message_queues[channel_id]
+                            ):
+                                wait_time = elapsed
+                                log_received(message.author.name, channel_name, guild_name, 0)
+                                break
 
                     while bot.message_queues[channel_id]:
                         next_message = bot.message_queues[channel_id][0]
