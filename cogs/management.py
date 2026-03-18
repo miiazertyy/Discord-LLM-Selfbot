@@ -203,7 +203,7 @@ class Management(commands.Cog):
         else:
             subprocess.Popen(["bash", "updater.sh"])
 
-        await msg.edit(content="✅ Updated! Relaunching...")
+        await msg.edit(content="Updated! Relaunching...")
         await asyncio.sleep(1)
         await ctx.bot.close()
         sys.exit(0)
@@ -236,7 +236,7 @@ class Management(commands.Cog):
         self.bot.instructions = text
         with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
             f.write(text)
-        await ctx.send("✅ Instructions updated from file!", delete_after=10)
+        await ctx.send("Instructions updated from file!", delete_after=10)
 
     @commands.command(
         name="getinstructions",
@@ -347,7 +347,7 @@ class Management(commands.Cog):
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(text)
 
-        await ctx.send("✅ Config updated! Restarting...", delete_after=10)
+        await ctx.send("Config updated! Restarting...", delete_after=10)
         await asyncio.sleep(1)
 
         if getattr(sys, "frozen", False):
