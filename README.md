@@ -59,7 +59,7 @@ And a bunch other quality of life features
 # ❔ Getting Started:
 
 ### Step 1: Download the Selfbot
-- Clone the repo's files
+- Go to Release and download the lastest stable version
 
 ### Step 2: Extract the files
 - Extract the files to a folder of your choice, using 7Zip or Windows Explorer.
