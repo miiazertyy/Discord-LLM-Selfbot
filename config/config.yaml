@@ -16,7 +16,12 @@ groq_models:
 
   # Model used for image description (must support vision)
   # If not set or model not found, falls back to primary groq model
+  
+  # Model used for image description (must support vision)
   groq_image_model: "meta-llama/llama-4-scout-17b-16e-instruct"
+
+  # Model used for voice transcription
+  groq_whisper_model: "whisper-large-v3-turbo"
 
   # Whether the bot should respond to DM's from people
   allow_dm: true
