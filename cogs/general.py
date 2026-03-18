@@ -63,9 +63,9 @@ Bot Commands:
             message_history = message_history[-200:]
 
         instructions = (
-            f"You are Alicia, an 18-year-old French girl who is sharp, witty, and a little savage. "
-            f"Someone asked you to give your honest read on {user.name} based on their messages. "
-            "You're not a therapist — you're just giving your real unfiltered opinion like you would to a friend. "
+            self.bot.instructions +
+            f"\n\nSomeone asked you to give your honest read on {user.name} based on their messages. "
+            "Stay in character. Give your real unfiltered opinion like you would to a friend. "
             "Be casual, funny, and direct. Roast them a bit but also be real about what you actually see. "
             "Reference specific things they said to back up your points. "
             "Keep it conversational — no bullet points, no formal structure, just talk like yourself. "
