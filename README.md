@@ -59,55 +59,24 @@ And a bunch other quality of life features
 -   restart - Restarts the entire bot
 -   shutdown - Shuts down the bot
 
-# ❔ Getting Started:
-
 ### Step 1: Download the Selfbot
 - Go to Release and download the lastest stable version
 
 ### Step 2: Extract the files
 - Extract the files to a folder of your choice, using 7Zip or Windows Explorer.
 
-### Step 3: Getting your Discord token
-
--   Go to [Discord](https://discord.com) and login to the account you want the token of
--   Press `Ctrl + Shift + I` (If you are on Windows) or `Cmd + Opt + I` (If you are on a Mac).
--   Go to the `Network` tab
--   Type a message in any chat, or change server
--   Find one of the following headers: `"messages?limit=50"`, `"science"` or `"preview"` under `"Name"` and click on it
--   Scroll down until you find `"Authorization"` under `"Request Headers"`
--   Copy the value which is your token
-
-
-### Step 4: Getting a Groq API key
-
--   Go to [Groq](https://console.groq.com/keys) and sign up for a free account
--   Get your API key, which should look like `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` (this is an example key, it isn't real)
-
-### Step 5: Running the bot
-
-Windows: 
-
-- Simply run "Discord AI Selfbot.exe" and follow the instructions in the console to set up the bot.
-
-Linux:
-
-- Open a terminal and run `chmod +x "Discord-AI-Selfbot"` to make the file executable.
-- Run `./"Discord-AI-Selfbot"` to start the bot and follow the instructions in the console to set it up.
-
 # 🛠️ Setting up the bot manually:
-
-If you want to set up the bot manually because you don't trust the executable or want to edit the code yourself, follow the instructions below:
 
 ### Step 1: Git clone repository
 
 ```
-git clone https://github.com/Najmul190/Discord-AI-Selfbot
+git clone https://github.com/miiazertyy/Discord-LLM-Selfbot
 ```
 
 ### Step 2: Changing directory to cloned directory
 
 ```
-cd Discord-AI-Selfbot
+cd Discord-LLM-Selfbot
 ```
 
 ### Step 3: Getting your Discord token
@@ -143,7 +112,10 @@ Linux:
 
 -   Fill out `example.env` with your own credentials and rename it to `.env`
 -   Fill out the `config.yaml` file with your own settings
--   Run the bot using `run.sh`
+-   In terminal :
+chmod +x run.sh
+chmod +x updater.sh
+-   Run the bot using `./run.sh`
 
 # 🗨️ How to talk to the bot
 
