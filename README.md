@@ -36,6 +36,7 @@ Preview :
 -   [x] Changes mood automatically, replacing the temperature from the LLM and is fully customizable.
 -   [x] Per user memory stocked and fetched in an SQL file.
 -   [ ] Auto accept friend requests
+
 And a bunch other quality of life features
 
 ## 📜 Commands
@@ -52,7 +53,7 @@ And a bunch other quality of life features
 -   instructions - Changes the instruction.txt directly from Discord DMs
 -   getinstructions - Get the instructions.txt in chat
 -   getdb - Get database with users memorys
--   prompt [prompt / clear] - View, set or clear the prompt for the AI
+-   update (repo) - Updates and restart the bot to the lastest stable using git
 -   restart - Restarts the entire bot
 -   shutdown - Shuts down the bot
 
