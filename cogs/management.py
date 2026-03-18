@@ -179,6 +179,10 @@ class Management(commands.Cog):
         if ctx.author.id != self.bot.owner_id:
             return
 
+        if source not in ("release", "repo"):
+            await ctx.send(f"Invalid option. Use `,update` for latest release or `,update repo` for latest commit.", delete_after=10)
+            return
+
         if source == "repo":
             msg = await ctx.send("Pulling latest commit from repo... brb")
         else:
