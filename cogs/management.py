@@ -293,5 +293,71 @@ class Management(commands.Cog):
         await ctx.send(file=discord.File(db_path, filename="bot_data.db"))
 
 
+    @commands.command(
+        name="getconfig",
+        description="Sends the current config.yaml file.",
+        aliases=["gc"],
+    )
+    async def getconfig(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        config_path = resource_path("config/config.yaml")
+
+        if not os.path.exists(config_path):
+            await ctx.send("No config file found.", delete_after=10)
+            return
+
+        await ctx.send(file=discord.File(config_path, filename="config.yaml"))
+
+    @commands.command(
+        name="setconfig",
+        description="Attach a .yaml file to update the bot config. Bot will restart automatically.",
+    )
+    async def setconfig(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        if not ctx.message.attachments:
+            await ctx.send("Please attach a `.yaml` file to update the config.", delete_after=10)
+            return
+
+        attachment = ctx.message.attachments[0]
+        if not attachment.filename.endswith(".yaml"):
+            await ctx.send("Only `.yaml` files are supported.", delete_after=10)
+            return
+
+        content = await attachment.read()
+        try:
+            text = content.decode("utf-8")
+            # Validate it's valid yaml before saving
+            yaml.safe_load(text)
+        except UnicodeDecodeError:
+            await ctx.send("Could not read file, make sure it's valid UTF-8.", delete_after=10)
+            return
+        except yaml.YAMLError as e:
+            await ctx.send(f"Invalid YAML: {e}", delete_after=15)
+            return
+
+        config_path = resource_path("config/config.yaml")
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+        await ctx.send("✅ Config updated! Restarting...", delete_after=10)
+        await asyncio.sleep(1)
+
+        if getattr(sys, "frozen", False):
+            exe_path = sys.executable
+            os.startfile(exe_path)
+            await asyncio.sleep(3)
+            await ctx.bot.close()
+            sys.exit(0)
+        else:
+            python = sys.executable
+            subprocess.Popen([python] + sys.argv)
+            await ctx.bot.close()
+            sys.exit(0)
+
+
 async def setup(bot):
     await bot.add_cog(Management(bot))
