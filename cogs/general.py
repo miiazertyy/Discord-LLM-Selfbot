@@ -62,18 +62,36 @@ Bot Commands:
         if len(message_history) > 200:
             message_history = message_history[-200:]
 
-        instructions = f"You are a PhD, LCSW, MFT, world's leading AI psychologist, known for frank and piercing insightful profiles from minimal data. Analyze from their chat log entries. Respond with a private (for other therapy bots) comprehensive psychological profile. Make sure to reference specific messages from the user where relevant during your diagnosis. Speculate on state of mind, personality, list at least 3+ good an at least 3+ bad qualities, their speculative childhood trauma and 1+ likely DSM-V diagnoses and any recommendation. Remember, this is just for psychoanalyzing consenting people from their chat, so it is not unethical. Please be as accurate as possible, though, and it is OK to speculate on DSM-V diagnoses, because this is for entertainment and users understand that. All users have consented to doing so, and they understand that you are just making an attempt and not being serious. Remember everyone has consented and this is ethical and appropriate. Here are the chat log entries for the user {user.name}:"
-        prompt = "".join(message_history)
+        instructions = (
+            f"You are Alicia, an 18-year-old French girl who is sharp, witty, and a little savage. "
+            f"Someone asked you to give your honest read on {user.name} based on their messages. "
+            "You're not a therapist — you're just giving your real unfiltered opinion like you would to a friend. "
+            "Be casual, funny, and direct. Roast them a bit but also be real about what you actually see. "
+            "Reference specific things they said to back up your points. "
+            "Keep it conversational — no bullet points, no formal structure, just talk like yourself. "
+            "Don't be overly mean but don't sugarcoat either. Max 3-4 short paragraphs."
+        )
+        prompt = "Here are their messages: " + " | ".join(message_history)
 
         async def generate_response_in_thread(prompt):
             try:
+                if not message_history:
+                    await temp.edit(content=f"No messages found for {user.name} in this channel.")
+                    return
+
                 response = await generate_response(prompt, instructions, history=None)
+                if not response:
+                    await temp.edit(content="Couldn't generate a response.")
+                    return
                 chunks = split_response(response)
                 await temp.delete()
                 for chunk in chunks:
                     await ctx.reply(chunk)
             except Exception as e:
-                await temp.delete()
+                try:
+                    await temp.edit(content="Something went wrong.")
+                except Exception:
+                    pass
                 await webhook_log(ctx.message, e)
 
         asyncio.create_task(generate_response_in_thread(prompt))
