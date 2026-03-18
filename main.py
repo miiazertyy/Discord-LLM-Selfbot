@@ -588,24 +588,20 @@ async def process_message_queue(channel_id):
                 wait_time = 0
 
             # Transcribe voice messages
-            voice_url = None
             for attachment in message_to_reply_to.attachments:
                 if attachment.is_voice_message():
-                    voice_url = attachment.url
+                    try:
+                        import aiohttp
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(attachment.url) as resp:
+                                audio_bytes = await resp.read()
+                        transcription = await transcribe_voice(audio_bytes)
+                        if transcription:
+                            combined_content = transcription if not combined_content.strip() else f"{combined_content} [voice: {transcription}]"
+                            log_system(f"Voice transcribed for {message_to_reply_to.author.name}: {transcription}")
+                    except Exception as e:
+                        log_error("Voice Transcription Error", str(e))
                     break
-
-            if voice_url:
-                try:
-                    import aiohttp
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(voice_url) as resp:
-                            audio_bytes = await resp.read()
-                    transcription = await transcribe_voice(audio_bytes)
-                    if transcription:
-                        combined_content = transcription if not combined_content.strip() else f"{combined_content} [voice: {transcription}]"
-                        log_system(f"Voice transcribed for {message_to_reply_to.author.name}: {transcription}")
-                except Exception as e:
-                    log_error("Voice Transcription Error", str(e))
 
             for mention in message_to_reply_to.mentions:
                 combined_content = combined_content.replace(
