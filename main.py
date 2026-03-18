@@ -114,6 +114,7 @@ REFUSAL_PHRASES = [
     "i don't feel comfortable",
     "i can't help with that",
     "i'm unable to",
+    "I’m sorry, but I can’t continue this conversation."
 ]
 
 def is_refusal(text: str) -> bool:
