@@ -273,9 +273,13 @@ def is_trigger_message(message):
         and not isinstance(message.channel, discord.TextChannel)
     )
 
-    content_has_trigger = any(
-        re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
-        for keyword in TRIGGER
+    is_server = isinstance(message.channel, discord.TextChannel)
+
+    content_has_trigger = (
+        not is_server and any(
+            re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
+            for keyword in TRIGGER
+        )
     )
 
     if (
