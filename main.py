@@ -442,11 +442,19 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 @bot.event
 async def on_relationship_add(relationship):
     if relationship.type == discord.RelationshipType.incoming_request:
-        try:
-            await relationship.accept()
-            log_system(f"Accepted friend request from {relationship.user.name}")
-        except Exception as e:
-            log_error("Friend Request Error", str(e))
+        user = relationship.user
+        log_system(f"Friend request from {user.name} — accepting in 10 minutes")
+
+        async def delayed_accept():
+            await asyncio.sleep(600)  # 10 minutes
+            try:
+                # Re-fetch to make sure request is still pending
+                await relationship.accept()
+                log_system(f"Accepted friend request from {user.name}")
+            except Exception as e:
+                log_error("Friend Request Error", str(e))
+
+        asyncio.create_task(delayed_accept())
 
 
 @bot.event
