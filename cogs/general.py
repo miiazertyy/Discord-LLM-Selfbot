@@ -38,6 +38,8 @@ Bot Commands:
 {prefix}reload - Reloads all cogs and the instructions
 {prefix}instructions - Attach a .txt to change the other one
 {prefix}getinstructions - Get the instructions.txt in chat
+{prefix}setconfig - Sets the config.yaml from the chat
+{prefix}getconfig - Sends config.yaml in chat 
 {prefix}getdb - Get database with all user memory
 {prefix}update (repo) - Updates and restart the bot to the lastest stable using git
 {prefix}restart - Restarts the entire bot
