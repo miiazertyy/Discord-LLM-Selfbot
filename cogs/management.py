@@ -173,24 +173,26 @@ class Management(commands.Cog):
 
     @commands.command(
         name="update",
-        description="Pulls the latest update from GitHub and relaunches the bot.",
+        description="Pulls the latest update from GitHub and relaunches the bot. Use 'repo' to pull latest commit.",
     )
-    async def update(self, ctx):
+    async def update(self, ctx, source: str = "release"):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        latest = None
-        try:
-            response = requests.get(
-                "https://api.github.com/repos/miiazertyy/Discord-LLM-Selfbot/releases/latest",
-                timeout=10
-            )
-            if response.status_code == 200:
-                latest = response.json().get("tag_name", "unknown")
-        except Exception:
-            pass
-
-        msg = await ctx.send(f"Updating to {latest if latest else 'latest'}... brb")
+        if source == "repo":
+            msg = await ctx.send("Pulling latest commit from repo... brb")
+        else:
+            latest = None
+            try:
+                response = requests.get(
+                    "https://api.github.com/repos/miiazertyy/Discord-LLM-Selfbot/releases/latest",
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    latest = response.json().get("tag_name", "unknown")
+            except Exception:
+                pass
+            msg = await ctx.send(f"Updating to {latest if latest else 'latest'}... brb")
 
         if sys.platform == "win32":
             subprocess.Popen(["cmd", "/c", "start", "updater.bat"], shell=True)
