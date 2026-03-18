@@ -296,7 +296,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     memory = get_memory(message.author.id)
     memory_block = format_memory_for_prompt(memory)
     mood_cfg = config["bot"]["mood"]
-    mood_block = f"\nCurrent mood: {get_mood_prompt()}" if mood_cfg.get("enabled", True) else ""
+    mood_block = f"\n\n[Right now: {get_mood_prompt()}]"
     enriched_instructions = bot.instructions + mood_block + memory_block
 
     # Late reply opener if the wait was long
