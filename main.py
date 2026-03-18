@@ -48,7 +48,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, transcribe_voice
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -114,7 +114,6 @@ REFUSAL_PHRASES = [
     "i can't help with that",
     "i'm unable to",
     "i'm sorry, but i can't continue this conversation."
-    "i’m sorry, but I can’t help with that."
 ]
 
 def is_refusal(text: str) -> bool:
@@ -389,6 +388,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     if not response:
         return None
 
+    response = response.replace("—", "").replace("–", "")
     chunks = split_response(response)
     if len(chunks) > 3:
         chunks = chunks[:3]
@@ -437,33 +437,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             await webhook_log(message, e)
 
     return response
-
-
-@bot.event
-async def on_relationship_add(relationship):
-    if relationship.type == discord.RelationshipType.incoming_request:
-        fr_cfg = config["bot"].get("friend_requests", {})
-        if not fr_cfg.get("enabled", True):
-            return
-
-        user = relationship.user
-        delay = fr_cfg.get("accept_delay", 0)
-
-        if delay > 0:
-            log_system(f"Friend request from {user.name} — accepting in {delay}s")
-        else:
-            log_system(f"Friend request from {user.name} — accepting instantly")
-
-        async def delayed_accept():
-            if delay > 0:
-                await asyncio.sleep(delay)
-            try:
-                await relationship.accept()
-                log_system(f"Accepted friend request from {user.name}")
-            except Exception as e:
-                log_error("Friend Request Error", str(e))
-
-        asyncio.create_task(delayed_accept())
 
 
 @bot.event
@@ -540,7 +513,7 @@ async def process_message_queue(channel_id):
             if bot.batch_messages:
                 if batch_key not in bot.user_message_batches:
                     first_image_url = (
-                        next((a.url for a in message.attachments if not a.is_voice_message()), None)
+                        message.attachments[0].url if message.attachments else None
                     )
                     bot.user_message_batches[batch_key] = {
                         "messages": [],
@@ -612,24 +585,8 @@ async def process_message_queue(channel_id):
             else:
                 combined_content = message.content
                 message_to_reply_to = message
-                image_url = next((a.url for a in message.attachments if not a.is_voice_message()), None)
+                image_url = message.attachments[0].url if message.attachments else None
                 wait_time = 0
-
-            # Transcribe voice messages
-            for attachment in message_to_reply_to.attachments:
-                if attachment.is_voice_message():
-                    try:
-                        import aiohttp
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(attachment.url) as resp:
-                                audio_bytes = await resp.read()
-                        transcription = await transcribe_voice(audio_bytes)
-                        if transcription:
-                            combined_content = transcription if not combined_content.strip() else f"{combined_content} [voice: {transcription}]"
-                            log_system(f"Voice transcribed for {message_to_reply_to.author.name}: {transcription}")
-                    except Exception as e:
-                        log_error("Voice Transcription Error", str(e))
-                    break
 
             for mention in message_to_reply_to.mentions:
                 combined_content = combined_content.replace(
