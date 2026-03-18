@@ -21,20 +21,21 @@ Preview :
 -   [x] Discord Selfbot: Runs on a genuine Discord account, allowing you to use it without even needing to invite a bot.
 -   [x] Custom AI Instructions: You can replace the text inside of `instructions.txt` and make the AI act however you'd like!
 -   [x] Realistic Typing: The bot types like a real person, with varying speeds and pauses.
--   [x] Free LLM Model: Enjoy the powerful capabilities of this language model without spending a dime. Automatically switches to another LLM when no enough token on your account.
+-   [x] Free LLM Model: Enjoy the powerful capabilities of this language model without spending a dime.
 -   [x] Mention Recognition: The bot only responds when you mention it or say its trigger word.
--   [x] Reply Recognition: If replied to, the bot will continue to reply to you. It's like having a conversation with a real person!
+-   [x] Reply Recognition: If replied to, the bot will continue to reply to you. It's like having a conversation with a real person.
 -   [x] Message Handling: The bot knows when you're replying to someone else, so it won't cause confusion. It's like having a mind reader in your server; It can also handle numerous messages at once!
--   [x] Image Recognition: The bot can recognize images and respond to them in character!
+-   [x] Image Recognition: The bot can recognize images and respond to them in character.
 -   [x] Channel-Specific Responses: Use the `,toggleactive` command to pick what channel the bot responds in.
 -   [x] Anti-spam: The bot has a built-in anti-spam feature to prevent people from abusing it.
--   [x] Psychoanalysis Command: Use the `,analyse` command to analyse a mentioned user's messages and find insights on their personality. It's like having a therapist in your server!
+-   [x] Psychoanalysis Command: Use the `,analyse` command to analyse a mentioned user's messages and find insights on their personality.
 -   [x] Runs on Meta AI's Llama-3: The bot uses the Llama-3 model from Meta AI, which is one of the most powerful models available.
 -   [x] Secure Credential Management: Keep your credentials secure using environment variables.
 -   [x] Priority prefix "=" to bypass wait times between responses usable by everyone.
--   [x] Auto switch LLM when out of tokens.
--   [x] Auto Mood changing.
--   [x] Per user memory stocked in SQL.
+-   [x] Auto switches between LLMs when out of tokens.
+-   [x] Changes mood automatically, replacing the temperature from the LLM and is fully customizable.
+-   [x] Per user memory stocked and fetched in an SQL file.
+-   [ ] Auto accept friend requests
 And a bunch other quality of life features
 
 ## 📜 Commands
