@@ -6,7 +6,7 @@ bot:
   prefix: ","
   
   # The word(s) you want the AI to respond to
-  trigger: "Alicia, Aliciaa, Ali"
+  trigger: "John, Jon"
 
   # Models to use from Groq (will fallback to next on rate limit)
   groq_models:
