@@ -52,6 +52,8 @@ And a bunch other quality of life features
 -   reload - Reloads all cogs
 -   instructions - Changes the instruction.txt directly from Discord DMs
 -   getinstructions - Get the instructions.txt in chat
+-   setconfig - Sets the config.yaml from the chat
+-   getconfig - Sends config.yaml in chat 
 -   getdb - Get database with users memorys
 -   update (repo) - Updates and restart the bot to the lastest stable using git
 -   restart - Restarts the entire bot
