@@ -631,6 +631,26 @@ async def process_message_queue(channel_id):
                     )
 
 
+async def notify_active_conversations(message: str):
+    """Send a message to all recently active conversations before shutting down."""
+    now = time.time()
+    notified_channels = set()
+    for conv_key, last_time in bot.active_conversations.items():
+        if now - last_time > CONVERSATION_TIMEOUT:
+            continue
+        try:
+            user_id, channel_id = map(int, conv_key.split("-"))
+            if channel_id in notified_channels:
+                continue
+            channel = bot.get_channel(channel_id)
+            if channel is None:
+                channel = await bot.fetch_channel(channel_id)
+            await channel.send(message)
+            notified_channels.add(channel_id)
+        except Exception:
+            pass
+
+
 async def load_extensions():
     if getattr(sys, "frozen", False):
         cogs_dir = os.path.join(sys._MEIPASS, "cogs")
