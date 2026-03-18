@@ -56,9 +56,6 @@ bot:
   # Anti Age Ban Measures
   anti_age_ban: false
 
-  # Whether the help command should be usable by everyone or just the owner
-  help_command_enabled: false
-
   # Disable the bot from being able to mention anyone
   disable_mentions: false
 
