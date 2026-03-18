@@ -35,6 +35,7 @@ Preview :
 -   [x] Auto switches between LLMs when out of tokens.
 -   [x] Changes mood automatically, replacing the temperature from the LLM and is fully customizable.
 -   [x] Per user memory stocked and fetched in an SQL file.
+-   [x] Voice message response support
 -   [ ] Auto accept friend requests
 
 And a bunch other quality of life features
