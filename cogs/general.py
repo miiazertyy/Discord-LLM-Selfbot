@@ -28,7 +28,7 @@ class General(commands.Cog):
         help_text = f"""```
 Bot Commands:
 {prefix}pause - Pause the bot from producing AI responses
-{prefix}analyse [user] - Analyze a user's message history and provides a psychological profile
+{prefix}analyse [user] - Analyze a user's message history and provides a "psychological" profile
 {prefix}wipe - Clears history of the bot
 {prefix}ping - Shows the bot's latency
 {prefix}toggleactive [id / channel] - Toggle a mentioned channel or the current channel to the list of active channels
@@ -38,8 +38,8 @@ Bot Commands:
 {prefix}reload - Reloads all cogs and the instructions
 {prefix}instructions - Attach a .txt to change the other one
 {prefix}getinstructions - Get the instructions.txt in chat
-{prefix}getdb - Get database with users memorys
-{prefix}prompt [prompt / clear] - View, set or clear the prompt for the AI
+{prefix}getdb - Get database with all user memory
+{prefix}update (repo) - Updates the bot with git
 {prefix}restart - Restarts the entire bot
 {prefix}shutdown - Shuts down the entire bot
 ```"""
