@@ -48,7 +48,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, transcribe_voice
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -113,18 +113,7 @@ REFUSAL_PHRASES = [
     "i don't feel comfortable",
     "i can't help with that",
     "i'm unable to",
-    "i'm sorry, but i can't continue this conversation.",
-    "sorry, can't help with that",
-    "sorry i can't help",
-    "i won't be able to",
-    "i must decline",
-    "i'm not going to",
-    "that's not something i can",
-    "i cannot assist",
-    "i can't assist",
-    "i'm programmed to",
-    "as a language model",
-    "i'm just an ai",
+    "i'm sorry, but i can't continue this conversation."
 ]
 
 def is_refusal(text: str) -> bool:
@@ -597,6 +586,26 @@ async def process_message_queue(channel_id):
                 message_to_reply_to = message
                 image_url = message.attachments[0].url if message.attachments else None
                 wait_time = 0
+
+            # Transcribe voice messages
+            voice_url = None
+            for attachment in message_to_reply_to.attachments:
+                if attachment.is_voice_message():
+                    voice_url = attachment.url
+                    break
+
+            if voice_url:
+                try:
+                    import aiohttp
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(voice_url) as resp:
+                            audio_bytes = await resp.read()
+                    transcription = await transcribe_voice(audio_bytes)
+                    if transcription:
+                        combined_content = transcription if not combined_content.strip() else f"{combined_content} [voice: {transcription}]"
+                        log_system(f"Voice transcribed for {message_to_reply_to.author.name}: {transcription}")
+                except Exception as e:
+                    log_error("Voice Transcription Error", str(e))
 
             for mention in message_to_reply_to.mentions:
                 combined_content = combined_content.replace(
