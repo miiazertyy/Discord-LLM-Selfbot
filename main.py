@@ -512,7 +512,7 @@ async def process_message_queue(channel_id):
             if bot.batch_messages:
                 if batch_key not in bot.user_message_batches:
                     first_image_url = (
-                        message.attachments[0].url if message.attachments else None
+                        next((a.url for a in message.attachments if not a.is_voice_message()), None)
                     )
                     bot.user_message_batches[batch_key] = {
                         "messages": [],
@@ -584,7 +584,7 @@ async def process_message_queue(channel_id):
             else:
                 combined_content = message.content
                 message_to_reply_to = message
-                image_url = message.attachments[0].url if message.attachments else None
+                image_url = next((a.url for a in message.attachments if not a.is_voice_message()), None)
                 wait_time = 0
 
             # Transcribe voice messages
