@@ -448,6 +448,12 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
 @bot.event
 async def on_message(message):
+    # Allow the bot's own account to use commands
+    if message.author.id == bot.selfbot_id:
+        if message.content.startswith(PREFIX):
+            await bot.process_commands(message)
+        return
+
     if should_ignore_message(message):
         return
 
