@@ -1,4 +1,5 @@
 import sys
+import json
 
 from groq import AsyncGroq, RateLimitError
 from os import getenv
@@ -57,15 +58,13 @@ while True:
             model=model,
             messages=messages,
         )
-        # Reset to primary model on success
-        if groq_models and model != groq_models[0]:
-            model = groq_models[0]
-            current_model_index = 0
         return response
-    except RateLimitError:
+    except RateLimitError as e:
+        print(f"[AI] RateLimitError on {model}: {e}")
         if not fallback_model():
             raise
-    except Exception:
+    except Exception as e:
+        print(f"[AI] {type(e).__name__} on {model}: {e}")
         if not fallback_model():
             raise
 ```
@@ -147,7 +146,7 @@ prompt = (
     f'User message: "{user_message}"\n'
     f'Assistant reply: "{assistant_reply}"\n\n'
     "Extract ONLY concrete facts the user explicitly stated about themselves. "
-    "Return a JSON object like {\"name\": \"John\", \"age\": \"22\"}. "
+    'Return a JSON object like {"name": "John", "age": "22"}. '
     "Keys must be simple: name, age, location, job, hobby, game, relationship_status. "
     "Only include facts the USER clearly stated. "
     "If nothing new was revealed return exactly: {} "
