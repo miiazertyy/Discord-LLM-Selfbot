@@ -7,9 +7,7 @@ echo "Waiting for bot to shut down..."
 sleep 3
 
 echo "Pulling latest changes from GitHub..."
-git stash --include-untracked
 git pull origin main
-git stash pop
 
 echo "Deleting bot-env..."
 rm -rf bot-env
