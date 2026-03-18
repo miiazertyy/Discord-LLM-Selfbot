@@ -21,7 +21,7 @@ class General(commands.Cog):
     @commands.command(name="help", description="Get all other commands!")
     @commands.cooldown(1, 30, commands.BucketType.user)
     async def help(self, ctx):
-        if not self.bot.help_command_enabled:
+        if ctx.author.id != self.bot.owner_id:
             return
 
         prefix = self.bot.command_prefix
