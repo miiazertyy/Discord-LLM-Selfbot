@@ -9,10 +9,10 @@ bot:
   trigger: "John, Jon"
 
   # Models to use from Groq (will fallback to next on rate limit)
-groq_models:
-  - "llama-3.3-70b-versatile" 
-  - "meta-llama/llama-4-scout-17b-16e-instruct"
-  - "openai/gpt-oss-20b"
+  groq_models:
+    - "llama-3.3-70b-versatile" 
+    - "meta-llama/llama-4-scout-17b-16e-instruct"
+    - "openai/gpt-oss-20b"
 
   # Model used for image description (must support vision)
   # If not set or model not found, falls back to primary groq model
