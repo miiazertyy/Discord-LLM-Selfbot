@@ -106,6 +106,20 @@ MAX_HISTORY = 15
 IGNORE_CHANCE = config["bot"]["ignore_chance"]
 PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
+REFUSAL_PHRASES = [
+    "i'm sorry, but i can't",
+    "i cannot help with that",
+    "i'm not able to",
+    "as an ai",
+    "i don't feel comfortable",
+    "i can't help with that",
+    "i'm unable to",
+]
+
+def is_refusal(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in REFUSAL_PHRASES)
+
 # Late reply openers keyed by language guess — English default, French if message is french
 def get_late_opener(prompt: str) -> str:
     """Return a late opener based on detected language of the prompt."""
@@ -321,6 +335,10 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     response = await generate_response_image(prompt, enriched_instructions, image_url, history)
                 else:
                     response = await generate_response(prompt, enriched_instructions, history)
+
+            if response and is_refusal(response):
+                log_error("AI Refusal", f"Model refused to respond, retrying...")
+                response = None
 
             if response:
                 # Extract and save new facts about the user
