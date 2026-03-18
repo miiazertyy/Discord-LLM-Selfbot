@@ -39,7 +39,7 @@ Bot Commands:
 {prefix}instructions - Attach a .txt to change the other one
 {prefix}getinstructions - Get the instructions.txt in chat
 {prefix}getdb - Get database with all user memory
-{prefix}update (repo) - Updates the bot with git
+{prefix}update (repo) - Updates and restart the bot to the lastest stable using git
 {prefix}restart - Restarts the entire bot
 {prefix}shutdown - Shuts down the entire bot
 ```"""
