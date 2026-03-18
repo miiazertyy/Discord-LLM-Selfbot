@@ -176,3 +176,23 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
     except Exception as e:
         print_error("Memory Extract Error", e)
         return {}
+
+
+async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
+    """Transcribe a voice message using Groq Whisper."""
+    if not client:
+        init_ai()
+
+    try:
+        import io
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = filename
+
+        transcription = await client.audio.transcriptions.create(
+            model="whisper-large-v3-turbo",
+            file=audio_file,
+        )
+        return transcription.text.strip()
+    except Exception as e:
+        print_error("Whisper Error", e)
+        return ""
