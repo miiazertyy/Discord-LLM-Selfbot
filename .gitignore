@@ -152,6 +152,7 @@ cython_debug/
 
 # Config
 config/.env
+config/config.yaml
 
 # Bot specific
 bot-env/
