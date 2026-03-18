@@ -92,7 +92,7 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
         init_ai()
     try:
         image_response = await client.chat.completions.create(
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            model=load_config()["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct"),
             messages=[
                 {
                     "role": "user",
@@ -185,11 +185,13 @@ async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> s
 
     try:
         import io
+        config = load_config()
+        whisper_model = config["bot"].get("groq_whisper_model", "whisper-large-v3-turbo")
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = filename
 
         transcription = await client.audio.transcriptions.create(
-            model="whisper-large-v3-turbo",
+            model=whisper_model,
             file=audio_file,
         )
         return transcription.text.strip()
