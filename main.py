@@ -80,7 +80,6 @@ bot.message_history = {}
 bot.paused = False
 bot.allow_dm = config["bot"]["allow_dm"]
 bot.allow_gc = config["bot"]["allow_gc"]
-bot.help_command_enabled = config["bot"]["help_command_enabled"]
 bot.realistic_typing = config["bot"]["realistic_typing"]
 bot.anti_age_ban = config["bot"]["anti_age_ban"]
 bot.batch_messages = config["bot"]["batch_messages"]
@@ -114,16 +113,14 @@ REFUSAL_PHRASES = [
     "i don't feel comfortable",
     "i can't help with that",
     "i'm unable to",
-    "I’m sorry, but I can’t continue this conversation."
+    "i'm sorry, but i can't continue this conversation."
 ]
 
 def is_refusal(text: str) -> bool:
     lowered = text.lower()
     return any(phrase in lowered for phrase in REFUSAL_PHRASES)
 
-# Late reply openers keyed by language guess — English default, French if message is french
 def get_late_opener(prompt: str) -> str:
-    """Return a late opener based on detected language of the prompt."""
     late_cfg = config["bot"]["late_reply"]
     french_indicators = late_cfg.get("french_indicators", [])
     prompt_lower = prompt.lower()
@@ -133,7 +130,6 @@ def get_late_opener(prompt: str) -> str:
 
 
 def add_typo(text):
-    """Rarely introduces a small typo into a response."""
     if len(text) < 5 or random.random() > config["bot"]["typo_chance"]:
         return text
 
@@ -226,7 +222,6 @@ async def on_ready():
     print(f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n")
     log_system(f"Using model: {ai_module.model}")
 
-    # Set initial random mood and start mood loop
     if config["bot"]["mood"].get("enabled", True):
         shift_mood()
         log_system(f"Starting mood: {get_mood()}")
@@ -311,14 +306,12 @@ def update_message_history(author_id, message_content):
 
 
 async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
-    # Build enriched instructions with mood + memory
     memory = get_memory(message.author.id)
     memory_block = format_memory_for_prompt(memory)
     mood_cfg = config["bot"]["mood"]
-    mood_block = f"\n\n[Right now: {get_mood_prompt()}]"
+    mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if mood_cfg.get("enabled", True) else ""
     enriched_instructions = bot.instructions + mood_block + memory_block
 
-    # Late reply opener if the wait was long
     late_reply_cfg = config["bot"]["late_reply"]
     late_opener = ""
     if late_reply_cfg.get("enabled", True) and wait_time >= late_reply_cfg.get("threshold", 300):
@@ -342,11 +335,10 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     response = await generate_response(prompt, enriched_instructions, history)
 
             if response and is_refusal(response):
-                log_error("AI Refusal", f"Model refused to respond, retrying...")
+                log_error("AI Refusal", "Model refused to respond, retrying...")
                 response = None
 
             if response:
-                # Extract and save new facts about the user
                 try:
                     facts = await extract_memory(prompt, response)
                     for key, value in facts.items():
@@ -356,7 +348,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 except Exception as mem_err:
                     log_error("Memory Error", str(mem_err))
 
-                # Prepend late opener to response
                 if late_opener:
                     response = late_opener + response
 
@@ -449,7 +440,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
 @bot.event
 async def on_message(message):
-    # Allow the bot's own account to use commands
     if message.author.id == bot.selfbot_id:
         if message.content.startswith(PREFIX):
             await bot.process_commands(message)
@@ -611,7 +601,6 @@ async def process_message_queue(channel_id):
             )
             history = bot.message_history[key]
 
-            # Total delay = batch wait time + how old the message was when picked up
             total_wait = wait_time + message_age
 
             if message_to_reply_to.channel.id in bot.active_channels or (
@@ -632,7 +621,6 @@ async def process_message_queue(channel_id):
 
 
 async def notify_active_conversations(message: str):
-    """Send a message to all recently active conversations before shutting down."""
     now = time.time()
     notified_channels = set()
     for conv_key, last_time in bot.active_conversations.items():
