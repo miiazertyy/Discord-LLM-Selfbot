@@ -24,29 +24,41 @@ class General(commands.Cog):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        prefix = self.bot.command_prefix
-        help_text = f"""```
-Bot Commands:
-{prefix}pause - Pause the bot from producing AI responses
-{prefix}analyse [user] - Analyze a user's message history and provides a "psychological" profile
-{prefix}wipe - Clears history of the bot
-{prefix}ping - Shows the bot's latency
-{prefix}toggleactive [id / channel] - Toggle a mentioned channel or the current channel to the list of active channels
-{prefix}toggledm - Toggle if the bot should be active in DM's or not
-{prefix}togglegc - Toggle if the bot should be active in group chats or not
-{prefix}ignore [user] - Stop a user from using the bot
-{prefix}reload - Reloads all cogs and the instructions
-{prefix}instructions - Attach a .txt to change the other one
-{prefix}getinstructions - Get the instructions.txt in chat
-{prefix}setconfig - Sets the config.yaml from the chat
-{prefix}getconfig - Sends config.yaml in chat 
-{prefix}getdb - Get database with all user memory
-{prefix}update (repo) - Updates and restart the bot to the lastest stable using git
-{prefix}restart - Restarts the entire bot
-{prefix}shutdown - Shuts down the entire bot
-```"""
-
-        await ctx.send(help_text, delete_after=30)
+        p = self.bot.command_prefix
+        lines = [
+            "```",
+            "📋  Commands",
+            "─────────────────────────────",
+            "  🤖  AI",
+            f"  {p}pause              pause/unpause AI responses",
+            f"  {p}wipe               clear conversation history",
+            f"  {p}analyse [user]     psychological profile of a user",
+            "─────────────────────────────",
+            "  ⚙️   Config",
+            f"  {p}config             view/edit config inline",
+            f"  {p}getconfig          download config.yaml",
+            f"  {p}setconfig          upload a new config.yaml",
+            f"  {p}instructions       upload new instructions.txt",
+            f"  {p}getinstructions    download instructions.txt",
+            f"  {p}prompt [text]      view/set/clear instructions inline",
+            "─────────────────────────────",
+            "  📡  Channels",
+            f"  {p}toggleactive       toggle current channel",
+            f"  {p}toggledm           toggle DM responses",
+            f"  {p}togglegc           toggle group chat responses",
+            f"  {p}ignore [user]      ignore/unignore a user",
+            "─────────────────────────────",
+            "  🛠️   System",
+            f"  {p}update             update to latest release",
+            f"  {p}update main        update to latest commit",
+            f"  {p}reload             reload all cogs + instructions",
+            f"  {p}restart            restart the bot",
+            f"  {p}shutdown           shut down the bot",
+            f"  {p}ping               show latency",
+            f"  {p}getdb              download memory database",
+            "```",
+        ]
+        await ctx.send("\n".join(lines), delete_after=60)
 
     @commands.command(
         aliases=["analyze"],
