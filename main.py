@@ -99,6 +99,7 @@ bot.processing_locks = {}
 bot.user_message_batches = {}
 
 bot.active_conversations = {}
+bot.processed_message_ids = set()
 CONVERSATION_TIMEOUT = 150.0
 
 SPAM_MESSAGE_THRESHOLD = 5
@@ -257,50 +258,34 @@ async def _reply_pending_messages():
             log_error("Pending Reply Error", str(e))
 
 
-@bot.event
-async def on_relationship_add(relationship):
-    """Queue incoming friend requests for auto-accept."""
-    # Type 3 = incoming friend request in discord.py-self
-    if relationship.type != discord.RelationshipType.incoming_request:
-        return
-
-    fr_cfg = config["bot"].get("friend_requests") or {}
-    if not fr_cfg.get("enabled", False):
-        return
-
-    delay = fr_cfg.get("accept_delay", 300)
-    log_system(f"Friend request from {relationship.user} — accepting in {delay}s")
-
-    async def _accept_later():
-        await asyncio.sleep(delay)
-        try:
-            await relationship.accept()
-            log_system(f"Accepted friend request from {relationship.user}")
-        except Exception as e:
-            log_error("Friend Request", str(e))
-
-    asyncio.create_task(_accept_later())
-
-
 async def _friend_request_loop():
     """On startup, accept any friend requests that were already pending."""
     await bot.wait_until_ready()
     fr_cfg = config["bot"].get("friend_requests") or {}
+    if not fr_cfg.get("enabled", False):
+        return
     delay = fr_cfg.get("accept_delay", 300)
-
+    token = bot._connection.http.token
     try:
         for relationship in bot.relationships:
             if relationship.type == discord.RelationshipType.incoming_request:
                 log_system(f"Pending friend request from {relationship.user} — accepting in {delay}s")
-
                 async def _accept(r=relationship):
                     await asyncio.sleep(delay)
                     try:
-                        await r.accept()
-                        log_system(f"Accepted friend request from {r.user}")
+                        async with aiohttp.ClientSession() as session:
+                            resp = await session.put(
+                                f"https://discord.com/api/v9/users/@me/relationships/{r.user.id}",
+                                headers={"Authorization": token, "Content-Type": "application/json"},
+                                json={"type": 1},
+                            )
+                            if resp.status in (200, 204):
+                                log_system(f"Accepted friend request from {r.user}")
+                            else:
+                                data = await resp.json()
+                                log_error("Friend Request", f"{resp.status}: {data}")
                     except Exception as e:
                         log_error("Friend Request", str(e))
-
                 asyncio.create_task(_accept())
     except Exception as e:
         log_error("Friend Request Loop", str(e))
@@ -503,10 +488,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     # Voice message — triggers when user asks to hear the bot's voice
     tts_cfg = config["bot"].get("tts") or {}
-    late_cfg = config["bot"]["late_reply"]
-    french_indicators = late_cfg.get("french_indicators", [])
-    prompt_is_french = any(word in prompt.lower().split() for word in french_indicators)
-    if tts_cfg.get("enabled", True) and is_tts_request(prompt) and not prompt_is_french:
+    if tts_cfg.get("enabled", True) and is_tts_request(prompt):
         try:
             # Regenerate a short natural spoken response instead of the deflecting one
             spoken_instructions = (
@@ -646,6 +628,13 @@ async def on_message(message):
     if message.content.startswith(PREFIX):
         await bot.process_commands(message)
         return
+
+    # Prevent processing the same message twice
+    if message.id in bot.processed_message_ids:
+        return
+    bot.processed_message_ids.add(message.id)
+    if len(bot.processed_message_ids) > 1000:
+        bot.processed_message_ids = set(list(bot.processed_message_ids)[-500:])
 
     channel_id = message.channel.id
     user_id = message.author.id
@@ -838,7 +827,7 @@ async def load_extensions():
     if getattr(sys, "frozen", False):
         cogs_dir = os.path.join(sys._MEIPASS, "cogs")
     else:
-        cogs_dir = os.path.join(os.path.abspath("."), "cogs")
+        cogs_dir = os.path.join(resource_path("."), "cogs")
 
     if not os.path.exists(cogs_dir):
         print(f"Warning: Cogs directory not found at {cogs_dir}. Skipping cog loading.")
