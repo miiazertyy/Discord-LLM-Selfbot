@@ -395,7 +395,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     response = response.replace("—", "").replace("–", "")
 
     # Voice message — triggers when user asks to hear the bot's voice
-    tts_cfg = config["bot"].get("tts", {})
+    tts_cfg = config["bot"].get("tts") or {}
     if tts_cfg.get("enabled", True) and is_tts_request(prompt):
         try:
             audio_chunks = await generate_voice_message(response)
