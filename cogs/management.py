@@ -185,6 +185,7 @@ class Management(commands.Cog):
 
         if source == "main":
             msg = await ctx.send("Pulling latest commit from main... brb")
+            version_str = "main"
         else:
             latest = None
             try:
@@ -196,7 +197,8 @@ class Management(commands.Cog):
                     latest = response.json().get("tag_name", "unknown")
             except Exception:
                 pass
-            msg = await ctx.send(f"Updating to {latest if latest else 'latest'}... brb")
+            version_str = latest if latest else "latest"
+            msg = await ctx.send(f"Updating to {version_str}... brb")
 
         # Save pending messages so bot can reply after restart
         self._save_pending_messages()
@@ -206,7 +208,7 @@ class Management(commands.Cog):
         else:
             subprocess.Popen(["bash", "updater.sh"])
 
-        await msg.edit(content="Updated! Relaunching...")
+        await msg.edit(content=f"Updated to {version_str}! Relaunching...")
         await asyncio.sleep(1)
         await ctx.bot.close()
         sys.exit(0)
