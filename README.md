@@ -38,6 +38,7 @@ Preview :
 -   [x] Voice message response support
 -   [x] Auto accept friend requests configurable
 -   [ ] Send voice messages https://console.groq.com/docs/text-to-speech/orpheus
+
 And a bunch other quality of life features
 
 ## 📜 Commands
