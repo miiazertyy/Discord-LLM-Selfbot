@@ -37,7 +37,7 @@ Preview :
 -   [x] Per user memory stocked and fetched in an SQL file.
 -   [x] Voice message response support
 -   [x] Auto accept friend requests configurable
--   [ ] Send voice messages https://console.groq.com/docs/text-to-speech/orpheus
+-   [x] Send voice messages, needs to accept conditions on groq's website ([Groq TTS](https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english))
 
 And a bunch other quality of life features
 
