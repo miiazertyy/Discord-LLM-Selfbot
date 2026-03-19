@@ -19,7 +19,9 @@ def resource_path(relative_path):
     if getattr(sys, "frozen", False):
         base_path = os.path.dirname(sys.executable)
     else:
-        base_path = os.path.abspath(".")
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        # Go up one level since helpers.py is in utils/
+        base_path = os.path.dirname(base_path)
     return os.path.join(base_path, relative_path)
 
 
