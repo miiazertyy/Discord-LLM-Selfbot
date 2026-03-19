@@ -99,6 +99,7 @@ bot.processing_locks = {}
 bot.user_message_batches = {}
 
 bot.active_conversations = {}
+bot.processed_message_ids = set()
 CONVERSATION_TIMEOUT = 150.0
 
 SPAM_MESSAGE_THRESHOLD = 5
@@ -504,7 +505,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     # Voice message — triggers when user asks to hear the bot's voice
     tts_cfg = config["bot"].get("tts") or {}
     late_cfg = config["bot"]["late_reply"]
-    if tts_cfg.get("enabled", True) and is_tts_request(prompt):
+    french_indicators = late_cfg.get("french_indicators", [])
+    prompt_is_french = any(word in prompt.lower().split() for word in french_indicators)
+    if tts_cfg.get("enabled", True) and is_tts_request(prompt) and not prompt_is_french:
         try:
             # Regenerate a short natural spoken response instead of the deflecting one
             spoken_instructions = (
@@ -644,6 +647,14 @@ async def on_message(message):
     if message.content.startswith(PREFIX):
         await bot.process_commands(message)
         return
+
+    # Prevent processing the same message twice
+    if message.id in bot.processed_message_ids:
+        return
+    bot.processed_message_ids.add(message.id)
+    # Keep the set from growing forever
+    if len(bot.processed_message_ids) > 1000:
+        bot.processed_message_ids = set(list(bot.processed_message_ids)[-500:])
 
     channel_id = message.channel.id
     user_id = message.author.id
