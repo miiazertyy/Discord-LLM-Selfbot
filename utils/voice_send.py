@@ -6,24 +6,26 @@ import asyncio
 import aiohttp
 
 
-def _wav_to_ogg_opus(wav_bytes: bytes) -> bytes:
-    """Convert WAV bytes to OGG Opus bytes using ffmpeg."""
-    import subprocess
+def _wav_to_ogg_opus(wav_bytes: bytes) -> tuple:
+    """Convert WAV bytes to OGG Opus, returns (ogg_bytes, duration_secs)."""
+    import subprocess, json
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-f", "wav", "-i", "pipe:0"],
+        input=wav_bytes, capture_output=True,
+    )
+    try:
+        duration = float(json.loads(probe.stdout)["format"]["duration"])
+    except Exception:
+        duration = 1.0
+
     result = subprocess.run(
-        [
-            "ffmpeg", "-y",
-            "-f", "wav", "-i", "pipe:0",
-            "-c:a", "libopus",
-            "-b:a", "64k",
-            "-f", "ogg",
-            "pipe:1"
-        ],
-        input=wav_bytes,
-        capture_output=True,
+        ["ffmpeg", "-y", "-f", "wav", "-i", "pipe:0", "-c:a", "libopus", "-b:a", "64k", "-f", "ogg", "pipe:1"],
+        input=wav_bytes, capture_output=True,
     )
     if result.returncode != 0:
         raise Exception(f"ffmpeg conversion failed: {result.stderr.decode()}")
-    return result.stdout
+    return result.stdout, duration
 
 
 def _get_wav_duration(audio_bytes: bytes) -> float:
@@ -114,16 +116,11 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
     Converts WAV -> OGG Opus via ffmpeg, then uses the Discord attachment
     upload API with flags=1<<13, waveform and duration_secs (same as Vencord).
     """
-    # Compute duration + waveform from the WAV before converting
-    duration = _get_wav_duration(wav_bytes)
-    waveform = _make_waveform(wav_bytes, duration)
-
-    # Convert WAV to OGG Opus — Discord requires this for voice bubbles
-    print(f"[TTS] Converting WAV to OGG Opus ({len(wav_bytes)} bytes, {duration:.1f}s)...")
-    ogg_bytes = await asyncio.get_event_loop().run_in_executor(
+    # Compute waveform from WAV PCM, get accurate duration from ffprobe
+    ogg_bytes, duration = await asyncio.get_event_loop().run_in_executor(
         None, _wav_to_ogg_opus, wav_bytes
     )
-    print(f"[TTS] Converted to OGG ({len(ogg_bytes)} bytes), uploading...")
+    waveform = _make_waveform(wav_bytes, duration)
 
     token = channel._state.http.token
     channel_id = channel.id
@@ -147,7 +144,6 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
             }
         )
         upload_data = await upload_resp.json()
-        print(f"[TTS] Upload slot response: {upload_data}")
 
         if "attachments" not in upload_data:
             raise Exception(f"Failed to get upload URL: {upload_data}")
@@ -162,7 +158,6 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
             data=ogg_bytes,
             headers={"Content-Type": "audio/ogg"},
         )
-        print(f"[TTS] CDN upload status: {put_resp.status}")
 
         # Step 3: send the message with voice message flag
         body = {
@@ -197,7 +192,6 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
             json=body,
         )
         result = await msg_resp.json()
-        print(f"[TTS] Message send response: {result}")
 
         if "id" not in result:
             raise Exception(f"Failed to send voice message: {result}")
