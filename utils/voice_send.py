@@ -2,110 +2,39 @@ import io
 import math
 import struct
 import base64
+import asyncio
 import aiohttp
 
-async def send_voice_message(channel, audio_bytes: bytes, reply_to=None, mention_author=True):
-    """
-    Send audio as a proper Discord voice message bubble.
-    Mimics what Vencord does: uploads the file then posts with flags=1<<13,
-    waveform and duration_secs so Discord renders it as a voice message.
-    """
-    duration = _get_wav_duration(audio_bytes)
-    waveform = _make_waveform(audio_bytes, duration)
 
-    # Step 1: request an upload URL from Discord
-    token = channel._state.http.token
-    channel_id = channel.id
-
-    headers = {
-        "Authorization": token,
-        "Content-Type": "application/json",
-    }
-
-    async with aiohttp.ClientSession() as session:
-        # Request attachment upload slot
-        upload_resp = await session.post(
-            f"https://discord.com/api/v9/channels/{channel_id}/attachments",
-            headers=headers,
-            json={
-                "files": [{
-                    "filename": "voice-message.ogg",
-                    "file_size": len(audio_bytes),
-                    "id": "0",
-                }]
-            }
-        )
-        upload_data = await upload_resp.json()
-
-        if "attachments" not in upload_data:
-            raise Exception(f"Failed to get upload URL: {upload_data}")
-
-        attachment = upload_data["attachments"][0]
-        upload_url = attachment["upload_url"]
-        uploaded_filename = attachment["upload_filename"]
-
-        # Step 2: upload the raw audio bytes to the CDN URL
-        await session.put(
-            upload_url,
-            data=audio_bytes,
-            headers={"Content-Type": "audio/ogg"},
-        )
-
-        # Step 3: post the message with voice message flags
-        body = {
-            "flags": 1 << 13,  # IS_VOICE_MESSAGE
-            "channel_id": str(channel_id),
-            "content": "",
-            "nonce": str(_snowflake_now()),
-            "sticker_ids": [],
-            "type": 0,
-            "attachments": [{
-                "id": "0",
-                "filename": "voice-message.ogg",
-                "uploaded_filename": uploaded_filename,
-                "waveform": waveform,
-                "duration_secs": duration,
-            }],
-        }
-
-        if reply_to:
-            body["message_reference"] = {
-                "channel_id": str(channel_id),
-                "message_id": str(reply_to.id),
-            }
-            body["allowed_mentions"] = {
-                "replied_user": mention_author,
-                "parse": ["users", "roles"],
-            }
-
-        msg_resp = await session.post(
-            f"https://discord.com/api/v9/channels/{channel_id}/messages",
-            headers=headers,
-            json=body,
-        )
-
-        result = await msg_resp.json()
-        if "id" not in result:
-            raise Exception(f"Failed to send voice message: {result}")
-
-        return result
+def _wav_to_ogg_opus(wav_bytes: bytes) -> bytes:
+    """Convert WAV bytes to OGG Opus bytes using ffmpeg."""
+    import subprocess
+    result = subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "wav", "-i", "pipe:0",
+            "-c:a", "libopus",
+            "-b:a", "64k",
+            "-f", "ogg",
+            "pipe:1"
+        ],
+        input=wav_bytes,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise Exception(f"ffmpeg conversion failed: {result.stderr.decode()}")
+    return result.stdout
 
 
 def _get_wav_duration(audio_bytes: bytes) -> float:
     """Extract duration in seconds from a WAV file header."""
     try:
-        # WAV header: ChunkSize at 4, fmt subchunk starts at 12
-        # SampleRate at 24, NumChannels at 22, BitsPerSample at 34
-        # DataSize: find 'data' chunk
         if audio_bytes[:4] != b'RIFF':
             return 1.0
-
         sample_rate = struct.unpack_from('<I', audio_bytes, 24)[0]
         num_channels = struct.unpack_from('<H', audio_bytes, 22)[0]
         bits_per_sample = struct.unpack_from('<H', audio_bytes, 34)[0]
         byte_rate = sample_rate * num_channels * bits_per_sample // 8
-
-        # Find the data chunk
         offset = 12
         while offset < len(audio_bytes) - 8:
             chunk_id = audio_bytes[offset:offset+4]
@@ -113,19 +42,14 @@ def _get_wav_duration(audio_bytes: bytes) -> float:
             if chunk_id == b'data':
                 return chunk_size / byte_rate
             offset += 8 + chunk_size
-
         return 1.0
     except Exception:
         return 1.0
 
 
 def _make_waveform(audio_bytes: bytes, duration: float) -> str:
-    """
-    Generate a waveform string from WAV PCM data.
-    Same approach as Vencord: bin the samples, RMS per bin, normalize, base64.
-    """
+    """Generate waveform string from WAV PCM data (same math as Vencord)."""
     try:
-        # Find the data chunk
         offset = 12
         data_start = None
         data_size = 0
@@ -143,8 +67,8 @@ def _make_waveform(audio_bytes: bytes, duration: float) -> str:
 
         bits_per_sample = struct.unpack_from('<H', audio_bytes, 34)[0]
         num_channels = struct.unpack_from('<H', audio_bytes, 22)[0]
-
         pcm = audio_bytes[data_start:data_start + data_size]
+
         if bits_per_sample == 16:
             samples = [
                 struct.unpack_from('<h', pcm, i)[0] / 32768.0
@@ -178,8 +102,104 @@ def _make_waveform(audio_bytes: bytes, duration: float) -> str:
 
 
 def _snowflake_now() -> int:
-    """Generate a Discord snowflake for the current timestamp."""
     import time
     DISCORD_EPOCH = 1420070400000
     ms = int(time.time() * 1000)
     return ((ms - DISCORD_EPOCH) << 22)
+
+
+async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_author=True):
+    """
+    Send audio as a proper Discord voice message bubble.
+    Converts WAV -> OGG Opus via ffmpeg, then uses the Discord attachment
+    upload API with flags=1<<13, waveform and duration_secs (same as Vencord).
+    """
+    # Compute duration + waveform from the WAV before converting
+    duration = _get_wav_duration(wav_bytes)
+    waveform = _make_waveform(wav_bytes, duration)
+
+    # Convert WAV to OGG Opus — Discord requires this for voice bubbles
+    print(f"[TTS] Converting WAV to OGG Opus ({len(wav_bytes)} bytes, {duration:.1f}s)...")
+    ogg_bytes = await asyncio.get_event_loop().run_in_executor(
+        None, _wav_to_ogg_opus, wav_bytes
+    )
+    print(f"[TTS] Converted to OGG ({len(ogg_bytes)} bytes), uploading...")
+
+    token = channel._state.http.token
+    channel_id = channel.id
+
+    headers = {
+        "Authorization": token,
+        "Content-Type": "application/json",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        # Step 1: request upload slot
+        upload_resp = await session.post(
+            f"https://discord.com/api/v9/channels/{channel_id}/attachments",
+            headers=headers,
+            json={
+                "files": [{
+                    "filename": "voice-message.ogg",
+                    "file_size": len(ogg_bytes),
+                    "id": "0",
+                }]
+            }
+        )
+        upload_data = await upload_resp.json()
+        print(f"[TTS] Upload slot response: {upload_data}")
+
+        if "attachments" not in upload_data:
+            raise Exception(f"Failed to get upload URL: {upload_data}")
+
+        attachment = upload_data["attachments"][0]
+        upload_url = attachment["upload_url"]
+        uploaded_filename = attachment["upload_filename"]
+
+        # Step 2: upload OGG bytes to CDN
+        put_resp = await session.put(
+            upload_url,
+            data=ogg_bytes,
+            headers={"Content-Type": "audio/ogg"},
+        )
+        print(f"[TTS] CDN upload status: {put_resp.status}")
+
+        # Step 3: send the message with voice message flag
+        body = {
+            "flags": 1 << 13,
+            "channel_id": str(channel_id),
+            "content": "",
+            "nonce": str(_snowflake_now()),
+            "sticker_ids": [],
+            "type": 0,
+            "attachments": [{
+                "id": "0",
+                "filename": "voice-message.ogg",
+                "uploaded_filename": uploaded_filename,
+                "waveform": waveform,
+                "duration_secs": duration,
+            }],
+        }
+
+        if reply_to:
+            body["message_reference"] = {
+                "channel_id": str(channel_id),
+                "message_id": str(reply_to.id),
+            }
+            body["allowed_mentions"] = {
+                "replied_user": mention_author,
+                "parse": ["users", "roles"],
+            }
+
+        msg_resp = await session.post(
+            f"https://discord.com/api/v9/channels/{channel_id}/messages",
+            headers=headers,
+            json=body,
+        )
+        result = await msg_resp.json()
+        print(f"[TTS] Message send response: {result}")
+
+        if "id" not in result:
+            raise Exception(f"Failed to send voice message: {result}")
+
+        return result
