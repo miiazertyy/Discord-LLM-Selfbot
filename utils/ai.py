@@ -60,11 +60,11 @@ async def _create_completion(messages):
             )
             return response
         except RateLimitError as e:
-            print(f"[AI] RateLimitError on {model}: {e}")
             if not fallback_model():
                 raise
         except Exception as e:
-            print(f"[AI] {type(e).__name__} on {model}: {e}")
+            if "rate" not in str(e).lower() and "429" not in str(e):
+                print(f"[AI] {type(e).__name__} on {model}: {e}")
             if not fallback_model():
                 raise
 
