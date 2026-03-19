@@ -99,7 +99,6 @@ bot.processing_locks = {}
 bot.user_message_batches = {}
 
 bot.active_conversations = {}
-bot.processed_message_ids = set()
 CONVERSATION_TIMEOUT = 150.0
 
 SPAM_MESSAGE_THRESHOLD = 5
@@ -648,14 +647,6 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
-    # Prevent processing the same message twice
-    if message.id in bot.processed_message_ids:
-        return
-    bot.processed_message_ids.add(message.id)
-    # Keep the set from growing forever
-    if len(bot.processed_message_ids) > 1000:
-        bot.processed_message_ids = set(list(bot.processed_message_ids)[-500:])
-
     channel_id = message.channel.id
     user_id = message.author.id
     current_time = time.time()
@@ -866,4 +857,28 @@ async def load_extensions():
 
 
 if __name__ == "__main__":
-    bot.run(TOKEN, log_handler=None)
+    import tempfile
+
+    lock_path = os.path.join(tempfile.gettempdir(), "llmselfbot.lock")
+
+    if sys.platform == "win32":
+        import msvcrt
+        try:
+            lock_file = open(lock_path, "w")
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            print("Another instance is already running. Exiting.")
+            sys.exit(1)
+    else:
+        import fcntl
+        try:
+            lock_file = open(lock_path, "w")
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("Another instance is already running. Exiting.")
+            sys.exit(1)
+
+    try:
+        bot.run(TOKEN, log_handler=None)
+    finally:
+        lock_file.close()
