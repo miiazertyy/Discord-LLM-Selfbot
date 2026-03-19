@@ -327,7 +327,6 @@ async def on_ready():
 
     if config["bot"]["mood"].get("enabled", True):
         shift_mood()
-        log_system(f"Starting mood: {get_mood()}")
         asyncio.create_task(mood_loop())
 
     print_separator()
