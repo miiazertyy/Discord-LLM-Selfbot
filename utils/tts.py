@@ -75,7 +75,7 @@ async def generate_voice_message(text: str) -> list[bytes] | None:
     chunk is generated separately then returned as individual audio files.
     """
     config = load_config()
-    tts_cfg = config["bot"].get("tts", {})
+    tts_cfg = config["bot"].get("tts") or {}
 
     if not tts_cfg.get("enabled", True):
         return None
