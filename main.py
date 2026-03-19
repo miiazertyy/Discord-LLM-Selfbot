@@ -257,6 +257,55 @@ async def _reply_pending_messages():
 
 
 @bot.event
+async def on_relationship_add(relationship):
+    """Queue incoming friend requests for auto-accept."""
+    # Type 3 = incoming friend request in discord.py-self
+    if relationship.type != discord.RelationshipType.incoming_request:
+        return
+
+    fr_cfg = config["bot"].get("friend_requests") or {}
+    if not fr_cfg.get("enabled", False):
+        return
+
+    delay = fr_cfg.get("accept_delay", 300)
+    log_system(f"Friend request from {relationship.user} — accepting in {delay}s")
+
+    async def _accept_later():
+        await asyncio.sleep(delay)
+        try:
+            await relationship.accept()
+            log_system(f"Accepted friend request from {relationship.user}")
+        except Exception as e:
+            log_error("Friend Request", str(e))
+
+    asyncio.create_task(_accept_later())
+
+
+async def _friend_request_loop():
+    """On startup, accept any friend requests that were already pending."""
+    await bot.wait_until_ready()
+    fr_cfg = config["bot"].get("friend_requests") or {}
+    delay = fr_cfg.get("accept_delay", 300)
+
+    try:
+        for relationship in bot.relationships:
+            if relationship.type == discord.RelationshipType.incoming_request:
+                log_system(f"Pending friend request from {relationship.user} — accepting in {delay}s")
+
+                async def _accept(r=relationship):
+                    await asyncio.sleep(delay)
+                    try:
+                        await r.accept()
+                        log_system(f"Accepted friend request from {r.user}")
+                    except Exception as e:
+                        log_error("Friend Request", str(e))
+
+                asyncio.create_task(_accept())
+    except Exception as e:
+        log_error("Friend Request Loop", str(e))
+
+
+@bot.event
 async def on_ready():
     if config["bot"]["owner_id"] == 123456789012345678:
         print(f"{Fore.RED}Error: Please set a valid owner_id in config.yaml{Style.RESET_ALL}")
@@ -288,6 +337,11 @@ async def on_ready():
 
     # Reply to any messages that were pending when the bot updated/restarted
     asyncio.create_task(_reply_pending_messages())
+
+    # Auto-accept friend requests if enabled
+    fr_cfg = config["bot"].get("friend_requests") or {}
+    if fr_cfg.get("enabled", False):
+        asyncio.create_task(_friend_request_loop())
 
 
 async def setup_hook():
@@ -540,6 +594,32 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             await webhook_log(message, e)
 
     return response
+
+
+@bot.event
+async def on_relationship_add(relationship):
+    """Auto-accept incoming friend requests with a delay."""
+    try:
+        if relationship.type != discord.RelationshipType.incoming_request:
+            return
+
+        fr_cfg = config["bot"].get("friend_requests") or {}
+        if not fr_cfg.get("enabled", False):
+            return
+
+        delay = fr_cfg.get("accept_delay", 300)
+        user = relationship.user
+        log_system(f"Friend request from {user.name} — accepting in {delay}s")
+
+        await asyncio.sleep(delay)
+
+        for r in bot.relationships:
+            if r.user.id == user.id and r.type == discord.RelationshipType.incoming_request:
+                await r.accept()
+                log_system(f"Accepted friend request from {user.name}")
+                break
+    except Exception as e:
+        log_error("Friend Request Error", str(e))
 
 
 @bot.event
