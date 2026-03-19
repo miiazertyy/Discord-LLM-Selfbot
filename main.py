@@ -402,10 +402,13 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             # Regenerate a short natural spoken response instead of the deflecting one
             spoken_instructions = (
                 enriched_instructions
-                + "\n\n[IMPORTANT: The user is asking to hear your voice. "
-                "You are sending a real voice message right now. "
-                "Reply naturally and conversationally as if actually speaking out loud. "
-                "Keep it short, 1-2 sentences max. Do NOT dodge or deflect.]"
+                + "\n\n[IMPORTANT: You are sending a real voice message right now. "
+                "Speak like a real person talking casually out loud — NOT like a text message. "
+                "No names, no formal greetings, no lists. "
+                "Use natural speech: filler words (uh, like, yeah, i mean), "
+                "contractions, trailing off, casual pacing. "
+                "Keep it short, 1-2 sentences max, like you just hit record and started talking. "
+                "Do NOT dodge or deflect. Do NOT start with a name or greeting.]"
             )
             spoken_response = await generate_response(prompt, spoken_instructions, history)
             if not spoken_response or is_refusal(spoken_response):
