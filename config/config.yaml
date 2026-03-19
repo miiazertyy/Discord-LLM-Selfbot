@@ -22,7 +22,14 @@ bot:
 
   # Model used for voice transcription
   groq_whisper_model: "whisper-large-v3-turbo"
-
+  # TTS voice settings
+  tts:
+    enabled: true
+    voice: "diana"        # autumn / diana / hannah / austin / daniel / troy
+    tones:
+      - "[casual]"
+      - "[warm]"
+      
   # Whether the bot should respond to DM's from people
   allow_dm: true
 
