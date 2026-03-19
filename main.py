@@ -432,7 +432,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     )
             return spoken_response
         except Exception as e:
+            import traceback
             print(f"[TTS] Failed to send voice message: {e}")
+            traceback.print_exc()
             # Fall through to normal text response if TTS fails
 
     chunks = split_response(response)
