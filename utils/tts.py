@@ -105,7 +105,7 @@ async def generate_voice_message(text: str) -> list[bytes] | None:
                 input=tts_input,
                 response_format="wav",
             )
-            audio_chunks.append(await response.aread())
+            audio_chunks.append(await response.read())
         except Exception as e:
             print(f"[TTS] Error on chunk {i + 1}/{len(text_chunks)}: {e}")
             if i == 0:
