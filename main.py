@@ -398,23 +398,54 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     tts_cfg = config["bot"].get("tts") or {}
     if tts_cfg.get("enabled", True) and is_tts_request(prompt):
         try:
-            audio_chunks = await generate_voice_message(response)
+            # Regenerate a short natural spoken response instead of the deflecting one
+            spoken_instructions = (
+                enriched_instructions
+                + "\n\n[IMPORTANT: The user is asking to hear your voice. "
+                "You are sending a real voice message right now. "
+                "Reply naturally and conversationally as if actually speaking out loud. "
+                "Keep it short, 1-2 sentences max. Do NOT dodge or deflect.]"
+            )
+            spoken_response = await generate_response(prompt, spoken_instructions, history)
+            if not spoken_response or is_refusal(spoken_response):
+                spoken_response = response
+            spoken_response = spoken_response.replace("\u2014", "").replace("\u2013", "")
+
+            channel_name = getattr(message.channel, 'name', 'DM')
+            guild_name = getattr(message.guild, 'name', 'DM')
+            log_incoming(message.author.name, channel_name, guild_name, prompt)
+            log_response(message.author.name, f"[Voice Message] {spoken_response}")
+            separator()
+
+            audio_chunks = await generate_voice_message(spoken_response)
             if audio_chunks:
-                log_response(message.author.name, "[Voice Message]")
-                separator()
                 for i, audio_bytes in enumerate(audio_chunks):
                     audio_file = io.BytesIO(audio_bytes)
-                    audio_file.name = "voice-message.wav"
-                    discord_file = discord.File(fp=audio_file, filename="voice-message.wav")
-                    if isinstance(message.channel, discord.DMChannel):
-                        await message.channel.send(file=discord_file)
-                    else:
-                        # Only reply on the first chunk, send the rest normally
-                        if i == 0:
-                            await message.reply(file=discord_file, mention_author=config["bot"]["reply_ping"])
+                    audio_file.name = "voice-message.ogg"
+                    discord_file = discord.File(
+                        fp=audio_file,
+                        filename="voice-message.ogg",
+                        description="Voice message",
+                    )
+                    try:
+                        flags = discord.MessageFlags(voice_message=True)
+                        if isinstance(message.channel, discord.DMChannel):
+                            await message.channel.send(file=discord_file, flags=flags)
                         else:
+                            if i == 0:
+                                await message.reply(file=discord_file, mention_author=config["bot"]["reply_ping"], flags=flags)
+                            else:
+                                await message.channel.send(file=discord_file, flags=flags)
+                    except Exception:
+                        # Fallback if voice_message flag unsupported in this discord.py version
+                        if isinstance(message.channel, discord.DMChannel):
                             await message.channel.send(file=discord_file)
-                return response
+                        else:
+                            if i == 0:
+                                await message.reply(file=discord_file, mention_author=config["bot"]["reply_ping"])
+                            else:
+                                await message.channel.send(file=discord_file)
+            return spoken_response
         except Exception as e:
             print(f"[TTS] Failed to send voice message: {e}")
             # Fall through to normal text response if TTS fails
