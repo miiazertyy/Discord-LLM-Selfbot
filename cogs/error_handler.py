@@ -7,6 +7,17 @@ from utils.error_notifications import print_error, webhook_log
 class ErrorHandler(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._processed_commands = set()
+
+    @commands.Cog.listener()
+    async def on_command(self, ctx):
+        """Dedup — silently drop if this message ID was already processed."""
+        if ctx.message.id in self._processed_commands:
+            ctx.command = None  # prevent command from running
+            return
+        self._processed_commands.add(ctx.message.id)
+        if len(self._processed_commands) > 500:
+            self._processed_commands = set(list(self._processed_commands)[-250:])
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
