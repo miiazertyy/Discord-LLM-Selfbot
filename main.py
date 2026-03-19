@@ -1,4 +1,5 @@
 import os
+import io
 import asyncio
 import discord
 import shutil
@@ -34,6 +35,8 @@ from utils.logger import (
 
 from utils.mood import get_mood, get_mood_prompt, mood_loop, shift_mood
 from utils.memory import init_memory, get_memory, set_memory, format_memory_for_prompt
+from utils.tts import generate_voice_message
+from utils.tts_trigger import is_tts_request
 
 
 init()
@@ -390,6 +393,32 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         return None
 
     response = response.replace("—", "").replace("–", "")
+
+    # Voice message — triggers when user asks to hear the bot's voice
+    tts_cfg = config["bot"].get("tts", {})
+    if tts_cfg.get("enabled", True) and is_tts_request(prompt):
+        try:
+            audio_chunks = await generate_voice_message(response)
+            if audio_chunks:
+                log_response(message.author.name, "[Voice Message]")
+                separator()
+                for i, audio_bytes in enumerate(audio_chunks):
+                    audio_file = io.BytesIO(audio_bytes)
+                    audio_file.name = "voice-message.wav"
+                    discord_file = discord.File(fp=audio_file, filename="voice-message.wav")
+                    if isinstance(message.channel, discord.DMChannel):
+                        await message.channel.send(file=discord_file)
+                    else:
+                        # Only reply on the first chunk, send the rest normally
+                        if i == 0:
+                            await message.reply(file=discord_file, mention_author=config["bot"]["reply_ping"])
+                        else:
+                            await message.channel.send(file=discord_file)
+                return response
+        except Exception as e:
+            print(f"[TTS] Failed to send voice message: {e}")
+            # Fall through to normal text response if TTS fails
+
     chunks = split_response(response)
     if len(chunks) > 3:
         chunks = chunks[:3]
