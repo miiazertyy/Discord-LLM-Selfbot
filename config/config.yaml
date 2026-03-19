@@ -135,8 +135,8 @@ bot:
 
   # --- Friend request auto-accept ---
   friend_requests:
-    # Enable or disable auto-accepting friend requests
     enabled: true
+    accept_delay: 300  # 5 minutes
 
     # Delay in seconds before accepting (0 = instant)
     accept_delay: 600   # 10 minutes
