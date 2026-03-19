@@ -173,17 +173,17 @@ class Management(commands.Cog):
 
     @commands.command(
         name="update",
-        description="Pulls the latest update from GitHub and relaunches the bot. Use 'repo' to pull latest commit.",
+        description="Pulls the latest update from GitHub and relaunches the bot. Use 'main' to pull latest commit.",
     )
     async def update(self, ctx, source: str = "release"):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        if source not in ("release", "repo"):
-            await ctx.send(f"Invalid option. Use `,update` for latest release or `,update repo` for latest commit.", delete_after=10)
+        if source not in ("release", "main"):
+            await ctx.send(f"Invalid option. Use `,update` for latest release or `,update main` for latest commit.", delete_after=10)
             return
 
-        if source == "repo":
+        if source == "main":
             msg = await ctx.send("Pulling latest commit from repo... brb")
         else:
             latest = None
@@ -198,6 +198,9 @@ class Management(commands.Cog):
                 pass
             msg = await ctx.send(f"Updating to {latest if latest else 'latest'}... brb")
 
+        # Save pending messages so the bot can respond to them after restart
+        self._save_pending_messages()
+
         if sys.platform == "win32":
             subprocess.Popen(["cmd", "/c", "start", "updater.bat"], shell=True)
         else:
@@ -207,6 +210,28 @@ class Management(commands.Cog):
         await asyncio.sleep(1)
         await ctx.bot.close()
         sys.exit(0)
+
+    def _save_pending_messages(self):
+        """Save the last message from each active conversation to disk so we can reply after restart."""
+        import json
+        from utils.helpers import resource_path
+
+        pending = {}
+        for key, history in self.bot.message_history.items():
+            # Only save if the last message is from the user (not yet replied to)
+            if history and history[-1]["role"] == "user":
+                user_id, channel_id = key.split("-")
+                pending[key] = {
+                    "user_id": user_id,
+                    "channel_id": channel_id,
+                    "content": history[-1]["content"],
+                    "history": history,
+                }
+
+        path = resource_path("config/pending_messages.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(pending, f)
+        print(f"[Update] Saved {len(pending)} pending message(s) for post-restart reply.")
 
     @commands.command(
         name="instructions",
