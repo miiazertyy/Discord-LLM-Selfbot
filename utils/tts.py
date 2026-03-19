@@ -80,7 +80,7 @@ async def generate_voice_message(text: str) -> list[bytes] | None:
     if not tts_cfg.get("enabled", True):
         return None
 
-    voice = tts_cfg.get("voice", "tara")
+    voice = tts_cfg.get("voice", "autumn")
     tones = tts_cfg.get("tones", ["[casual]", "[warm]"])
     tone_prefix = " ".join(tones)
 
@@ -105,7 +105,7 @@ async def generate_voice_message(text: str) -> list[bytes] | None:
                 input=tts_input,
                 response_format="wav",
             )
-            audio_chunks.append(response.content)
+            audio_chunks.append(await response.aread())
         except Exception as e:
             print(f"[TTS] Error on chunk {i + 1}/{len(text_chunks)}: {e}")
             if i == 0:
