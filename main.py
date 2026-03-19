@@ -8,6 +8,7 @@ import random
 import sys
 import time
 import requests
+import aiohttp
 import utils.ai as ai_module
 
 from utils.helpers import (
@@ -612,11 +613,22 @@ async def on_relationship_add(relationship):
 
         await asyncio.sleep(delay)
 
-        for r in bot.relationships:
-            if r.user.id == user.id and r.type == discord.RelationshipType.incoming_request:
-                await r.accept()
+        # Use the HTTP API directly — discord.py-self's r.accept() sends the wrong request type
+        token = bot._connection.http.token
+        async with aiohttp.ClientSession() as session:
+            resp = await session.put(
+                f"https://discord.com/api/v9/users/@me/relationships/{user.id}",
+                headers={
+                    "Authorization": token,
+                    "Content-Type": "application/json",
+                },
+                json={"type": 1},
+            )
+            if resp.status in (200, 204):
                 log_system(f"Accepted friend request from {user.name}")
-                break
+            else:
+                data = await resp.json()
+                log_error("Friend Request Error", f"{resp.status}: {data}")
     except Exception as e:
         log_error("Friend Request Error", str(e))
 
