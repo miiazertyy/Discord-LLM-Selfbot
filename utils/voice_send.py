@@ -117,7 +117,7 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
     upload API with flags=1<<13, waveform and duration_secs (same as Vencord).
     """
     # Compute waveform from WAV PCM, get accurate duration from ffprobe
-    ogg_bytes, duration = await asyncio.get_event_loop().run_in_executor(
+    ogg_bytes, duration = await asyncio.get_running_loop().run_in_executor(
         None, _wav_to_ogg_opus, wav_bytes
     )
     waveform = _make_waveform(wav_bytes, duration)
