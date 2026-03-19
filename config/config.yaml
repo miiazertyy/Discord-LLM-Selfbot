@@ -138,8 +138,6 @@ bot:
     enabled: true
     accept_delay: 300  # 5 minutes
 
-    # Delay in seconds before accepting (0 = instant)
-    accept_delay: 600   # 10 minutes
 notifications:
   error_webhook: "" 
   ratelimit_notifications: true
