@@ -173,17 +173,17 @@ class Management(commands.Cog):
 
     @commands.command(
         name="update",
-        description="Pulls the latest update from GitHub and relaunches the bot. Use 'main' to pull latest commit.",
+        description="Pulls the latest update from GitHub and relaunches the bot. Use 'repo' to pull latest commit.",
     )
     async def update(self, ctx, source: str = "release"):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        if source not in ("release", "main"):
-            await ctx.send(f"Invalid option. Use `,update` for latest release or `,update main` for latest commit.", delete_after=10)
+        if source not in ("release", "repo"):
+            await ctx.send(f"Invalid option. Use `,update` for latest release or `,update repo` for latest commit.", delete_after=10)
             return
 
-        if source == "main":
+        if source == "repo":
             msg = await ctx.send("Pulling latest commit from repo... brb")
         else:
             latest = None
@@ -198,9 +198,6 @@ class Management(commands.Cog):
                 pass
             msg = await ctx.send(f"Updating to {latest if latest else 'latest'}... brb")
 
-        # Save pending messages so the bot can respond to them after restart
-        self._save_pending_messages()
-
         if sys.platform == "win32":
             subprocess.Popen(["cmd", "/c", "start", "updater.bat"], shell=True)
         else:
@@ -210,28 +207,6 @@ class Management(commands.Cog):
         await asyncio.sleep(1)
         await ctx.bot.close()
         sys.exit(0)
-
-    def _save_pending_messages(self):
-        """Save the last message from each active conversation to disk so we can reply after restart."""
-        import json
-        from utils.helpers import resource_path
-
-        pending = {}
-        for key, history in self.bot.message_history.items():
-            # Only save if the last message is from the user (not yet replied to)
-            if history and history[-1]["role"] == "user":
-                user_id, channel_id = key.split("-")
-                pending[key] = {
-                    "user_id": user_id,
-                    "channel_id": channel_id,
-                    "content": history[-1]["content"],
-                    "history": history,
-                }
-
-        path = resource_path("config/pending_messages.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(pending, f)
-        print(f"[Update] Saved {len(pending)} pending message(s) for post-restart reply.")
 
     @commands.command(
         name="instructions",
@@ -386,6 +361,98 @@ class Management(commands.Cog):
             subprocess.Popen([python] + sys.argv)
             await ctx.bot.close()
             sys.exit(0)
+
+
+    @commands.command(
+        name="config",
+        description="View or edit config values. Use dot notation for nested keys.",
+    )
+    async def config_cmd(self, ctx, key: str = None, *, value: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        config = load_config()
+
+        # Display all settings
+        if key is None:
+            bot_cfg = config["bot"]
+            tts = bot_cfg.get("tts") or {}
+            fr = bot_cfg.get("friend_requests") or {}
+            mood = bot_cfg.get("mood") or {}
+            late = bot_cfg.get("late_reply") or {}
+            status = bot_cfg.get("status") or {}
+
+            lines = [
+                "```",
+                "⚙️  Bot Config",
+                "─────────────────────────────",
+                f"prefix              {bot_cfg.get('prefix')}",
+                f"trigger             {bot_cfg.get('trigger')}",
+                f"allow_dm            {bot_cfg.get('allow_dm')}",
+                f"allow_gc            {bot_cfg.get('allow_gc')}",
+                f"realistic_typing    {bot_cfg.get('realistic_typing')}",
+                f"batch_messages      {bot_cfg.get('batch_messages')}",
+                f"hold_conversation   {bot_cfg.get('hold_conversation')}",
+                f"ignore_chance       {bot_cfg.get('ignore_chance')}",
+                f"typo_chance         {bot_cfg.get('typo_chance')}",
+                f"anti_age_ban        {bot_cfg.get('anti_age_ban')}",
+                f"disable_mentions    {bot_cfg.get('disable_mentions')}",
+                f"reply_ping          {bot_cfg.get('reply_ping')}",
+                "─────────────────────────────",
+                f"tts.enabled         {tts.get('enabled')}",
+                f"tts.voice           {tts.get('voice')}",
+                f"tts.tones           {', '.join(tts.get('tones', []))}",
+                "─────────────────────────────",
+                f"mood.enabled        {mood.get('enabled')}",
+                "─────────────────────────────",
+                f"late_reply.enabled  {late.get('enabled')}",
+                f"late_reply.threshold {late.get('threshold')}",
+                "─────────────────────────────",
+                f"friend_requests.enabled      {fr.get('enabled')}",
+                f"friend_requests.accept_delay {fr.get('accept_delay')}",
+                "─────────────────────────────",
+                f"Models: {', '.join(bot_cfg.get('groq_models', []))}",
+                "```",
+                f"Use `,config <key> <value>` to edit. Example: `,config tts.voice diana`",
+            ]
+            await ctx.send("
+".join(lines), delete_after=60)
+            return
+
+        # Parse dot notation into nested dict path
+        keys = key.split(".")
+        
+        # Type coercion
+        def coerce(v):
+            if v.lower() == "true": return True
+            if v.lower() == "false": return False
+            try: return int(v)
+            except ValueError: pass
+            try: return float(v)
+            except ValueError: pass
+            return v
+
+        # Navigate to the right place and set the value
+        try:
+            node = config
+            for k in keys[:-1]:
+                if k not in node:
+                    await ctx.send(f"Key `{key}` not found.", delete_after=10)
+                    return
+                node = node[k]
+            
+            final_key = keys[-1]
+            if final_key not in node:
+                await ctx.send(f"Key `{key}` not found.", delete_after=10)
+                return
+
+            old_val = node[final_key]
+            node[final_key] = coerce(value)
+            self.save_config(config)
+
+            await ctx.send(f"✅ `{key}` updated: `{old_val}` → `{node[final_key]}`", delete_after=15)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
 
 
 async def setup(bot):
