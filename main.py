@@ -207,6 +207,55 @@ def print_separator():
     print(f"{Fore.CYAN}{create_border('─')}{Style.RESET_ALL}")
 
 
+async def _reply_pending_messages():
+    """After restart, reply to any users who messaged right before the update."""
+    import json
+    from utils.helpers import resource_path
+
+    path = resource_path("config/pending_messages.json")
+    if not os.path.exists(path):
+        return
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            pending = json.load(f)
+    except Exception:
+        return
+
+    if not pending:
+        return
+
+    os.remove(path)
+    log_system(f"Replying to {len(pending)} pending message(s) from before restart...")
+    await asyncio.sleep(3)  # Give the bot a moment to fully connect
+
+    for key, data in pending.items():
+        try:
+            channel = bot.get_channel(int(data["channel_id"]))
+            if channel is None:
+                channel = await bot.fetch_channel(int(data["channel_id"]))
+
+            history = data.get("history", [])
+            content = data["content"]
+
+            # Restore history so the bot has context
+            bot.message_history[key] = history
+
+            # Fetch the actual last message object to reply to
+            last_msg = None
+            async for msg in channel.history(limit=20):
+                if str(msg.author.id) == data["user_id"] and msg.content == content:
+                    last_msg = msg
+                    break
+
+            if last_msg:
+                response = await generate_response_and_reply(last_msg, content, history)
+                if response:
+                    bot.message_history[key].append({"role": "assistant", "content": response})
+        except Exception as e:
+            log_error("Pending Reply Error", str(e))
+
+
 @bot.event
 async def on_ready():
     if config["bot"]["owner_id"] == 123456789012345678:
@@ -236,6 +285,9 @@ async def on_ready():
 
     if config["bot"]["status"].get("enabled", True):
         asyncio.create_task(random_status_loop())
+
+    # Reply to any messages that were pending when the bot updated/restarted
+    asyncio.create_task(_reply_pending_messages())
 
 
 async def setup_hook():
