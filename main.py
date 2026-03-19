@@ -37,6 +37,7 @@ from utils.mood import get_mood, get_mood_prompt, mood_loop, shift_mood
 from utils.memory import init_memory, get_memory, set_memory, format_memory_for_prompt
 from utils.tts import generate_voice_message
 from utils.tts_trigger import is_tts_request
+from utils.voice_send import send_voice_message
 
 
 init()
@@ -420,31 +421,15 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             audio_chunks = await generate_voice_message(spoken_response)
             if audio_chunks:
                 for i, audio_bytes in enumerate(audio_chunks):
-                    audio_file = io.BytesIO(audio_bytes)
-                    audio_file.name = "voice-message.ogg"
-                    discord_file = discord.File(
-                        fp=audio_file,
-                        filename="voice-message.ogg",
-                        description="Voice message",
+                    # Use raw Discord API to send as a proper voice message bubble
+                    # (requires flags=1<<13, waveform and duration_secs like Vencord does)
+                    reply_msg = message if i == 0 else None
+                    await send_voice_message(
+                        message.channel,
+                        audio_bytes,
+                        reply_to=reply_msg,
+                        mention_author=config["bot"]["reply_ping"],
                     )
-                    try:
-                        flags = discord.MessageFlags(voice_message=True)
-                        if isinstance(message.channel, discord.DMChannel):
-                            await message.channel.send(file=discord_file, flags=flags)
-                        else:
-                            if i == 0:
-                                await message.reply(file=discord_file, mention_author=config["bot"]["reply_ping"], flags=flags)
-                            else:
-                                await message.channel.send(file=discord_file, flags=flags)
-                    except Exception:
-                        # Fallback if voice_message flag unsupported in this discord.py version
-                        if isinstance(message.channel, discord.DMChannel):
-                            await message.channel.send(file=discord_file)
-                        else:
-                            if i == 0:
-                                await message.reply(file=discord_file, mention_author=config["bot"]["reply_ping"])
-                            else:
-                                await message.channel.send(file=discord_file)
             return spoken_response
         except Exception as e:
             print(f"[TTS] Failed to send voice message: {e}")
