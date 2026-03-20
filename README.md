@@ -39,26 +39,37 @@ Preview :
 
 And a bunch other quality of life features
 
-## 📜 Commands
+##  📋 Commands
 
--   pause - Pause the bot from producing AI responses
--   analyse [user] - Analyze a user's message history and provides a - gical profile
--   wipe - Clears history of the bot
--   ping - Shows the bot's latency
--   toggleactive [channelID] - Toggle the current channel to the list of active channels
--   toggledm - Toggle if the bot should be active in DM's or not
--   togglegc - Toggle if the bot should be active in group chats or not
--   ignore [user] - Stop a user from using the bot
--   reload - Reloads all cogs
--   instructions - Changes the instruction.txt directly from Discord DMs
--   getinstructions - Get the instructions.txt in chat
--   config - Give you all the values from config.yaml and makes you able to modify everything from chat
--   setconfig - Sets the config.yaml from the chat
--   getconfig - Sends config.yaml in chat 
--   getdb - Get database with users memorys
--   update (repo) - Updates and restart the bot to the lastest stable using git
--   restart - Restarts the entire bot
--   shutdown - Shuts down the bot
+###  🤖  AI
+  ,pause              pause/unpause AI responses
+  ,wipe               clear conversation history
+  ,respond [user]     manually reply to a user's last message
+  ,analyse [user]     psychological profile of a user
+
+###  ⚙️   Config
+  ,config             view/edit config inline
+  ,getconfig          download config.yaml
+  ,setconfig          upload a new config.yaml
+  ,instructions       upload new instructions.txt
+  ,getinstructions    download instructions.txt
+  ,prompt [text]      view/set/clear instructions inline
+
+###  📡  Channels
+  ,toggleactive       toggle current channel
+  ,toggledm           toggle DM responses
+  ,togglegc           toggle group chat responses
+  ,ignore [user]      ignore/unignore a user
+
+###  🛠️   System
+  ,update             update to latest release
+  ,update main        update to latest commit
+  ,reload             reload all cogs + instructions
+  ,restart            restart the bot
+  ,shutdown           shut down the bot
+  ,ping               show latency
+  ,getdb              download memory database
+
 
 ### Step 1: Download the Selfbot
 - Go to Release and download the lastest stable version
