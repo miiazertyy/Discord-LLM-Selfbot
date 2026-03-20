@@ -256,20 +256,30 @@ async def _reply_pending_messages():
 
             bot.message_history[key] = history
 
-            # Find the last message from this user in the channel
+            # Find the last message from this user — if not found, send to DM directly
             last_msg = None
-            async for msg in channel.history(limit=30):
+            async for msg in channel.history(limit=50):
                 if msg.author.id == user_id:
                     last_msg = msg
                     break
 
-            if last_msg:
-                log_system(f"Replying to pending message from {last_msg.author.name}")
-                response = await generate_response_and_reply(last_msg, msg_content, history)
-                if response:
-                    bot.message_history[key].append({"role": "assistant", "content": response})
-            else:
-                log_error("Pending Reply", f"Could not find message from user {user_id}")
+            if last_msg is None:
+                # No message found in DM — send a standalone message instead of replying
+                log_system(f"No message found for {user_id}, sending DM directly")
+                last_msg = type("FakeMsg", (), {
+                    "author": user,
+                    "channel": channel,
+                    "guild": None,
+                    "mentions": [],
+                    "attachments": [],
+                    "reference": None,
+                    "id": 0,
+                })()
+
+            log_system(f"Replying to pending message from {user.name}")
+            response = await generate_response_and_reply(last_msg, msg_content, history)
+            if response:
+                bot.message_history[key].append({"role": "assistant", "content": response})
         except Exception as e:
             log_error("Pending Reply Error", str(e))
 
