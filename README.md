@@ -18,17 +18,16 @@ Preview :
 
 # ☮️ Features
 
--   [x] Custom AI Instructions: You can replace the text inside of `instructions.txt` and make the AI act however you'd like!
--   [x] Realistic Typing: The bot types like a real person, with varying speeds and pauses.
--   [x] Free LLM Model: Enjoy the powerful capabilities of this language model without spending a dime.
--   [x] Mention Recognition: The bot only responds when you mention it or say its trigger word.
--   [x] Reply Recognition: If replied to, the bot will continue to reply to you. It's like having a conversation with a real person.
--   [x] Message Handling: The bot knows when you're replying to someone else, so it won't cause confusion.
--   [x] Image Recognition: The bot can recognize images and respond to them in character.
--   [x] Anti-spam: The bot has a built-in anti-spam feature to prevent people from abusing it.
--   [x] Psychoanalysis Command: Use the `,analyse` command to analyse a mentioned user's messages and find insights on their personality.
+-   [x] You can replace the text inside of `instructions.txt` and make the AI act however you'd like!
+-   [x] The bot types like a real person, with varying speeds and pauses.
+-   [x] The bot only responds when you mention it or say its trigger word.
+-   [x] If replied to, the bot will continue to reply to you. Even in GCs
+-   [x] The bot knows when you're replying to someone else, so it won't cause confusion.
+-   [x] The bot can recognize images and respond to them in character.
+-   [x] The bot has a built-in anti-spam feature to prevent people from abusing it.
+-   [x] Use the `,analyse` command to analyse a mentioned user's messages and find insights on their personality.
 -   [x] Uses all groq LLMs configurable in `config.yaml`
--   [x] Secure Credential Management: Keep your credentials secure using environment variables. (`.env`)
+-   [x] Keep your credentials secure using environment variables. (`.env`)
 -   [x] Priority prefix "=" to bypass wait times between responses usable by everyone.
 -   [x] Auto switches between LLMs when out of tokens.
 -   [x] Changes mood automatically, replacing the temperature from the LLM and is fully customizable.
@@ -37,7 +36,7 @@ Preview :
 -   [x] Auto accept friend requests configurable
 -   [x] Send voice messages, needs to accept conditions on groq's website ([Groq TTS](https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english))
 
-And a bunch other quality of life features
+And a bunch other features probably unmentioned
 
 ##  📋 Commands
 
