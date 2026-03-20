@@ -69,7 +69,8 @@ And a bunch other quality of life features
     ,shutdown           shut down the bot
     ,ping               show latency
     ,getdb              download memory database
-
+    ,status [emoji] [text]  set custom status
+    ,bio [text]         set profile bio
 
 ### Step 1: Download the Selfbot
 - Go to Release and download the lastest stable version
