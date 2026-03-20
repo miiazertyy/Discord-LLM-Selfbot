@@ -291,10 +291,11 @@ class Management(commands.Cog):
 
         prefix = self.bot.command_prefix
         pending = {}
+
+        # 1. Unanswered messages from history
         for key, history in self.bot.message_history.items():
             if not history:
                 continue
-            # Collect all consecutive unanswered user messages at the end
             unanswered = []
             for entry in reversed(history):
                 if entry["role"] == "user":
@@ -303,7 +304,6 @@ class Management(commands.Cog):
                     break
             if not unanswered:
                 continue
-            # Skip if all are commands
             real_msgs = [m for m in unanswered if not m.startswith(prefix)]
             if not real_msgs:
                 continue
@@ -315,11 +315,47 @@ class Management(commands.Cog):
                 "history": history,
             }
 
+        # 2. Messages sitting in the queue (not yet responded to)
+        for channel_id, queue in self.bot.message_queues.items():
+            for msg in queue:
+                if not msg.content or msg.content.startswith(prefix):
+                    continue
+                key = f"{msg.author.id}-{channel_id}"
+                if key in pending:
+                    continue
+                history = self.bot.message_history.get(key, [])
+                pending[key] = {
+                    "user_id": str(msg.author.id),
+                    "channel_id": str(channel_id),
+                    "content": msg.content,
+                    "history": history,
+                }
+
+        # 3. Messages in batch buffers (collected but not yet sent to AI)
+        for batch_key, batch_data in self.bot.user_message_batches.items():
+            msgs = batch_data.get("messages", [])
+            if not msgs:
+                continue
+            combined = "\n".join(m.content for m in msgs if m.content and not m.content.startswith(prefix))
+            if not combined:
+                continue
+            first_msg = msgs[0]
+            channel_id = first_msg.channel.id
+            key = f"{first_msg.author.id}-{channel_id}"
+            if key in pending:
+                continue
+            history = self.bot.message_history.get(key, [])
+            pending[key] = {
+                "user_id": str(first_msg.author.id),
+                "channel_id": str(channel_id),
+                "content": combined,
+                "history": history,
+            }
+
         path = resource_path("config/pending_messages.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(pending, f)
         print(f"[Update] Saved {len(pending)} pending message(s) for post-restart reply.")
-        print(f"[Update] Total history keys: {len(self.bot.message_history)}")
         for k, v in pending.items():
             print(f"[Update] → {v['user_id']}: {v['content'][:60]!r}")
 
