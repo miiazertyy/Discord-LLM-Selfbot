@@ -228,7 +228,7 @@ async def _reply_pending_messages():
 
     os.remove(path)
     log_system(f"Replying to {len(pending)} pending message(s) from before restart...")
-    await asyncio.sleep(3)  # Give the bot a moment to fully connect
+    await asyncio.sleep(3)
 
     for key, data in pending.items():
         try:
@@ -239,20 +239,29 @@ async def _reply_pending_messages():
             history = data.get("history", [])
             content = data["content"]
 
-            # Restore history so the bot has context
             bot.message_history[key] = history
 
-            # Fetch the actual last message object to reply to
+            # Try finding the exact message, fall back to just responding anyway
             last_msg = None
-            async for msg in channel.history(limit=20):
+            async for msg in channel.history(limit=30):
                 if str(msg.author.id) == data["user_id"] and msg.content == content:
                     last_msg = msg
                     break
 
+            if not last_msg:
+                # Message not found by content match, fetch latest from user
+                async for msg in channel.history(limit=30):
+                    if str(msg.author.id) == data["user_id"]:
+                        last_msg = msg
+                        break
+
             if last_msg:
+                log_system(f"Replying to pending message from {last_msg.author.name}: {content[:50]}")
                 response = await generate_response_and_reply(last_msg, content, history)
                 if response:
                     bot.message_history[key].append({"role": "assistant", "content": response})
+            else:
+                log_error("Pending Reply", f"Could not find message for user {data['user_id']} in channel {data['channel_id']}")
         except Exception as e:
             log_error("Pending Reply Error", str(e))
 
