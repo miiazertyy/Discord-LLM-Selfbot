@@ -142,10 +142,14 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
     prompt = (
         f'User message: "{user_message}"\n'
         f'Assistant reply: "{assistant_reply}"\n\n'
-        "Extract ONLY concrete facts the user explicitly stated about themselves. "
+        "Extract ONLY concrete facts the USER explicitly stated about themselves in their message. "
+        "STRICT RULES: "
+        "Ignore any @mentions such as @Alex or @someone — these are Discord mentions, not the user's name. "
+        "Ignore anything said by the assistant — only extract from the USER message. "
+        "Ignore facts about the assistant — if the assistant says 'i am 18' do NOT save age=18. "
+        "Only save facts the user clearly stated about themselves such as 'I am 22' or 'I live in Paris' or 'my name is Jake'. "
         'Return a JSON object like {"name": "John", "age": "22"}. '
         "Keys must be simple: name, age, location, job, hobby, game, relationship_status. "
-        "Only include facts the USER clearly stated. "
         "If nothing new was revealed return exactly: {} "
         "Return ONLY the JSON object. No explanation, no markdown, no extra text."
     )
