@@ -528,5 +528,21 @@ class Management(commands.Cog):
             await ctx.send(f"Error: {e}", delete_after=10)
 
 
+    @commands.command(name="status", description="Change the bot's custom status.")
+    async def status(self, ctx, *, text: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        try:
+            await self.bot.change_presence(
+                activity=discord.CustomActivity(name=text or "")
+            )
+            if text:
+                await ctx.send(f"Status updated to: `{text}`", delete_after=10)
+            else:
+                await ctx.send("Status cleared.", delete_after=10)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
+
+
 async def setup(bot):
     await bot.add_cog(Management(bot))
