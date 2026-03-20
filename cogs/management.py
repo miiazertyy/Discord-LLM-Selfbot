@@ -496,7 +496,8 @@ class Management(commands.Cog):
             return v
 
         try:
-            node = config
+            # Always start inside config["bot"] — all editable keys live there
+            node = config["bot"]
             for k in keys[:-1]:
                 if k not in node:
                     await ctx.send(f"Key `{key}` not found.", delete_after=10)
@@ -509,7 +510,7 @@ class Management(commands.Cog):
             old_val = node[final_key]
             node[final_key] = coerce(value)
             self.save_config(config)
-            await ctx.send(f"✅ `{key}` updated: `{old_val}` → `{node[final_key]}`", delete_after=15)
+            await ctx.send(f"`{key}` updated: `{old_val}` → `{node[final_key]}`", delete_after=15)
         except Exception as e:
             await ctx.send(f"Error: {e}", delete_after=10)
 
