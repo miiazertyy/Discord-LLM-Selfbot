@@ -319,6 +319,9 @@ class Management(commands.Cog):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(pending, f)
         print(f"[Update] Saved {len(pending)} pending message(s) for post-restart reply.")
+        print(f"[Update] Total history keys: {len(self.bot.message_history)}")
+        for k, v in pending.items():
+            print(f"[Update] → {v['user_id']}: {v['content'][:60]!r}")
 
     @commands.command(name="respond", description="Manually trigger a response to a user's recent messages.")
     async def respond(self, ctx, user: discord.User):
