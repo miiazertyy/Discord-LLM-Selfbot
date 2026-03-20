@@ -232,18 +232,9 @@ async def _reply_pending_messages():
 
     for key, data in pending.items():
         try:
-            # Skip if the saved content was a command
-            if data["content"].startswith(PREFIX):
-                continue
-
             channel = bot.get_channel(int(data["channel_id"]))
             if channel is None:
-                try:
-                    channel = await bot.fetch_channel(int(data["channel_id"]))
-                except Exception:
-                    # For DMs, fetch the user and create DM channel
-                    user = await bot.fetch_user(int(data["user_id"]))
-                    channel = await user.create_dm()
+                channel = await bot.fetch_channel(int(data["channel_id"]))
 
             history = data.get("history", [])
             content = data["content"]
@@ -801,9 +792,11 @@ async def process_message_queue(channel_id):
             if key not in bot.message_history:
                 bot.message_history[key] = []
 
-            bot.message_history[key].append(
-                {"role": "user", "content": combined_content}
-            )
+            # Don't add command messages to history
+            if not combined_content.startswith(PREFIX):
+                bot.message_history[key].append(
+                    {"role": "user", "content": combined_content}
+                )
             history = bot.message_history[key]
 
             total_wait = wait_time + message_age
