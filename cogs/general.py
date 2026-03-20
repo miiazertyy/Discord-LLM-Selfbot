@@ -57,6 +57,8 @@ class General(commands.Cog):
             f"  {p}shutdown           shut down the bot",
             f"  {p}ping               show latency",
             f"  {p}getdb              download memory database",
+            f"  {p}status [emoji] [text]  set custom status",
+            f"  {p}bio [text]         set profile bio",
             "```",
         ]
         await ctx.send("\n".join(lines), delete_after=60)
