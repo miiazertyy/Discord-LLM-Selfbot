@@ -238,7 +238,12 @@ async def _reply_pending_messages():
 
             channel = bot.get_channel(int(data["channel_id"]))
             if channel is None:
-                channel = await bot.fetch_channel(int(data["channel_id"]))
+                try:
+                    channel = await bot.fetch_channel(int(data["channel_id"]))
+                except Exception:
+                    # For DMs, fetch the user and create DM channel
+                    user = await bot.fetch_user(int(data["user_id"]))
+                    channel = await user.create_dm()
 
             history = data.get("history", [])
             content = data["content"]
