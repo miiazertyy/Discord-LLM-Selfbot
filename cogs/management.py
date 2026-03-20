@@ -425,9 +425,9 @@ class Management(commands.Cog):
             response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
             if response:
                 self.bot.message_history[key].append({"role": "assistant", "content": response})
-                await ctx.send(f"✅ Responded to {user.name}", delete_after=5)
+                await ctx.send(f"Responded to {user.name}", delete_after=5)
             else:
-                await ctx.send(f"❌ Failed to generate response for {user.name}", delete_after=5)
+                await ctx.send(f"Failed to generate response for {user.name}", delete_after=5)
 
         except Exception as e:
             import traceback
@@ -496,8 +496,7 @@ class Management(commands.Cog):
             return v
 
         try:
-            # Always start inside config["bot"] — all editable keys live there
-            node = config["bot"]
+            node = config
             for k in keys[:-1]:
                 if k not in node:
                     await ctx.send(f"Key `{key}` not found.", delete_after=10)
@@ -511,6 +510,20 @@ class Management(commands.Cog):
             node[final_key] = coerce(value)
             self.save_config(config)
             await ctx.send(f"`{key}` updated: `{old_val}` → `{node[final_key]}`", delete_after=15)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
+
+
+    @commands.command(name="bio", description="Change the bot's profile bio.")
+    async def bio(self, ctx, *, text: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        try:
+            await self.bot.user.edit(bio=text or "")
+            if text:
+                await ctx.send(f"Bio updated to: `{text}`", delete_after=10)
+            else:
+                await ctx.send("Bio cleared.", delete_after=10)
         except Exception as e:
             await ctx.send(f"Error: {e}", delete_after=10)
 
