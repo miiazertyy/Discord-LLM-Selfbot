@@ -529,15 +529,15 @@ class Management(commands.Cog):
 
 
     @commands.command(name="status", description="Change the bot's custom status.")
-    async def status(self, ctx, *, text: str = None):
+    async def status(self, ctx, emoji: str = None, *, text: str = None):
         if ctx.author.id != self.bot.owner_id:
             return
         try:
             await self.bot.change_presence(
-                activity=discord.CustomActivity(name=text or "")
+                activity=discord.CustomActivity(name=text or "", emoji=emoji or None)
             )
-            if text:
-                await ctx.send(f"Status updated to: `{text}`", delete_after=10)
+            if text or emoji:
+                await ctx.send(f"Status updated.", delete_after=10)
             else:
                 await ctx.send("Status cleared.", delete_after=10)
         except Exception as e:
