@@ -530,7 +530,10 @@ class Management(commands.Cog):
                 await ctx.send(f"No recent messages found from {user.name}.", delete_after=10)
                 return
 
-            await ctx.message.delete()
+            try:
+                await ctx.message.delete()
+            except Exception:
+                pass  # Can't delete in DMs
 
             recent_msgs = list(reversed(recent_msgs))
             combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
