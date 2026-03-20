@@ -488,25 +488,23 @@ class Management(commands.Cog):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        # Find the channel with the user's most recent messages
         target_channel = None
         recent_msgs = []
 
-        # Check DM channel first
+        # Check DM first
         try:
             dm = user.dm_channel or await user.create_dm()
             async for msg in dm.history(limit=20):
                 if msg.author.id == user.id:
                     recent_msgs.append(msg)
                 elif recent_msgs:
-                    # Stop collecting once we hit a non-user message after finding some
                     break
             if recent_msgs:
                 target_channel = dm
         except Exception:
             pass
 
-        # If not found in DMs, search active channels
+        # Then active channels
         if not target_channel:
             for channel_id in self.bot.active_channels:
                 try:
@@ -530,20 +528,17 @@ class Management(commands.Cog):
 
         await ctx.message.delete()
 
-        # Messages come in reverse chronological order, reverse them
         recent_msgs = list(reversed(recent_msgs))
         combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
         last_msg = recent_msgs[-1]
 
-        # Restore or build history context
         key = f"{user.id}-{target_channel.id}"
         history = self.bot.message_history.get(key, [])
         if not history or history[-1].get("content") != combined_content:
             history.append({"role": "user", "content": combined_content})
             self.bot.message_history[key] = history
 
-        from main import generate_response_and_reply
-        response = await generate_response_and_reply(last_msg, combined_content, history)
+        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
         if response:
             self.bot.message_history[key].append({"role": "assistant", "content": response})
 
