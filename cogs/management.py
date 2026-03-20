@@ -373,14 +373,18 @@ class Management(commands.Cog):
         import json
         from utils.helpers import resource_path
 
+        prefix = self.bot.command_prefix
         pending = {}
         for key, history in self.bot.message_history.items():
             if history and history[-1]["role"] == "user":
+                content_val = history[-1]["content"]
+                if content_val.startswith(prefix):
+                    continue
                 user_id, channel_id = key.split("-")
                 pending[key] = {
                     "user_id": user_id,
                     "channel_id": channel_id,
-                    "content": history[-1]["content"],
+                    "content": content_val,
                     "history": history,
                 }
 
@@ -388,6 +392,7 @@ class Management(commands.Cog):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(pending, f)
         print(f"[Update] Saved {len(pending)} pending message(s) for post-restart reply.")
+        print(f"[Update] Pending keys: {list(pending.keys())}")
 
     @commands.command(
         name="config",
@@ -488,82 +493,59 @@ class Management(commands.Cog):
         if ctx.author.id != self.bot.owner_id:
             return
 
+        target_channel = None
+        recent_msgs = []
+
+        # Check DM first
         try:
-            target_channel = None
-            recent_msgs = []
+            dm = user.dm_channel or await user.create_dm()
+            async for msg in dm.history(limit=20):
+                if msg.author.id == user.id:
+                    recent_msgs.append(msg)
+                elif recent_msgs:
+                    break
+            if recent_msgs:
+                target_channel = dm
+        except Exception:
+            pass
 
-            # Check DM first
-            try:
-                dm = user.dm_channel or await user.create_dm()
-                async for msg in dm.history(limit=20):
-                    if msg.author.id == user.id:
-                        recent_msgs.append(msg)
-                    elif recent_msgs:
-                        break
-                if recent_msgs:
-                    target_channel = dm
-            except Exception as e:
-                print(f"[Respond] DM search error: {e}")
-
-            # Then active channels
-            if not target_channel:
-                for channel_id in self.bot.active_channels:
-                    try:
-                        channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
-                        msgs = []
-                        async for msg in channel.history(limit=50):
-                            if msg.author.id == user.id:
-                                msgs.append(msg)
-                            elif msgs:
-                                break
-                        if msgs:
-                            recent_msgs = msgs
-                            target_channel = channel
+        # Then active channels
+        if not target_channel:
+            for channel_id in self.bot.active_channels:
+                try:
+                    channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+                    msgs = []
+                    async for msg in channel.history(limit=50):
+                        if msg.author.id == user.id:
+                            msgs.append(msg)
+                        elif msgs:
                             break
-                    except Exception as e:
-                        print(f"[Respond] Channel search error: {e}")
-                        continue
+                    if msgs:
+                        recent_msgs = msgs
+                        target_channel = channel
+                        break
+                except Exception:
+                    continue
 
-            print(f"[Respond] found {len(recent_msgs)} msgs, channel: {target_channel}")
+        if not target_channel or not recent_msgs:
+            await ctx.send(f"No recent messages found from {user.name}.", delete_after=10)
+            return
 
-            if not target_channel or not recent_msgs:
-                await ctx.send(f"No recent messages found from {user.name}.", delete_after=10)
-                return
+        await ctx.message.delete()
 
-            try:
-                await ctx.message.delete()
-            except Exception:
-                pass  # Can't delete in DMs
+        recent_msgs = list(reversed(recent_msgs))
+        combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
+        last_msg = recent_msgs[-1]
 
-            recent_msgs = list(reversed(recent_msgs))
-            combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
-            last_msg = recent_msgs[-1]
+        key = f"{user.id}-{target_channel.id}"
+        history = self.bot.message_history.get(key, [])
+        if not history or history[-1].get("content") != combined_content:
+            history.append({"role": "user", "content": combined_content})
+            self.bot.message_history[key] = history
 
-            print(f"[Respond] combined: {combined_content[:100]}")
-
-            key = f"{user.id}-{target_channel.id}"
-            history = self.bot.message_history.get(key, [])
-            if not history or history[-1].get("content") != combined_content:
-                history.append({"role": "user", "content": combined_content})
-                self.bot.message_history[key] = history
-
-            if not hasattr(self.bot, "generate_response_and_reply"):
-                print("[Respond] ERROR: bot.generate_response_and_reply not set!")
-                await ctx.send("Bot not ready, try again after restart.", delete_after=10)
-                return
-
-            response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
-            if response:
-                self.bot.message_history[key].append({"role": "assistant", "content": response})
-                await ctx.send(f"✅ Responded to {user.name}", delete_after=5)
-            else:
-                await ctx.send(f"❌ Failed to generate response for {user.name}", delete_after=5)
-
-        except Exception as e:
-            import traceback
-            print(f"[Respond] Error: {e}")
-            traceback.print_exc()
-            await ctx.send(f"Error: {e}", delete_after=15)
+        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
+        if response:
+            self.bot.message_history[key].append({"role": "assistant", "content": response})
 
 
 async def setup(bot):
