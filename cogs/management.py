@@ -480,5 +480,73 @@ class Management(commands.Cog):
             await ctx.send(f"Error: {e}", delete_after=10)
 
 
+    @commands.command(
+        name="respond",
+        description="Manually trigger a response to a user's recent messages.",
+    )
+    async def respond(self, ctx, user: discord.User):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        # Find the channel with the user's most recent messages
+        target_channel = None
+        recent_msgs = []
+
+        # Check DM channel first
+        try:
+            dm = user.dm_channel or await user.create_dm()
+            async for msg in dm.history(limit=20):
+                if msg.author.id == user.id:
+                    recent_msgs.append(msg)
+                elif recent_msgs:
+                    # Stop collecting once we hit a non-user message after finding some
+                    break
+            if recent_msgs:
+                target_channel = dm
+        except Exception:
+            pass
+
+        # If not found in DMs, search active channels
+        if not target_channel:
+            for channel_id in self.bot.active_channels:
+                try:
+                    channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+                    msgs = []
+                    async for msg in channel.history(limit=50):
+                        if msg.author.id == user.id:
+                            msgs.append(msg)
+                        elif msgs:
+                            break
+                    if msgs:
+                        recent_msgs = msgs
+                        target_channel = channel
+                        break
+                except Exception:
+                    continue
+
+        if not target_channel or not recent_msgs:
+            await ctx.send(f"No recent messages found from {user.name}.", delete_after=10)
+            return
+
+        await ctx.message.delete()
+
+        # Messages come in reverse chronological order, reverse them
+        recent_msgs = list(reversed(recent_msgs))
+        combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
+        last_msg = recent_msgs[-1]
+
+        # Restore or build history context
+        key = f"{user.id}-{target_channel.id}"
+        history = self.bot.message_history.get(key, [])
+        if not history or history[-1].get("content") != combined_content:
+            history.append({"role": "user", "content": combined_content})
+            self.bot.message_history[key] = history
+
+        from main import generate_response_and_reply
+        response = await generate_response_and_reply(last_msg, combined_content, history)
+        if response:
+            self.bot.message_history[key].append({"role": "assistant", "content": response})
+
+
 async def setup(bot):
     await bot.add_cog(Management(bot))
