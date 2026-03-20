@@ -369,30 +369,47 @@ class Management(commands.Cog):
 
 
     def _save_pending_messages(self):
-        """Save the last message from each active conversation to disk so we can reply after restart."""
+        """Save pending conversations to disk so we can reply after restart."""
         import json
         from utils.helpers import resource_path
 
         prefix = self.bot.command_prefix
         pending = {}
         for key, history in self.bot.message_history.items():
-            # Only save if the last message is from the user (not bot) and not a command
-            if history and history[-1]["role"] == "user":
-                content_val = history[-1]["content"]
-                if content_val.startswith(prefix):
-                    continue
-                user_id, channel_id = key.split("-")
-                pending[key] = {
-                    "user_id": user_id,
-                    "channel_id": channel_id,
-                    "content": content_val,
-                    "history": history,
-                }
+            if not history:
+                continue
+
+            # Collect all consecutive unanswered user messages at the end
+            unanswered = []
+            for entry in reversed(history):
+                if entry["role"] == "user":
+                    unanswered.insert(0, entry["content"])
+                else:
+                    break
+
+            if not unanswered:
+                continue
+
+            # Filter out command messages
+            real_msgs = [m for m in unanswered if not m.startswith(prefix)]
+            if not real_msgs:
+                continue
+
+            user_id, channel_id = key.split("-")
+            combined = "\n".join(real_msgs)
+            pending[key] = {
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "content": combined,
+                "history": history,
+            }
 
         path = resource_path("config/pending_messages.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(pending, f)
         print(f"[Update] Saved {len(pending)} pending message(s) for post-restart reply.")
+        for k, v in pending.items():
+            print(f"[Update] → {v['user_id']}: {v['content'][:60]!r}")
 
     @commands.command(
         name="config",
@@ -483,86 +500,6 @@ class Management(commands.Cog):
             await ctx.send(f"✅ `{key}` updated: `{old_val}` → `{node[final_key]}`", delete_after=15)
         except Exception as e:
             await ctx.send(f"Error: {e}", delete_after=10)
-
-
-    @commands.command(
-        name="respond",
-        description="Manually trigger a response to a user's recent messages.",
-    )
-    async def respond(self, ctx, user: discord.User):
-        if ctx.author.id != self.bot.owner_id:
-            return
-
-        try:
-            target_channel = None
-            recent_msgs = []
-
-            # Check DM first
-            try:
-                dm = user.dm_channel or await user.create_dm()
-                async for msg in dm.history(limit=20):
-                    if msg.author.id == user.id:
-                        recent_msgs.append(msg)
-                    elif recent_msgs:
-                        break
-                if recent_msgs:
-                    target_channel = dm
-            except Exception as e:
-                print(f"[Respond] DM search error: {e}")
-
-            # Then active channels
-            if not target_channel:
-                for channel_id in self.bot.active_channels:
-                    try:
-                        channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
-                        msgs = []
-                        async for msg in channel.history(limit=50):
-                            if msg.author.id == user.id:
-                                msgs.append(msg)
-                            elif msgs:
-                                break
-                        if msgs:
-                            recent_msgs = msgs
-                            target_channel = channel
-                            break
-                    except Exception as e:
-                        print(f"[Respond] Channel search error: {e}")
-                        continue
-
-            if not target_channel or not recent_msgs:
-                await ctx.send(f"No recent messages found from {user.name}.", delete_after=10)
-                return
-
-            try:
-                await ctx.message.delete()
-            except Exception:
-                pass
-
-            recent_msgs = list(reversed(recent_msgs))
-            combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
-            last_msg = recent_msgs[-1]
-
-            key = f"{user.id}-{target_channel.id}"
-            history = self.bot.message_history.get(key, [])
-            if not history or history[-1].get("content") != combined_content:
-                history.append({"role": "user", "content": combined_content})
-                self.bot.message_history[key] = history
-
-            if not hasattr(self.bot, "generate_response_and_reply"):
-                await ctx.send("Bot not ready, restart required.", delete_after=10)
-                return
-
-            response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
-            if response:
-                self.bot.message_history[key].append({"role": "assistant", "content": response})
-                await ctx.send(f"✅ Responded to {user.name}", delete_after=5)
-            else:
-                await ctx.send(f"❌ Failed to generate response for {user.name}", delete_after=5)
-
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            await ctx.send(f"Error: {e}", delete_after=15)
 
 
 async def setup(bot):
