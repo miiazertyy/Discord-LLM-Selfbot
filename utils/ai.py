@@ -174,7 +174,9 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
     except json.JSONDecodeError:
         return {}
     except Exception as e:
-        print_error("Memory Extract Error", e)
+        # Silently ignore rate limit errors — memory extraction is non-critical
+        if "429" not in str(e) and "rate" not in str(e).lower():
+            print_error("Memory Extract Error", e)
         return {}
 
 
