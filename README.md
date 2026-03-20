@@ -42,33 +42,33 @@ And a bunch other quality of life features
 ##  📋 Commands
 
 ###  🤖  AI
-  ,pause              pause/unpause AI responses
-  ,wipe               clear conversation history
-  ,respond [user]     manually reply to a user's last message
-  ,analyse [user]     psychological profile of a user
+    ,pause              pause/unpause AI responses
+    ,wipe               clear conversation history
+    ,respond [user]     manually reply to a user's last message
+    ,analyse [user]     psychological profile of a user
 
 ###  ⚙️   Config
-  ,config             view/edit config inline
-  ,getconfig          download config.yaml
-  ,setconfig          upload a new config.yaml
-  ,instructions       upload new instructions.txt
-  ,getinstructions    download instructions.txt
-  ,prompt [text]      view/set/clear instructions inline
+    ,config             view/edit config inline
+    ,getconfig          download config.yaml
+    ,setconfig          upload a new config.yaml
+    ,instructions       upload new instructions.txt
+    ,getinstructions    download instructions.txt
+    ,prompt [text]      view/set/clear instructions inline
 
 ###  📡  Channels
-  ,toggleactive       toggle current channel
-  ,toggledm           toggle DM responses
-  ,togglegc           toggle group chat responses
-  ,ignore [user]      ignore/unignore a user
+    ,toggleactive       toggle current channel
+    ,toggledm           toggle DM responses
+    ,togglegc           toggle group chat responses
+    ,ignore [user]      ignore/unignore a user
 
 ###  🛠️   System
-  ,update             update to latest release
-  ,update main        update to latest commit
-  ,reload             reload all cogs + instructions
-  ,restart            restart the bot
-  ,shutdown           shut down the bot
-  ,ping               show latency
-  ,getdb              download memory database
+    ,update             update to latest release
+    ,update main        update to latest commit
+    ,reload             reload all cogs + instructions
+    ,restart            restart the bot
+    ,shutdown           shut down the bot
+    ,ping               show latency
+    ,getdb              download memory database
 
 
 ### Step 1: Download the Selfbot
