@@ -232,6 +232,8 @@ async def _reply_pending_messages():
 
     for key, data in pending.items():
         try:
+            if data["content"].startswith(PREFIX):
+                continue
             channel = bot.get_channel(int(data["channel_id"]))
             if channel is None:
                 channel = await bot.fetch_channel(int(data["channel_id"]))
