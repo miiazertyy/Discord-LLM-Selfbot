@@ -587,13 +587,18 @@ class Management(commands.Cog):
 
         keys = key.split(".")
 
-        def coerce(v):
+        LIST_KEYS = {"groq_models", "tones", "statuses"}
+
+        def coerce(v, existing=None):
             if v.lower() == "true": return True
             if v.lower() == "false": return False
             try: return int(v)
             except ValueError: pass
             try: return float(v)
             except ValueError: pass
+            # If the existing value is a list, parse comma-separated input back into a list
+            if isinstance(existing, list) or (keys[-1] in LIST_KEYS):
+                return [item.strip() for item in v.split(",") if item.strip()]
             return v
 
         try:
@@ -608,7 +613,7 @@ class Management(commands.Cog):
                 await ctx.send(f"Key `{key}` not found.", delete_after=10)
                 return
             old_val = node[final_key]
-            node[final_key] = coerce(value)
+            node[final_key] = coerce(value, old_val)
             self.save_config(config)
             await ctx.send(f"`{key}` updated: `{old_val}` → `{node[final_key]}`", delete_after=15)
         except Exception as e:
