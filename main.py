@@ -120,6 +120,7 @@ REFUSAL_PHRASES = [
     "i'm unable to",
     "i'm sorry, but i can't continue this conversation."
     "i'm sorry, but I can’t share that."
+    "i'm sorry, but I can't help with tha"
 ]
 
 def is_refusal(text: str) -> bool:
