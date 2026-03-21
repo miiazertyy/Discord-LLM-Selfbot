@@ -32,7 +32,7 @@ class General(commands.Cog):
             "  🤖  AI",
             f"  {p}pause              pause/unpause AI responses",
             f"  {p}wipe               clear conversation history",
-            f"  {p}respond [user]     manually reply to a user's last message",
+            f"  {p}reply [user]     manually reply to a user's last message",
             f"  {p}analyse [user]     psychological profile of a user",
             "─────────────────────────────",
             "  ⚙️   Config",
