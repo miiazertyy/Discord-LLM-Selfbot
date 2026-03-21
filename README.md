@@ -70,6 +70,8 @@ And a bunch other features probably unmentioned
     ,getdb              download memory database
     ,status [emoji] [text]  set custom status
     ,bio [text]         set profile bio
+    ,pfp [url/attach]   change profile picture
+    ,mood [name]        view or set current mood
 
 ### Step 1: Download the Selfbot
 - Go to Release and download the lastest stable version
