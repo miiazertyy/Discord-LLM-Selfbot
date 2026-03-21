@@ -311,49 +311,40 @@ async def _reply_pending_messages():
             log_error("Pending Reply Error", str(e))
 
 
-@bot.event
-async def on_relationship_add(relationship):
-    """Queue incoming friend requests for auto-accept."""
-    # Type 3 = incoming friend request in discord.py-self
-    if relationship.type != discord.RelationshipType.incoming_request:
-        return
-
+async def _friend_request_loop():
+    """On startup, accept any pending friend requests using the raw HTTP API."""
+    await bot.wait_until_ready()
     fr_cfg = config["bot"].get("friend_requests") or {}
     if not fr_cfg.get("enabled", False):
         return
-
-    delay = fr_cfg.get("accept_delay", 300)
-    log_system(f"Friend request from {relationship.user} — accepting in {delay}s")
-
-    async def _accept_later():
-        await asyncio.sleep(delay)
-        try:
-            await relationship.accept()
-            log_system(f"Accepted friend request from {relationship.user}")
-        except Exception as e:
-            log_error("Friend Request", str(e))
-
-    asyncio.create_task(_accept_later())
-
-
-async def _friend_request_loop():
-    """On startup, accept any friend requests that were already pending."""
-    await bot.wait_until_ready()
-    fr_cfg = config["bot"].get("friend_requests") or {}
     delay = fr_cfg.get("accept_delay", 300)
 
     try:
-        for relationship in bot.relationships:
+        for relationship in list(bot.relationships):
             if relationship.type == discord.RelationshipType.incoming_request:
-                log_system(f"Pending friend request from {relationship.user} — accepting in {delay}s")
+                user = relationship.user
+                log_system(f"Pending friend request from {user.name} — accepting in {delay}s")
 
-                async def _accept(r=relationship):
+                async def _accept(u=user):
                     await asyncio.sleep(delay)
                     try:
-                        await r.accept()
-                        log_system(f"Accepted friend request from {r.user}")
+                        token = bot._connection.http.token
+                        async with aiohttp.ClientSession() as session:
+                            resp = await session.put(
+                                f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
+                                headers={
+                                    "Authorization": token,
+                                    "Content-Type": "application/json",
+                                },
+                                json={"type": 1},
+                            )
+                            if resp.status in (200, 204):
+                                log_system(f"Accepted friend request from {u.name}")
+                            else:
+                                data = await resp.json()
+                                log_error("Friend Request Error", f"{resp.status}: {data}")
                     except Exception as e:
-                        log_error("Friend Request", str(e))
+                        log_error("Friend Request Loop", str(e))
 
                 asyncio.create_task(_accept())
     except Exception as e:
