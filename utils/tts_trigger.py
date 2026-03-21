@@ -15,17 +15,6 @@ TTS_TRIGGER_PATTERNS = [
     r"\byou('re| are) (a )?bot\b",
     r"\bnot (a )?real (person|human)\b",
     r"\bprove (ur|you'?re) (human|real|not a bot)\b",
-    # French
-    r"\bmessage vocal\b",
-    r"\benvoi.{0,10}vocal\b",
-    r"\bta voix\b",
-    r"\bentendre ta voix\b",
-    r"\bt'entendre\b",
-    r"\bprouve.{0,20}(pas (un )?bot|humaine?|r.elle?)\b",
-    r"\bt'es (un )?bot\b",
-    r"\bc'est (un )?bot\b",
-    r"\bdis (quelque chose|bonjour|coucou|salut)\b",
-    r"\bparle.{0,10}moi\b",
 ]
 
 _compiled = [re.compile(p, re.IGNORECASE) for p in TTS_TRIGGER_PATTERNS]
