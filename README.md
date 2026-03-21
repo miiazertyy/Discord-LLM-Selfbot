@@ -43,7 +43,7 @@ And a bunch other features probably unmentioned
 ###  🤖  AI
     ,pause              pause/unpause AI responses
     ,wipe               clear conversation history
-    ,respond [user]     manually reply to a user's last message
+    ,reply [user]     manually reply to a user's last message
     ,analyse [user]     psychological profile of a user
 
 ###  ⚙️   Config
