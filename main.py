@@ -232,27 +232,39 @@ async def _reply_pending_messages():
 
     for key, data in pending.items():
         try:
-            channel = bot.get_channel(int(data["channel_id"]))
-            if channel is None:
-                channel = await bot.fetch_channel(int(data["channel_id"]))
-
+            user_id = int(data["user_id"])
             history = data.get("history", [])
             content = data["content"]
 
-            # Restore history so the bot has context
+            # Skip if already replied
+            if history and history[-1].get("role") == "assistant":
+                continue
+
+            # Always open DM by user — fetch_channel fails for DMs after restart
+            try:
+                user = await bot.fetch_user(user_id)
+                channel = await user.create_dm()
+            except Exception as e:
+                log_error("Pending Reply", f"Could not open DM for user {user_id}: {e}")
+                continue
+
             bot.message_history[key] = history
 
-            # Fetch the actual last message object to reply to
+            # Find the last message from this user to reply to
             last_msg = None
-            async for msg in channel.history(limit=20):
-                if str(msg.author.id) == data["user_id"] and msg.content == content:
+            async for msg in channel.history(limit=30):
+                if msg.author.id == user_id:
                     last_msg = msg
                     break
 
-            if last_msg:
-                response = await generate_response_and_reply(last_msg, content, history)
-                if response:
-                    bot.message_history[key].append({"role": "assistant", "content": response})
+            if last_msg is None:
+                log_error("Pending Reply", f"No message found for user {user_id}, skipping")
+                continue
+
+            log_system(f"Replying to pending message from {user.name}")
+            response = await generate_response_and_reply(last_msg, content, history)
+            if response:
+                bot.message_history[key].append({"role": "assistant", "content": response})
         except Exception as e:
             log_error("Pending Reply Error", str(e))
 
