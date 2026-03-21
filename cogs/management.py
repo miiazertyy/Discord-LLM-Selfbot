@@ -435,7 +435,7 @@ class Management(commands.Cog):
                     except Exception:
                         unreplied.append(f"• Unknown (`{key.split('-')[0]}`)")
             if not unreplied:
-                await ctx.send("✅ No unreplied conversations.", delete_after=20)
+                await ctx.send("No unreplied conversations.", delete_after=20)
             else:
                 await ctx.send("**Unreplied conversations:**\n" + "\n".join(unreplied), delete_after=60)
             return
