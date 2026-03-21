@@ -422,7 +422,12 @@ class Management(commands.Cog):
                 await ctx.send("Bot not ready, restart required.", delete_after=10)
                 return
 
+            status = await ctx.send(f"Generating response for {user.name}...", delete_after=30)
             response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
+            try:
+                await status.delete()
+            except Exception:
+                pass
             if response:
                 self.bot.message_history[key].append({"role": "assistant", "content": response})
                 await ctx.send(f"Responded to {user.name}", delete_after=5)
