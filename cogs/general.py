@@ -59,6 +59,8 @@ class General(commands.Cog):
             f"  {p}getdb              download memory database",
             f"  {p}status [emoji] [text]  set custom status",
             f"  {p}bio [text]         set profile bio",
+            f"  {p}pfp [url/attach]   change profile picture",
+            f"  {p}mood [name]        view or set current mood",
             "```",
         ]
         await ctx.send("\n".join(lines), delete_after=60)
