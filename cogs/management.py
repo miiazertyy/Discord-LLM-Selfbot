@@ -519,6 +519,78 @@ class Management(commands.Cog):
             await ctx.send(f"Error: {e}", delete_after=10)
 
 
+    @commands.command(name="mood", description="View or set the bot's current mood.")
+    async def mood_cmd(self, ctx, *, mood_name: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        from utils.mood import get_mood, shift_mood, get_mood_prompt
+        config = load_config()
+        available_moods = list(config["bot"]["mood"]["moods"].keys())
+
+        if mood_name is None:
+            current = get_mood()
+            mood_list = ", ".join(f"`{m}`" for m in available_moods)
+            await ctx.send(
+                f"Current mood: `{current}`\nAvailable moods: {mood_list}",
+                delete_after=20
+            )
+            return
+
+        mood_name = mood_name.lower().strip()
+        if mood_name not in available_moods:
+            mood_list = ", ".join(f"`{m}`" for m in available_moods)
+            await ctx.send(
+                f"Unknown mood `{mood_name}`. Available: {mood_list}",
+                delete_after=10
+            )
+            return
+
+        from utils.mood import current_mood
+        import utils.mood as mood_module
+        mood_module.current_mood = mood_name
+        await ctx.send(f"Mood set to `{mood_name}`.", delete_after=10)
+
+    @commands.command(name="pfp", description="Change the bot's profile picture. Attach an image or provide a URL.")
+    async def pfp(self, ctx, url: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        image_data = None
+
+        if ctx.message.attachments:
+            attachment = ctx.message.attachments[0]
+            if not attachment.content_type or not attachment.content_type.startswith("image/"):
+                await ctx.send("Please attach a valid image file.", delete_after=10)
+                return
+            image_data = await attachment.read()
+        elif url:
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as resp:
+                        if resp.status != 200:
+                            await ctx.send(f"Failed to fetch image (status {resp.status}).", delete_after=10)
+                            return
+                        image_data = await resp.read()
+            except Exception as e:
+                await ctx.send(f"Error fetching image: {e}", delete_after=10)
+                return
+        else:
+            await ctx.send("Please attach an image or provide a URL.", delete_after=10)
+            return
+
+        try:
+            await self.bot.user.edit(avatar=image_data)
+            await ctx.send("Profile picture updated!", delete_after=10)
+        except discord.errors.HTTPException as e:
+            if "Too many users" in str(e) or "rate" in str(e).lower():
+                await ctx.send("You're being rate limited on avatar changes. Try again later.", delete_after=15)
+            else:
+                await ctx.send(f"Failed to update avatar: {e}", delete_after=10)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
+
     @commands.command(name="bio", description="Change the bot's profile bio.")
     async def bio(self, ctx, *, text: str = None):
         if ctx.author.id != self.bot.owner_id:
