@@ -27,7 +27,11 @@ def init_ai():
         sys.exit(1)
 
     client = AsyncGroq(api_key=api_key)
-    groq_models = config["bot"]["groq_models"]
+    raw = config["bot"]["groq_models"]
+    if isinstance(raw, str):
+        groq_models = [m.strip() for m in raw.split(",") if m.strip()]
+    else:
+        groq_models = list(raw)
     current_model_index = 0
     model = groq_models[0]
 
