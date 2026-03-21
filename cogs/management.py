@@ -359,85 +359,145 @@ class Management(commands.Cog):
         for k, v in pending.items():
             print(f"[Update] → {v['user_id']}: {v['content'][:60]!r}")
 
-    @commands.command(name="respond", description="Manually trigger a response to a user's recent messages.")
-    async def respond(self, ctx, user: discord.User):
-        if ctx.author.id != self.bot.owner_id:
-            return
+    async def _respond_to_user(self, ctx, user):
+        """Core logic to find and respond to a single user. Returns (success, reason)."""
+        target_channel = None
+        recent_msgs = []
+
         try:
-            target_channel = None
-            recent_msgs = []
+            dm = user.dm_channel or await user.create_dm()
+            async for msg in dm.history(limit=20):
+                if msg.author.id == user.id:
+                    recent_msgs.append(msg)
+                elif recent_msgs:
+                    break
+            if recent_msgs:
+                target_channel = dm
+        except Exception as e:
+            print(f"[Respond] DM error for {user.name}: {e}")
 
-            # Check DM first
-            try:
-                dm = user.dm_channel or await user.create_dm()
-                async for msg in dm.history(limit=20):
-                    if msg.author.id == user.id:
-                        recent_msgs.append(msg)
-                    elif recent_msgs:
-                        break
-                if recent_msgs:
-                    target_channel = dm
-            except Exception as e:
-                print(f"[Respond] DM error: {e}")
-
-            # Then active channels
-            if not target_channel:
-                for channel_id in self.bot.active_channels:
-                    try:
-                        channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
-                        msgs = []
-                        async for msg in channel.history(limit=50):
-                            if msg.author.id == user.id:
-                                msgs.append(msg)
-                            elif msgs:
-                                break
-                        if msgs:
-                            recent_msgs = msgs
-                            target_channel = channel
+        if not target_channel:
+            for channel_id in self.bot.active_channels:
+                try:
+                    channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+                    msgs = []
+                    async for msg in channel.history(limit=50):
+                        if msg.author.id == user.id:
+                            msgs.append(msg)
+                        elif msgs:
                             break
-                    except Exception as e:
-                        print(f"[Respond] Channel error: {e}")
-                        continue
+                    if msgs:
+                        recent_msgs = msgs
+                        target_channel = channel
+                        break
+                except Exception as e:
+                    print(f"[Respond] Channel error: {e}")
+                    continue
 
-            if not target_channel or not recent_msgs:
-                await ctx.send(f"No recent messages found from {user.name}.", delete_after=10)
-                return
+        if not target_channel or not recent_msgs:
+            return False, "no recent messages found"
 
+        if not hasattr(self.bot, "generate_response_and_reply"):
+            return False, "bot not ready"
+
+        recent_msgs = list(reversed(recent_msgs))
+        combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
+        last_msg = recent_msgs[-1]
+
+        key = f"{user.id}-{target_channel.id}"
+        history = self.bot.message_history.get(key, [])
+        if not history or history[-1].get("content") != combined_content:
+            history.append({"role": "user", "content": combined_content})
+            self.bot.message_history[key] = history
+
+        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
+        if response:
+            self.bot.message_history[key].append({"role": "assistant", "content": response})
+            return True, "ok"
+        return False, "failed to generate response"
+
+    async def _run_respond(self, ctx, args):
+        """Shared logic for ,respond and ,reply."""
+        if not args:
+            await ctx.send("Usage: `,respond <id>` or `,respond <id1, id2, ...>` or `,respond check`", delete_after=15)
+            return
+
+        if args.strip().lower() == "check":
+            unreplied = []
+            for key, history in self.bot.message_history.items():
+                if not history:
+                    continue
+                if history[-1].get("role") == "user":
+                    try:
+                        user_id = int(key.split("-")[0])
+                        user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                        unreplied.append(f"• {user.name} (`{user_id}`)")
+                    except Exception:
+                        unreplied.append(f"• Unknown (`{key.split('-')[0]}`)")
+            if not unreplied:
+                await ctx.send("✅ No unreplied conversations.", delete_after=20)
+            else:
+                await ctx.send("**Unreplied conversations:**\n" + "\n".join(unreplied), delete_after=60)
+            return
+
+        raw_ids = [x.strip().strip("<@!>") for x in re.split(r"[,\s]+", args) if x.strip()]
+        users = []
+        invalid = []
+        for raw in raw_ids:
+            if not raw.isdigit():
+                invalid.append(raw)
+                continue
             try:
-                await ctx.message.delete()
+                user = self.bot.get_user(int(raw)) or await self.bot.fetch_user(int(raw))
+                users.append(user)
             except Exception:
-                pass
+                invalid.append(raw)
 
-            recent_msgs = list(reversed(recent_msgs))
-            combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
-            last_msg = recent_msgs[-1]
+        if invalid:
+            await ctx.send(f"Could not resolve: {', '.join(f'`{i}`' for i in invalid)}", delete_after=10)
+        if not users:
+            return
 
-            key = f"{user.id}-{target_channel.id}"
-            history = self.bot.message_history.get(key, [])
-            if not history or history[-1].get("content") != combined_content:
-                history.append({"role": "user", "content": combined_content})
-                self.bot.message_history[key] = history
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
 
-            if not hasattr(self.bot, "generate_response_and_reply"):
-                await ctx.send("Bot not ready, restart required.", delete_after=10)
-                return
-
-            status = await ctx.send(f"Generating response for {user.name}...", delete_after=30)
-            response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
+        if len(users) == 1:
+            status = await ctx.send(f"Generating response for {users[0].name}...", delete_after=30)
+            success, reason = await self._respond_to_user(ctx, users[0])
             try:
                 await status.delete()
             except Exception:
                 pass
-            if response:
-                self.bot.message_history[key].append({"role": "assistant", "content": response})
-                await ctx.send(f"Responded to {user.name}", delete_after=5)
+            if success:
+                await ctx.send(f"Responded to {users[0].name}.", delete_after=5)
             else:
-                await ctx.send(f"Failed to generate response for {user.name}", delete_after=5)
+                await ctx.send(f"Failed to respond to {users[0].name}: {reason}.", delete_after=10)
+        else:
+            status = await ctx.send(f"Responding to {len(users)} users...", delete_after=60)
+            results = []
+            for user in users:
+                success, reason = await self._respond_to_user(ctx, user)
+                icon = "✅" if success else "❌"
+                results.append(f"{icon} {user.name} (`{user.id}`){'' if success else f' — {reason}'}")
+            try:
+                await status.delete()
+            except Exception:
+                pass
+            await ctx.send("\n".join(results), delete_after=30)
 
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            await ctx.send(f"Error: {e}", delete_after=15)
+    @commands.command(name="respond", description="Respond to one or more users by ID. Use 'check' to see unreplied DMs.")
+    async def respond(self, ctx, *, args: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        await self._run_respond(ctx, args)
+
+    @commands.command(name="reply", description="Alias for ,respond — respond to one or more users by ID.")
+    async def reply_cmd(self, ctx, *, args: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        await self._run_respond(ctx, args)
 
     @commands.command(name="config", description="View or edit config values. Use dot notation for nested keys.")
     async def config_cmd(self, ctx, key: str = None, *, value: str = None):
