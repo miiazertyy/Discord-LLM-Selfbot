@@ -501,7 +501,7 @@ class Management(commands.Cog):
             return v
 
         try:
-            node = config
+            node = config["bot"]
             for k in keys[:-1]:
                 if k not in node:
                     await ctx.send(f"Key `{key}` not found.", delete_after=10)
