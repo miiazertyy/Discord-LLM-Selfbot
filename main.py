@@ -506,11 +506,21 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
             if response:
                 try:
+                    ALLOWED_MEMORY_KEYS = {"name", "age", "location", "job", "hobby", "game", "relationship_status", "nationality", "language_skill"}
+                    JUNK_VALUES = {"yes", "no", "there", "here", "playing", "maybe", "idk", "a lot", "too much", "not really", "kind of", "sort of", "nah", "yeah"}
                     facts = await extract_memory(prompt, response)
                     for key, value in facts.items():
-                        if value:
-                            set_memory(message.author.id, key, str(value))
-                            log_system(f"Memory saved for {message.author.name}: {key} = {value}")
+                        value = str(value).strip()
+                        if not value:
+                            continue
+                        if key not in ALLOWED_MEMORY_KEYS:
+                            continue
+                        if value.lower() in JUNK_VALUES:
+                            continue
+                        if len(value) < 2:
+                            continue
+                        set_memory(message.author.id, key, value)
+                        log_system(f"Memory saved for {message.author.name}: {key} = {value}")
                 except Exception as mem_err:
                     log_error("Memory Error", str(mem_err))
 
