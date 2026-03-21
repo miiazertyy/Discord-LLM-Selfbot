@@ -126,6 +126,20 @@ def is_refusal(text: str) -> bool:
     lowered = text.lower()
     return any(phrase in lowered for phrase in REFUSAL_PHRASES)
 
+def get_channel_context(message):
+    """Returns (channel_name, guild_name) with proper DM/GC labels."""
+    if isinstance(message.channel, discord.GroupChannel):
+        channel_name = getattr(message.channel, 'name', None) or "GC"
+        guild_name = "GC"
+    elif isinstance(message.channel, discord.DMChannel):
+        channel_name = "DM"
+        guild_name = "DM"
+    else:
+        channel_name = getattr(message.channel, 'name', 'unknown')
+        guild_name = getattr(message.guild, 'name', 'unknown')
+    return channel_name, guild_name
+
+
 def get_late_opener(prompt: str) -> str:
     late_cfg = config["bot"]["late_reply"]
     french_indicators = late_cfg.get("french_indicators", [])
@@ -562,8 +576,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 spoken_response = response
             spoken_response = spoken_response.replace("\u2014", "").replace("\u2013", "")
 
-            channel_name = getattr(message.channel, 'name', 'DM')
-            guild_name = getattr(message.guild, 'name', 'DM')
+            channel_name, guild_name = get_channel_context(message)
             log_incoming(message.author.name, channel_name, guild_name, prompt)
             log_response(message.author.name, f"[Voice Message] {spoken_response}")
             separator()
@@ -591,7 +604,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     if len(chunks) > 3:
         chunks = chunks[:3]
 
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
         if DISABLE_MENTIONS:
             chunk = chunk.replace("@", "@\u200b")
 
@@ -603,18 +616,23 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
         chunk = add_typo(chunk)
 
-        channel_name = getattr(message.channel, 'name', 'DM')
-        guild_name = getattr(message.guild, 'name', 'DM')
+        channel_name, guild_name = get_channel_context(message)
         log_incoming(message.author.name, channel_name, guild_name, prompt)
         log_response(message.author.name, chunk)
         separator()
 
         try:
             if bot.realistic_typing:
-                await asyncio.sleep(random.uniform(2, 8))
+                # First chunk: 2-8s pre-delay, subsequent chunks: 12-18s to avoid spam detection
+                pre_delay = random.uniform(2, 8) if i == 0 else random.uniform(12, 18)
+                await asyncio.sleep(pre_delay)
                 async with message.channel.typing():
                     cps = random.uniform(7, 18)
                     await asyncio.sleep(len(chunk) / cps)
+            else:
+                # Even without realistic typing, add a gap between chunks
+                if i > 0:
+                    await asyncio.sleep(random.uniform(12, 18))
 
             if isinstance(message.channel, discord.DMChannel):
                 await message.channel.send(chunk)
@@ -760,8 +778,7 @@ async def process_message_queue(channel_id):
                     priority = message.content.startswith(PRIORITY_PREFIX)
                     wait_time = 0 if priority else get_batch_wait_time()
 
-                    channel_name = getattr(message.channel, 'name', 'DM')
-                    guild_name = getattr(message.guild, 'name', 'DM')
+                    channel_name, guild_name = get_channel_context(message)
                     log_received(message.author.name, channel_name, guild_name, wait_time)
 
                     if not priority:
