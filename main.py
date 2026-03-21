@@ -233,6 +233,7 @@ async def _reply_pending_messages():
     for key, data in pending.items():
         try:
             user_id = int(data["user_id"])
+            channel_id = int(data["channel_id"])
             history = data.get("history", [])
             content = data["content"]
 
@@ -240,29 +241,56 @@ async def _reply_pending_messages():
             if history and history[-1].get("role") == "assistant":
                 continue
 
-            # Always open DM by user — fetch_channel fails for DMs after restart
+            # Try to fetch user
             try:
                 user = await bot.fetch_user(user_id)
-                channel = await user.create_dm()
             except Exception as e:
-                log_error("Pending Reply", f"Could not open DM for user {user_id}: {e}")
+                log_error("Pending Reply", f"Could not fetch user {user_id}: {e}")
                 continue
 
             bot.message_history[key] = history
-
-            # Find the last message from this user to reply to
             last_msg = None
-            async for msg in channel.history(limit=30):
-                if msg.author.id == user_id:
-                    last_msg = msg
-                    break
+            channel = None
 
+            # Try DM first
+            try:
+                dm = await user.create_dm()
+                async for msg in dm.history(limit=30):
+                    if msg.author.id == user_id:
+                        last_msg = msg
+                        channel = dm
+                        break
+            except Exception:
+                pass
+
+            # If not found in DM, try the original channel (GC or server)
             if last_msg is None:
-                log_error("Pending Reply", f"No message found for user {user_id}, skipping")
+                try:
+                    channel = bot.get_channel(channel_id)
+                    if channel is None:
+                        # For GCs, try private channels
+                        for pc in bot.private_channels:
+                            if pc.id == channel_id:
+                                channel = pc
+                                break
+                    if channel:
+                        async for msg in channel.history(limit=30):
+                            if msg.author.id == user_id:
+                                last_msg = msg
+                                break
+                except Exception as e:
+                    log_error("Pending Reply", f"Could not check original channel {channel_id}: {e}")
+
+            if last_msg is None or channel is None:
+                log_error("Pending Reply", f"No message found for user {user.name}, skipping")
                 continue
 
             log_system(f"Replying to pending message from {user.name}")
             response = await generate_response_and_reply(last_msg, content, history)
+            if response:
+                bot.message_history[key].append({"role": "assistant", "content": response})
+        except Exception as e:
+            log_error("Pending Reply Error", str(e))
             if response:
                 bot.message_history[key].append({"role": "assistant", "content": response})
         except Exception as e:
