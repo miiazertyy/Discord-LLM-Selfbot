@@ -142,15 +142,19 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
     prompt = (
         f'User message: "{user_message}"\n'
         f'Assistant reply: "{assistant_reply}"\n\n'
-        "Extract ONLY concrete facts the USER explicitly stated about themselves in their message. "
-        "STRICT RULES: "
-        "Ignore any @mentions such as @Alex or @someone — these are Discord mentions, not the user's name. "
-        "Ignore anything said by the assistant — only extract from the USER message. "
-        "Ignore facts about the assistant — if the assistant says 'i am 18' do NOT save age=18. "
-        "Only save facts the user clearly stated about themselves such as 'I am 22' or 'I live in Paris' or 'my name is Jake'. "
-        'Return a JSON object like {"name": "John", "age": "22"}. '
-        "Keys must be simple: name, age, location, job, hobby, game, relationship_status. "
-        "If nothing new was revealed return exactly: {} "
+        "Extract ONLY concrete, specific facts the USER explicitly stated about themselves. "
+        "STRICT RULES:\n"
+        "- ONLY extract from the USER message. Ignore everything the assistant said.\n"
+        "- Ignore Discord @mentions (e.g. @Alex) — those are not the user's name.\n"
+        "- Only save facts with a SPECIFIC, MEANINGFUL value. Examples of good facts:\n"
+        "    name=Jake, age=22, location=Paris, job=nurse, hobby=drawing, game=Minecraft, relationship_status=single\n"
+        "- REJECT vague or context-dependent values like: yes, no, there, here, playing, maybe, idk, too much, a lot\n"
+        "- REJECT transient states: tired, bored, busy, sad, happy — these are moods, not facts.\n"
+        "- REJECT anything the user asked as a question — questions reveal nothing about themselves.\n"
+        "- REJECT language/nationality unless the user explicitly says 'I am Italian' or 'I speak French'.\n"
+        "- Values must be at least 2 meaningful words OR a proper noun (name, city, game title, etc.).\n"
+        "- Allowed keys ONLY: name, age, location, job, hobby, game, relationship_status, nationality, language_skill\n"
+        "If nothing clearly qualifies, return exactly: {}\n"
         "Return ONLY the JSON object. No explanation, no markdown, no extra text."
     )
 
