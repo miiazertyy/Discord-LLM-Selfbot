@@ -85,6 +85,7 @@ bot.message_history = {}
 bot.paused = False
 bot.allow_dm = config["bot"]["allow_dm"]
 bot.allow_gc = config["bot"]["allow_gc"]
+bot.allow_server = config["bot"].get("allow_server", True)
 bot.realistic_typing = config["bot"]["realistic_typing"]
 bot.anti_age_ban = config["bot"]["anti_age_ban"]
 bot.batch_messages = config["bot"]["batch_messages"]
@@ -918,12 +919,28 @@ async def process_message_queue(channel_id):
 
             total_wait = wait_time + message_age
 
+            _is_server_ch = isinstance(message_to_reply_to.channel, discord.TextChannel)
+            _is_direct_mention = (
+                bot.user.mentioned_in(message_to_reply_to)
+                and "@everyone" not in message_to_reply_to.content
+                and "@here" not in message_to_reply_to.content
+            )
+            _is_replied_to = (
+                message_to_reply_to.reference
+                and message_to_reply_to.reference.resolved
+                and message_to_reply_to.reference.resolved.author.id == bot.selfbot_id
+            )
+
             if message_to_reply_to.channel.id in bot.active_channels or (
                 isinstance(message_to_reply_to.channel, discord.DMChannel)
                 and bot.allow_dm
             ) or (
                 isinstance(message_to_reply_to.channel, discord.GroupChannel)
                 and bot.allow_gc
+            ) or (
+                _is_server_ch
+                and bot.allow_server
+                and (_is_direct_mention or _is_replied_to)
             ):
                 response = await generate_response_and_reply(
                     message_to_reply_to, combined_content, history, image_url,
