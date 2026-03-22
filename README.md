@@ -58,6 +58,7 @@ And a bunch other features probably unmentioned
     ,toggleactive       toggle current channel
     ,toggledm           toggle DM responses
     ,togglegc           toggle group chat responses
+    ,toggleserver       toggle server responses",
     ,ignore [user]      ignore/unignore a user
 
 ###  🛠️   System
