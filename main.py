@@ -393,7 +393,11 @@ async def _autojoin_voice(autojoin_cfg: dict):
         vc = await channel.connect(self_mute=True, self_deaf=True)
         log_system(f"Auto-joined voice channel: {channel.name} in {guild.name}")
 
-        silence = discord.FFmpegPCMAudio("/dev/zero", pipe=False, options="-f s16le -ar 48000 -ac 2 -i /dev/zero -t 999999")
+        silence = discord.FFmpegOpusAudio(
+            "anullsrc=r=48000:cl=stereo",
+            before_options="-f lavfi",
+            options="-b:a 128k"
+        )
         vc.play(silence)
     except Exception as e:
         log_error("AutoJoin", str(e))
