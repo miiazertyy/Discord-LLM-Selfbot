@@ -9,6 +9,7 @@ import requests
 
 from discord.ext import commands
 from utils.helpers import load_instructions, load_config, resource_path
+from utils.logger import log_system, log_error
 from utils.db import (
     add_ignored_user,
     remove_ignored_user,
@@ -723,18 +724,32 @@ class Management(commands.Cog):
 
 
     async def _connect_and_keep_alive(self, target: discord.VoiceChannel):
-        """Connect to a voice channel muted/deafened and keep alive by playing infinite silence via FFmpeg."""
+        """Connect to a voice channel muted/deafened and keep alive."""
         existing = target.guild.voice_client
         if existing:
             await existing.disconnect(force=True)
 
         vc = await target.connect(self_mute=True, self_deaf=True)
 
-        # Play infinite silence using FFmpeg reading from /dev/zero
-        # This keeps the voice connection alive without sending audible audio
-        silence = discord.FFmpegPCMAudio("/dev/zero", pipe=False, options="-f s16le -ar 48000 -ac 2 -i /dev/zero -t 999999")
-        vc.play(silence)
+        # discord.py-self drops idle voice connections — keep alive by hooking the websocket
+        # The ws keep_alive loop handles heartbeats but we need to block disconnection
+        # by holding a reference and periodically checking/re-opening the connection
+        async def _guard(channel, voice_client):
+            # Flag to prevent the reconnect loop from firing on intentional ,leave
+            voice_client._keep_alive_guard = True
+            while getattr(voice_client, '_keep_alive_guard', False):
+                await asyncio.sleep(20)
+                vc_now = channel.guild.voice_client
+                if vc_now is None and getattr(voice_client, '_keep_alive_guard', False):
+                    try:
+                        new_vc = await channel.connect(self_mute=True, self_deaf=True)
+                        new_vc._keep_alive_guard = True
+                        voice_client = new_vc
+                        log_system(f"Rejoined voice channel: {channel.name}")
+                    except Exception as e:
+                        log_error("Voice Keep-Alive", str(e))
 
+        asyncio.create_task(_guard(target, vc))
         return vc
 
     @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id>, ,join <guild_id> <channel_id>, or ,join <discord_link>")
@@ -849,6 +864,7 @@ class Management(commands.Cog):
         if vc:
             channel_name = vc.channel.name
             guild_name = vc.guild.name
+            vc._keep_alive_guard = False  # Stop the keep-alive guard loop
             await vc.disconnect(force=True)
             await ctx.send(f"Left **{channel_name}** in **{guild_name}**.", delete_after=10)
         else:
