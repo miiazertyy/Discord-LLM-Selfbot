@@ -51,6 +51,15 @@ class Management(commands.Cog):
             self.save_config(config)
             await ctx.send(f"Group chats are now {'allowed' if self.bot.allow_gc else 'disallowed'} for active channels.")
 
+    @commands.command(name="toggleserver", description="Toggle responding to mentions/replies in servers.")
+    async def toggleserver(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            self.bot.allow_server = not getattr(self.bot, 'allow_server', True)
+            config = load_config()
+            config["bot"]["allow_server"] = self.bot.allow_server
+            self.save_config(config)
+            await ctx.send(f"Server responses are now {'enabled' if self.bot.allow_server else 'disabled'}.")
+
     @commands.command()
     async def ignore(self, ctx, user: discord.User):
         try:
@@ -535,6 +544,7 @@ class Management(commands.Cog):
                 "  💬  Responses",
                 f"  allow_dm              {bot_cfg.get('allow_dm')}",
                 f"  allow_gc              {bot_cfg.get('allow_gc')}",
+                f"  allow_server          {bot_cfg.get('allow_server', True)}",
                 f"  hold_conversation     {bot_cfg.get('hold_conversation')}",
                 f"  realistic_typing      {bot_cfg.get('realistic_typing')}",
                 f"  reply_ping            {bot_cfg.get('reply_ping')}",
