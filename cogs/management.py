@@ -302,6 +302,12 @@ class Management(commands.Cog):
         prefix = self.bot.command_prefix
         pending = {}
 
+        def _is_server_channel(channel_id):
+            """Returns True if the channel is a server TextChannel."""
+            ch = self.bot.get_channel(int(channel_id))
+            import discord as _discord
+            return isinstance(ch, _discord.TextChannel)
+
         # 1. Unanswered messages from history
         for key, history in self.bot.message_history.items():
             if not history:
@@ -318,6 +324,8 @@ class Management(commands.Cog):
             if not real_msgs:
                 continue
             user_id, channel_id = key.split("-")
+            if _is_server_channel(channel_id):
+                continue
             pending[key] = {
                 "user_id": user_id,
                 "channel_id": channel_id,
@@ -329,6 +337,8 @@ class Management(commands.Cog):
         for channel_id, queue in self.bot.message_queues.items():
             for msg in queue:
                 if not msg.content or msg.content.startswith(prefix):
+                    continue
+                if _is_server_channel(channel_id):
                     continue
                 key = f"{msg.author.id}-{channel_id}"
                 if key in pending:
@@ -351,6 +361,8 @@ class Management(commands.Cog):
                 continue
             first_msg = msgs[0]
             channel_id = first_msg.channel.id
+            if _is_server_channel(channel_id):
+                continue
             key = f"{first_msg.author.id}-{channel_id}"
             if key in pending:
                 continue
