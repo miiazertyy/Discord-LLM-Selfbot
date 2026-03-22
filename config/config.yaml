@@ -46,17 +46,17 @@ bot:
   batch_messages: true 
 
   # Time before responding
-batch_wait_times:
-  - time: 15
-    weight: 53
-  - time: 40
-    weight: 25
-  - time: 90
-    weight: 15
-  - time: 600
-    weight: 5
-  - time: 1600
-    weight: 2
+  batch_wait_times:
+    - time: 15
+      weight: 53
+    - time: 40
+      weight: 25
+    - time: 90
+      weight: 15
+    - time: 600
+      weight: 5
+    - time: 1600
+      weight: 2
 
   # Anti-detection settings
   ignore_chance: 0.08       # Chance to ignore a message
