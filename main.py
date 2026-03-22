@@ -734,6 +734,10 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
+    # Treat sticker-only messages as having content so they get processed
+    if not message.content and message.stickers:
+        message.content = f"[sent a sticker: {message.stickers[0].name}]"
+
     channel_id = message.channel.id
     user_id = message.author.id
     current_time = time.time()
@@ -856,7 +860,13 @@ async def process_message_queue(channel_id):
                             seen.add(msg.content)
                             unique_messages.append(msg)
 
-                    combined_content = "\n".join(msg.content for msg in unique_messages)
+                    parts = []
+                    for msg in unique_messages:
+                        if msg.content:
+                            parts.append(msg.content)
+                        if msg.stickers:
+                            parts.append(f"[sent a sticker: {msg.stickers[0].name}]")
+                    combined_content = "\n".join(parts)
                     if combined_content.startswith(PRIORITY_PREFIX):
                         combined_content = combined_content[len(PRIORITY_PREFIX):].lstrip()
                     message_to_reply_to = unique_messages[-1]
@@ -864,7 +874,8 @@ async def process_message_queue(channel_id):
 
                     del bot.user_message_batches[batch_key]
             else:
-                combined_content = message.content
+                sticker_text = f"[sent a sticker: {message.stickers[0].name}]" if message.stickers else ""
+                combined_content = message.content or sticker_text
                 message_to_reply_to = message
                 image_url = message.attachments[0].url if message.attachments else None
                 wait_time = 0
