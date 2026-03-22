@@ -372,30 +372,6 @@ async def _friend_request_loop():
 
 
 
-async def _autojoin_voice(autojoin_cfg: dict):
-    """On startup, join the configured voice channel and keep it alive."""
-    await bot.wait_until_ready()
-    await asyncio.sleep(3)
-    try:
-        guild = bot.get_guild(autojoin_cfg["guild_id"])
-        if not guild:
-            log_error("AutoJoin", f"Guild {autojoin_cfg['guild_id']} not found")
-            return
-        channel = guild.get_channel(autojoin_cfg["channel_id"])
-        if not isinstance(channel, discord.VoiceChannel):
-            log_error("AutoJoin", f"Channel {autojoin_cfg['channel_id']} not found or not a voice channel")
-            return
-
-        existing = guild.voice_client
-        if existing:
-            await existing.disconnect(force=True)
-
-        vc = await channel.connect(self_mute=True, self_deaf=False)
-        bot.voice_target_channel_id = channel.id
-        log_system(f"Auto-joined voice channel: {channel.name} in {guild.name}")
-    except Exception as e:
-        log_error("AutoJoin", str(e))
-
 
 @bot.event
 async def on_ready():
@@ -434,10 +410,6 @@ async def on_ready():
     if fr_cfg.get("enabled", False):
         asyncio.create_task(_friend_request_loop())
 
-    # Auto-join voice channel if configured
-    autojoin = config["bot"].get("autojoin_channel")
-    if autojoin and isinstance(autojoin, dict):
-        asyncio.create_task(_autojoin_voice(autojoin))
 
 
 async def setup_hook():
@@ -742,29 +714,6 @@ async def on_relationship_add(relationship):
 
 
 
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    """Rejoin voice channel if bot gets disconnected."""
-    if member.id != bot.selfbot_id:
-        return
-
-    # Bot left a channel (either moved out or disconnected)
-    if before.channel is not None and after.channel is None:
-        # Check if we have a target channel saved
-        target_channel_id = getattr(bot, 'voice_target_channel_id', None)
-        if target_channel_id is None:
-            return
-        await asyncio.sleep(1)
-        try:
-            channel = bot.get_channel(target_channel_id)
-            if channel and isinstance(channel, discord.VoiceChannel):
-                vc = channel.guild.voice_client
-                if vc is None:
-                    await channel.connect(self_mute=True, self_deaf=False)
-                    log_system(f"Rejoined voice channel: {channel.name}")
-        except Exception as e:
-            log_error("Voice Rejoin", str(e))
 
 @bot.event
 async def on_message(message):
