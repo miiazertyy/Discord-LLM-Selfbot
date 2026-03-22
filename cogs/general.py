@@ -47,6 +47,7 @@ class General(commands.Cog):
             f"  {p}toggleactive       toggle current channel",
             f"  {p}toggledm           toggle DM responses",
             f"  {p}togglegc           toggle group chat responses",
+            f"  {p}toggleserver       toggle server responses",
             f"  {p}ignore [user]      ignore/unignore a user",
             "─────────────────────────────",
             "  🛠️   System",
