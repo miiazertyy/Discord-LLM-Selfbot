@@ -8,3 +8,4 @@ pyYAML
 requests
 groq
 openai
+PyNaCl
