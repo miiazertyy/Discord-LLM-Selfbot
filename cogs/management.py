@@ -722,38 +722,49 @@ class Management(commands.Cog):
             await ctx.send(f"Error: {e}", delete_after=10)
 
 
-    @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id> or ,join <guild_id> <channel_id>")
-    async def join(self, ctx, guild_or_channel_id: int = None, channel_id: int = None):
+    @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id>, ,join <guild_id> <channel_id>, or ,join <discord_link>")
+    async def join(self, ctx, *, args: str = None):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        target = None
-
-        if guild_or_channel_id is None:
-            await ctx.send("Usage: `,join <channel_id>` or `,join <guild_id> <channel_id>`", delete_after=15)
+        if not args:
+            await ctx.send("Usage: `,join <channel_id>` or `,join <guild_id> <channel_id>` or `,join https://discord.com/channels/guild_id/channel_id`", delete_after=15)
             return
 
-        if channel_id is None:
-            # Only a channel ID was given — search all guilds
-            channel = self.bot.get_channel(guild_or_channel_id)
-            if not isinstance(channel, discord.VoiceChannel):
-                await ctx.send(f"Channel `{guild_or_channel_id}` not found or is not a voice channel.", delete_after=10)
-                return
-            target = channel
+        guild_id_parsed = None
+        channel_id_parsed = None
+
+        # Parse discord channel link
+        link_match = re.match(r"https?://discord\.com/channels/(\d+)/(\d+)", args.strip())
+        if link_match:
+            guild_id_parsed = int(link_match.group(1))
+            channel_id_parsed = int(link_match.group(2))
         else:
-            # Both guild ID and channel ID given
-            guild = self.bot.get_guild(guild_or_channel_id)
+            parts = args.strip().split()
+            if len(parts) == 1 and parts[0].isdigit():
+                channel_id_parsed = int(parts[0])
+            elif len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                guild_id_parsed = int(parts[0])
+                channel_id_parsed = int(parts[1])
+            else:
+                await ctx.send("Invalid input. Use a channel ID, `guild_id channel_id`, or a Discord channel link.", delete_after=10)
+                return
+
+        # Resolve the channel
+        if guild_id_parsed:
+            guild = self.bot.get_guild(guild_id_parsed)
             if not guild:
-                await ctx.send(f"Guild `{guild_or_channel_id}` not found.", delete_after=10)
+                await ctx.send(f"Guild `{guild_id_parsed}` not found.", delete_after=10)
                 return
-            channel = guild.get_channel(channel_id)
-            if not isinstance(channel, discord.VoiceChannel):
-                await ctx.send(f"Channel `{channel_id}` not found or is not a voice channel in that guild.", delete_after=10)
-                return
-            target = channel
+            target = guild.get_channel(channel_id_parsed)
+        else:
+            target = self.bot.get_channel(channel_id_parsed)
+
+        if not isinstance(target, discord.VoiceChannel):
+            await ctx.send("Channel not found or is not a voice channel.", delete_after=10)
+            return
 
         try:
-            # Disconnect from any existing VC in the target guild
             existing = target.guild.voice_client
             if existing:
                 await existing.disconnect(force=True)
