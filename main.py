@@ -560,10 +560,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     # Voice message — triggers when user asks to hear the bot's voice
     tts_cfg = config["bot"].get("tts") or {}
-    late_cfg = config["bot"]["late_reply"]
-    french_indicators = late_cfg.get("french_indicators", [])
-    prompt_is_french = any(word in prompt.lower().split() for word in french_indicators)
-    if tts_cfg.get("enabled", True) and is_tts_request(prompt) and not prompt_is_french:
+    if tts_cfg.get("enabled", True) and is_tts_request(prompt):
         try:
             # Regenerate a short natural spoken response instead of the deflecting one
             spoken_instructions = (
