@@ -110,6 +110,10 @@ MAX_HISTORY = 15
 
 IGNORE_CHANCE = config["bot"]["ignore_chance"]
 
+_MOOD_CFG = config["bot"]["mood"]
+_LATE_CFG = config["bot"]["late_reply"]
+_memory_cache = {}
+
 ALLOWED_MEMORY_KEYS = {"name", "age", "location", "job", "hobby", "game", "relationship_status", "nationality", "language_skill"}
 JUNK_VALUES = {"yes", "no", "there", "here", "playing", "maybe", "idk", "a lot", "too much", "not really", "kind of", "sort of", "nah", "yeah"}
 _memory_call_counter = {}  # user_id -> message count since last extraction
@@ -541,7 +545,9 @@ async def _get_user_profile_block(user) -> str:
 
 async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
     uid = message.author.id
-    memory = get_memory(uid)
+    if uid not in _memory_cache:
+        _memory_cache[uid] = get_memory(uid)
+    memory = _memory_cache[uid]
     memory_block = format_memory_for_prompt(memory)
     mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if _MOOD_CFG.get("enabled", True) else ""
 
@@ -616,6 +622,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                             if value.lower() in JUNK_VALUES or len(value) < 2:
                                 continue
                             set_memory(uid, key, value)
+                            _memory_cache.setdefault(uid, {})[key] = value
                             log_system(f"Memory saved for {message.author.name}: {key} = {value}")
                 except Exception as mem_err:
                     log_error("Memory Error", str(mem_err))
