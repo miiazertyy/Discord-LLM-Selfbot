@@ -20,23 +20,26 @@ Preview :
 
 # ☮️ Features
 
--   [x] You can replace the text inside of `instructions.txt` and make the AI act however you'd like!
--   [x] The bot types like a real person, with varying speeds and pauses.
--   [x] The bot only responds when you mention it or say its trigger word.
--   [x] If replied to, the bot will continue to reply to you. Even in GCs
--   [x] The bot knows when you're replying to someone else, so it won't cause confusion.
--   [x] The bot can recognize images and respond to them in character.
--   [x] The bot has a built-in anti-spam feature to prevent people from abusing it.
--   [x] Use the `,analyse` command to analyse a mentioned user's messages and find insights on their personality.
--   [x] Uses all groq LLMs configurable in `config.yaml`
--   [x] Keep your credentials secure using environment variables. (`.env`)
--   [x] Priority prefix "=" to bypass wait times between responses usable by everyone.
--   [x] Auto switches between LLMs when out of tokens.
--   [x] Changes mood automatically, replacing the temperature from the LLM and is fully customizable.
--   [x] Per user memory stocked and fetched in an SQL file.
--   [x] Voice message response support
--   [x] Auto accept friend requests configurable
--   [x] Send voice messages, needs to accept conditions on groq's website ([Groq TTS](https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english))
+- [x] Fully customizable personality via `instructions.txt`
+- [x] Responds in the same language as the user automatically
+- [x] Realistic typing speed with variable pauses and occasional typos
+- [x] Batches multiple messages before responding, just like a real person
+- [x] Weighted random reply delays — quick, distracted, or away
+- [x] Mood system that shifts automatically and affects how the AI writes
+- [x] Per-user persistent memory — remembers names, hobbies, and personal facts across conversations
+- [x] Reads the user's Discord profile (display name, status, bio) and factors it into responses
+- [x] Supports images, voice messages, and stickers
+- [x] Sends real Discord voice message bubbles using Groq Orpheus TTS
+- [x] Transcribes incoming voice messages using Groq Whisper and responds to them
+- [x] Multiple Groq models with automatic fallback when rate limited
+- [x] Responds to trigger words, mentions, and replies — server-aware
+- [x] Holds conversations naturally in DMs and group chats
+- [x] Auto-accepts friend requests with a configurable delay
+- [x] Late reply openers when responding after a long pause
+- [x] Anti-spam cooldown per user
+- [x] Random status cycling on a configurable schedule
+- [x] Secure credential storage via `.env`
+- [x] Everything configurable in `config.yaml` with live editing from Discord
 
 And a bunch other features probably unmentioned
 
