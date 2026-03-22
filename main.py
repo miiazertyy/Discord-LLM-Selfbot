@@ -53,7 +53,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, transcribe_voice
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -515,6 +515,21 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     if late_reply_cfg.get("enabled", True) and wait_time >= late_reply_cfg.get("threshold", 300):
         late_opener = get_late_opener(prompt)
 
+    # Transcribe incoming voice messages before generating a response
+    if message.attachments and (message.flags.value & (1 << 13)):
+        try:
+            import aiohttp as _aiohttp
+            att = message.attachments[0]
+            async with _aiohttp.ClientSession() as _session:
+                async with _session.get(att.url) as _resp:
+                    audio_bytes = await _resp.read()
+            transcribed = await transcribe_voice(audio_bytes, filename=att.filename or "voice.ogg")
+            if transcribed:
+                log_system(f"Transcribed voice message from {message.author.name}: {transcribed}")
+                prompt = f"[voice message: {transcribed}]" if not prompt else f"{prompt} [voice message: {transcribed}]"
+        except Exception as _e:
+            log_error("Voice Transcription", str(_e))
+
     max_retries = 3
     response = None
 
@@ -806,9 +821,12 @@ async def process_message_queue(channel_id):
 
             if bot.batch_messages:
                 if batch_key not in bot.user_message_batches:
-                    first_image_url = (
-                        message.attachments[0].url if message.attachments else None
-                    )
+                    first_image_url = None
+                    if message.attachments:
+                        att = message.attachments[0]
+                        # Skip voice message attachments (flag 1<<13) — handled separately
+                        if not (message.flags.value & (1 << 13)):
+                            first_image_url = att.url
                     bot.user_message_batches[batch_key] = {
                         "messages": [],
                         "last_time": current_time,
@@ -878,7 +896,10 @@ async def process_message_queue(channel_id):
             else:
                 combined_content = message.content
                 message_to_reply_to = message
-                image_url = message.attachments[0].url if message.attachments else None
+                if message.attachments and not (message.flags.value & (1 << 13)):
+                    image_url = message.attachments[0].url
+                else:
+                    image_url = None
                 wait_time = 0
 
             for mention in message_to_reply_to.mentions:
