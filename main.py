@@ -393,16 +393,17 @@ async def _autojoin_voice(autojoin_cfg: dict):
         vc = await channel.connect(self_mute=True, self_deaf=True)
         log_system(f"Auto-joined voice channel: {channel.name} in {guild.name}")
 
-        async def _silence_loop(voice_client):
-            silent_frame = b"\xf8\xff\xfe"
-            while voice_client.is_connected():
-                try:
-                    voice_client.send_audio_packet(silent_frame, encode=False)
-                except Exception:
-                    pass
-                await asyncio.sleep(0.02)
+        async def _keep_alive(ch):
+            while True:
+                await asyncio.sleep(10)
+                if ch.guild.voice_client is None or not ch.guild.voice_client.is_connected():
+                    try:
+                        await ch.connect(self_mute=True, self_deaf=True)
+                        log_system(f"Auto-rejoined voice channel: {ch.name}")
+                    except Exception:
+                        pass
 
-        asyncio.create_task(_silence_loop(vc))
+        asyncio.create_task(_keep_alive(channel))
     except Exception as e:
         log_error("AutoJoin", str(e))
 
