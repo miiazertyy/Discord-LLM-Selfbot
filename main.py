@@ -884,13 +884,24 @@ async def process_message_queue(channel_id):
 
             total_wait = wait_time + message_age
 
+            is_direct_mention = (
+                bot.user.mentioned_in(message_to_reply_to)
+                and "@everyone" not in message_to_reply_to.content
+                and "@here" not in message_to_reply_to.content
+            )
+            replied_to_bot = (
+                message_to_reply_to.reference
+                and message_to_reply_to.reference.resolved
+                and message_to_reply_to.reference.resolved.author.id == bot.selfbot_id
+            )
+
             if message_to_reply_to.channel.id in bot.active_channels or (
                 isinstance(message_to_reply_to.channel, discord.DMChannel)
                 and bot.allow_dm
             ) or (
                 isinstance(message_to_reply_to.channel, discord.GroupChannel)
                 and bot.allow_gc
-            ):
+            ) or is_direct_mention or replied_to_bot:
                 response = await generate_response_and_reply(
                     message_to_reply_to, combined_content, history, image_url,
                     wait_time=total_wait
