@@ -88,15 +88,15 @@ async def generate_voice_message(text: str) -> list[bytes] | None:
     if not cleaned:
         return None
 
-    # Reserve space for tone prefix only on first chunk
-    first_max = TTS_MAX_CHARS - len(tone_prefix) - 1
-    text_chunks = _chunk_text(cleaned, max_chars=first_max)
+    # Reserve space for tone prefix on every chunk so style is consistent throughout
+    chunk_max = TTS_MAX_CHARS - len(tone_prefix) - 1
+    text_chunks = _chunk_text(cleaned, max_chars=chunk_max)
 
     client = _get_client()
     audio_chunks = []
 
     for i, chunk in enumerate(text_chunks):
-        tts_input = f"{tone_prefix} {chunk}" if i == 0 else chunk
+        tts_input = f"{tone_prefix} {chunk}"
 
         try:
             response = await client.audio.speech.create(
