@@ -13,7 +13,8 @@ Mostly supports French and fully supports English
 <strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned in _very_ rare cases.</strong>
 
 Preview :
-<img width="959" height="344" alt="image" src="https://github.com/user-attachments/assets/4d0e63ea-9f98-48a3-9332-820376694c61" />
+<img width="422" height="788" alt="image" src="https://imgur.com/zFgwjAm" />
+<img width="1278" height="645" alt="image" src="https://imgur.com/SOLbKIc" />
 
 
 # ☮️ Features
