@@ -37,6 +37,7 @@ class General(commands.Cog):
             f"  {p}pause              pause/unpause AI responses",
             f"  {p}wipe               clear conversation history",
             f"  {p}reply [user]     manually reply to a user's last message",
+            f"  {p}reply check        checks for unresponded users",
             f"  {p}analyse [user]     psychological profile of a user",
             "─────────────────────────────",
             "  ⚙️   Config",
