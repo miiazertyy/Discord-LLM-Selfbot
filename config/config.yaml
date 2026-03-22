@@ -36,6 +36,9 @@ bot:
   # Whether the bot should be active in group chats
   allow_gc: true
 
+  # Whether the bot should respond to mentions/replies in servers
+  allow_server: true
+
   # Realistic Typing
   realistic_typing: true
 
