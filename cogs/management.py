@@ -22,6 +22,10 @@ class Management(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def cog_before_invoke(self, ctx):
+        import random
+        await __import__("asyncio").sleep(random.uniform(0.8, 2.5))
+
     def save_config(self, new_config):
         config_path = resource_path("config/config.yaml")
         with open(config_path, "w", encoding="utf-8") as file:
