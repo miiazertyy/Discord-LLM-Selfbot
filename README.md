@@ -113,7 +113,7 @@ cd Discord-LLM-Selfbot
 Windows:
 
 -   Simply open `run.bat` if you're on Windows. This will install all pre-requisites, guide you through the process of setting up the bot and run it for you.
-
+-   
 -   If `run.bat` doesn't work, then open CMD and run `cd Discord-AI-Selfbot` to change directory to the bot files directory
 -   Create a virtual environment by running `python -m venv bot-env`
 -   Activate the virtual environment by running `bot-env\Scripts\activate.bat`
@@ -127,18 +127,16 @@ Linux:
 -   Fill out `example.env` with your own credentials and rename it to `.env`
 -   Fill out the `config.yaml` file with your own settings
 -   In terminal :
-chmod +x run.sh
-chmod +x updater.sh
+  sudo apt install ffmpeg -y
+  chmod +x run.sh
+  chmod +x updater.sh
 -   Run the bot using `./run.sh`
 
 # 🗨️ How to talk to the bot
 
 -   To activate it in a channel use **~toggleactive channelid** (channelid is optional).
 -   To see all commands use **(prefix)help**
--   Bear in mind that the bot will only respond to **other accounts** and not itself, including any commands.
--   You can also set a trigger word within the `config.yaml`, this is the word that the bot will respond to. For example, if you set the trigger word to `John`, people must say "Hey `John`, how are you today?" for the bot to respond.
-
-
+-   You can also set a trigger word within the `config.yaml` or with the ,config command, this is the word that the bot will respond to.
 # 💭 Changing the Personality of the bot
 
 To change the personality of the bot and set custom instructions, simply go into the `config` folder and edit the default instructions in `instructions.txt` to whatever you want! 
