@@ -13,8 +13,8 @@ Mostly supports French and fully supports English
 <strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned in _very_ rare cases.</strong>
 
 Preview :
-<img width="422" height="788" alt="zFgwjAm" src="https://github.com/user-attachments/assets/7d390cb1-82d6-4547-af3e-133035e6d7c0" />
-<img width="1278" height="645" alt="SOLbKIc" src="https://github.com/user-attachments/assets/ea604028-d2c8-4d0e-95e6-1240bc1d4f2c" />
+<img width="1623" height="645" alt="SOLbKIc" src="https://github.com/user-attachments/assets/6b75131f-716c-448c-97ed-5275241cb8ef" />
+
 
 
 
