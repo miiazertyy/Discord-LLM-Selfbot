@@ -723,24 +723,18 @@ class Management(commands.Cog):
 
 
     async def _connect_and_keep_alive(self, target: discord.VoiceChannel):
-        """Connect to a voice channel muted/deafened and keep alive by reconnecting on drop."""
+        """Connect to a voice channel muted/deafened and keep alive by playing infinite silence via FFmpeg."""
         existing = target.guild.voice_client
         if existing:
             await existing.disconnect(force=True)
 
         vc = await target.connect(self_mute=True, self_deaf=True)
 
-        async def _keep_alive(channel):
-            while True:
-                await asyncio.sleep(10)
-                guild = channel.guild
-                if guild.voice_client is None or not guild.voice_client.is_connected():
-                    try:
-                        await channel.connect(self_mute=True, self_deaf=True)
-                    except Exception:
-                        pass
+        # Play infinite silence using FFmpeg reading from /dev/zero
+        # This keeps the voice connection alive without sending audible audio
+        silence = discord.FFmpegPCMAudio("/dev/zero", pipe=False, options="-f s16le -ar 48000 -ac 2 -i /dev/zero -t 999999")
+        vc.play(silence)
 
-        asyncio.create_task(_keep_alive(target))
         return vc
 
     @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id>, ,join <guild_id> <channel_id>, or ,join <discord_link>")
