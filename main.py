@@ -371,6 +371,42 @@ async def _friend_request_loop():
         log_error("Friend Request Loop", str(e))
 
 
+
+async def _autojoin_voice(autojoin_cfg: dict):
+    """On startup, join the configured voice channel and keep it alive."""
+    await bot.wait_until_ready()
+    await asyncio.sleep(3)
+    try:
+        guild = bot.get_guild(autojoin_cfg["guild_id"])
+        if not guild:
+            log_error("AutoJoin", f"Guild {autojoin_cfg['guild_id']} not found")
+            return
+        channel = guild.get_channel(autojoin_cfg["channel_id"])
+        if not isinstance(channel, discord.VoiceChannel):
+            log_error("AutoJoin", f"Channel {autojoin_cfg['channel_id']} not found or not a voice channel")
+            return
+
+        existing = guild.voice_client
+        if existing:
+            await existing.disconnect(force=True)
+
+        vc = await channel.connect(self_mute=True, self_deaf=True)
+        log_system(f"Auto-joined voice channel: {channel.name} in {guild.name}")
+
+        async def _silence_loop(voice_client):
+            silent_frame = b"\xf8\xff\xfe"
+            while voice_client.is_connected():
+                try:
+                    voice_client.send_audio_packet(silent_frame, encode=False)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.02)
+
+        asyncio.create_task(_silence_loop(vc))
+    except Exception as e:
+        log_error("AutoJoin", str(e))
+
+
 @bot.event
 async def on_ready():
     if config["bot"]["owner_id"] == 123456789012345678:
@@ -407,6 +443,11 @@ async def on_ready():
     fr_cfg = config["bot"].get("friend_requests") or {}
     if fr_cfg.get("enabled", False):
         asyncio.create_task(_friend_request_loop())
+
+    # Auto-join voice channel if configured
+    autojoin = config["bot"].get("autojoin_channel")
+    if autojoin and isinstance(autojoin, dict):
+        asyncio.create_task(_autojoin_voice(autojoin))
 
 
 async def setup_hook():
