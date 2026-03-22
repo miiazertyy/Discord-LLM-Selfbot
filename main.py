@@ -504,16 +504,65 @@ def update_message_history(author_id, message_content):
     bot.message_history[author_id] = bot.message_history[author_id][-MAX_HISTORY:]
 
 
-async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
-    memory = get_memory(message.author.id)
-    memory_block = format_memory_for_prompt(memory)
-    mood_cfg = config["bot"]["mood"]
-    mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if mood_cfg.get("enabled", True) else ""
-    enriched_instructions = bot.instructions + mood_block + memory_block
+async def _get_user_profile_block(user) -> str:
+    """Fetch Discord profile info (status, bio, display name) and return as a context block."""
+    parts = []
+    try:
+        # display name / global name
+        display = getattr(user, 'global_name', None) or user.display_name
+        if display and display != user.name:
+            parts.append(f"display name: {display}")
 
-    late_reply_cfg = config["bot"]["late_reply"]
+        # custom status
+        if hasattr(user, 'activities') and user.activities:
+            for activity in user.activities:
+                if hasattr(activity, 'state') and activity.state:
+                    parts.append(f"status: {activity.state}")
+                    break
+                elif hasattr(activity, 'name') and activity.name and str(type(activity).__name__) == 'CustomActivity':
+                    parts.append(f"status: {activity.name}")
+                    break
+
+        # bio — requires fetch_user with profile
+        try:
+            profile = await user.profile()
+            if profile and getattr(profile, 'bio', None):
+                parts.append(f"bio: {profile.bio}")
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+
+    if not parts:
+        return ""
+    return "\n[About this person: " + ", ".join(parts) + "]"
+
+
+async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
+    uid = message.author.id
+    memory = get_memory(uid)
+    memory_block = format_memory_for_prompt(memory)
+    mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if _MOOD_CFG.get("enabled", True) else ""
+
+    # Fetch user profile and auto-save useful facts to memory
+    profile_block = await _get_user_profile_block(message.author)
+    if profile_block:
+        # Save display name to memory if not already known
+        if "display name:" in profile_block and "name" not in memory:
+            try:
+                display = getattr(message.author, 'global_name', None) or message.author.display_name
+                if display and display != message.author.name:
+                    set_memory(uid, "name", display)
+                    memory["name"] = display
+                    memory_block = format_memory_for_prompt(memory)
+            except Exception:
+                pass
+
+    enriched_instructions = bot.instructions + mood_block + memory_block + profile_block
+
     late_opener = ""
-    if late_reply_cfg.get("enabled", True) and wait_time >= late_reply_cfg.get("threshold", 300):
+    if _LATE_CFG.get("enabled", True) and wait_time >= _LATE_CFG.get("threshold", 300):
         late_opener = get_late_opener(prompt)
 
     # Transcribe incoming voice messages before generating a response
