@@ -723,22 +723,15 @@ class Management(commands.Cog):
             await ctx.send(f"Error: {e}", delete_after=10)
 
 
-    def _get_silence_source(self):
-        """Return an FFmpegOpusAudio source that streams infinite silence."""
-        return discord.FFmpegOpusAudio(
-            "anullsrc=r=48000:cl=stereo",
-            before_options="-f lavfi",
-            options="-b:a 128k"
-        )
-
     async def _connect_and_keep_alive(self, target: discord.VoiceChannel):
-        """Connect to a voice channel muted/deafened and play infinite silence to stay connected."""
+        """Connect to a voice channel muted, and store target so on_voice_state_update can rejoin."""
         existing = target.guild.voice_client
         if existing:
             await existing.disconnect(force=True)
 
-        vc = await target.connect(self_mute=True, self_deaf=True)
-        vc.play(self._get_silence_source(), after=lambda e: log_error("Voice", str(e)) if e else None)
+        vc = await target.connect(self_mute=True, self_deaf=False)
+        # Store target channel ID on bot so the voice state event can rejoin on disconnect
+        self.bot.voice_target_channel_id = target.id
         return vc
 
     @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id>, ,join <guild_id> <channel_id>, or ,join <discord_link>")
@@ -853,8 +846,7 @@ class Management(commands.Cog):
         if vc:
             channel_name = vc.channel.name
             guild_name = vc.guild.name
-            if vc.is_playing():
-                vc.stop()
+            self.bot.voice_target_channel_id = None  # Stop auto-rejoin
             await vc.disconnect(force=True)
             await ctx.send(f"Left **{channel_name}** in **{guild_name}**.", delete_after=10)
         else:
