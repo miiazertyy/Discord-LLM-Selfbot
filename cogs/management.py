@@ -722,53 +722,44 @@ class Management(commands.Cog):
             await ctx.send(f"Error: {e}", delete_after=10)
 
 
-    @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id>, ,join <guild_id> <channel_id>, or ,join <discord_link>")
-    async def join(self, ctx, *, args: str = None):
+    @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id> or ,join <guild_id> <channel_id>")
+    async def join(self, ctx, guild_or_channel_id: int = None, channel_id: int = None):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        if not args:
-            await ctx.send("Usage: `,join <channel_id>` or `,join <guild_id> <channel_id>` or `,join https://discord.com/channels/guild_id/channel_id`", delete_after=15)
+        target = None
+
+        if guild_or_channel_id is None:
+            await ctx.send("Usage: `,join <channel_id>` or `,join <guild_id> <channel_id>`", delete_after=15)
             return
 
-        guild_id_parsed = None
-        channel_id_parsed = None
-
-        # Parse discord channel link
-        link_match = re.match(r"https?://discord\.com/channels/(\d+)/(\d+)", args.strip())
-        if link_match:
-            guild_id_parsed = int(link_match.group(1))
-            channel_id_parsed = int(link_match.group(2))
-        else:
-            parts = args.strip().split()
-            if len(parts) == 1 and parts[0].isdigit():
-                channel_id_parsed = int(parts[0])
-            elif len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-                guild_id_parsed = int(parts[0])
-                channel_id_parsed = int(parts[1])
-            else:
-                await ctx.send("Invalid input. Use a channel ID, `guild_id channel_id`, or a Discord channel link.", delete_after=10)
+        if channel_id is None:
+            # Only a channel ID was given — search all guilds
+            channel = self.bot.get_channel(guild_or_channel_id)
+            if not isinstance(channel, discord.VoiceChannel):
+                await ctx.send(f"Channel `{guild_or_channel_id}` not found or is not a voice channel.", delete_after=10)
                 return
-
-        # Resolve the channel
-        if guild_id_parsed:
-            guild = self.bot.get_guild(guild_id_parsed)
+            target = channel
+        else:
+            # Both guild ID and channel ID given
+            guild = self.bot.get_guild(guild_or_channel_id)
             if not guild:
-                await ctx.send(f"Guild `{guild_id_parsed}` not found.", delete_after=10)
+                await ctx.send(f"Guild `{guild_or_channel_id}` not found.", delete_after=10)
                 return
-            target = guild.get_channel(channel_id_parsed)
-        else:
-            target = self.bot.get_channel(channel_id_parsed)
-
-        if not isinstance(target, discord.VoiceChannel):
-            await ctx.send("Channel not found or is not a voice channel.", delete_after=10)
-            return
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.VoiceChannel):
+                await ctx.send(f"Channel `{channel_id}` not found or is not a voice channel in that guild.", delete_after=10)
+                return
+            target = channel
 
         try:
+            # Disconnect from any existing VC in the target guild
             existing = target.guild.voice_client
             if existing:
                 await existing.disconnect(force=True)
+            status = await ctx.send(f"Joining **{target.name}** in **{target.guild.name}**...", delete_after=30)
             await target.connect(self_mute=True, self_deaf=True)
+            await status.delete()
             await ctx.send(f"Joined **{target.name}** in **{target.guild.name}** (muted & deafened).", delete_after=10)
         except Exception as e:
             await ctx.send(f"Error joining voice channel: {e}", delete_after=10)
