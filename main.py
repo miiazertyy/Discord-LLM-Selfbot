@@ -75,7 +75,7 @@ OWNER_ID = config["bot"]["owner_id"]
 TRIGGER = config["bot"]["trigger"].lower().split(",")
 DISABLE_MENTIONS = config["bot"]["disable_mentions"]
 
-bot = commands.Bot(command_prefix=PREFIX, help_command=None)
+bot = commands.Bot(command_prefix=PREFIX, help_command=None, mobile=True)
 bot.retry_queue = deque()
 
 bot.owner_id = OWNER_ID
