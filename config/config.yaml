@@ -46,20 +46,20 @@ bot:
   batch_messages: true 
 
   # Time before responding
-  batch_wait_times:
-    - time: 9       # quick reply, saw it immediately
-      weight: 65
-    - time: 20      # normal reply, took a few seconds to think
-      weight: 20
-    - time: 90      # slightly distracted
-      weight: 10
-    - time: 600     # 10 mins, actually busy
-      weight: 4
-    - time: 1600    # less than 30 mins, genuinely away
-      weight: 1
+batch_wait_times:
+  - time: 15
+    weight: 53
+  - time: 40
+    weight: 25
+  - time: 90
+    weight: 15
+  - time: 600
+    weight: 5
+  - time: 1600
+    weight: 2
 
   # Anti-detection settings
-  ignore_chance: 0.03       # Chance to ignore a message
+  ignore_chance: 0.08       # Chance to ignore a message
   typo_chance: 0.05         # Chance of a typo per message
 
   # Priority prefix to bypass batch wait times
