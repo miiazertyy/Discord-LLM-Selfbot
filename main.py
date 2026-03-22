@@ -324,6 +324,8 @@ async def _reply_pending_messages():
                 continue
 
             log_system(f"Replying to pending message from {user.name}")
+            # Random delay between pending replies so they don't all fire at once
+            await asyncio.sleep(random.uniform(8, 25))
             response = await generate_response_and_reply(last_msg, content, history)
             if response:
                 bot.message_history[key].append({"role": "assistant", "content": response})
