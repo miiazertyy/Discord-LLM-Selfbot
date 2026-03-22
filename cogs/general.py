@@ -12,6 +12,10 @@ class General(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def cog_before_invoke(self, ctx):
+        import random
+        await __import__("asyncio").sleep(random.uniform(0.8, 2.5))
+
     @commands.command(name="ping")
     @commands.cooldown(1, 30, commands.BucketType.user)
     async def ping(self, ctx):
