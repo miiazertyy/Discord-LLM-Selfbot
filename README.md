@@ -41,14 +41,13 @@ Preview :
 - [x] Secure credential storage via `.env`
 - [x] Everything configurable in `config.yaml` with live editing from Discord
 
-And a bunch other features probably unmentioned
-
 ##  📋 Commands
 
 ###  🤖  AI
     ,pause              pause/unpause AI responses
     ,wipe               clear conversation history
-    ,reply [user]     manually reply to a user's last message
+    ,reply [user]       manually reply to a user's last message
+    ,reply check        checks for unresponded users
     ,analyse [user]     psychological profile of a user
 
 ###  ⚙️   Config
@@ -63,7 +62,7 @@ And a bunch other features probably unmentioned
     ,toggleactive       toggle current channel
     ,toggledm           toggle DM responses
     ,togglegc           toggle group chat responses
-    ,toggleserver       toggle server responses",
+    ,toggleserver       toggle server responses,
     ,ignore [user]      ignore/unignore a user
 
 ###  🛠️   System
@@ -133,6 +132,7 @@ Linux:
 -   Fill out `example.env` with your own credentials and rename it to `.env`
 -   Fill out the `config.yaml` file with your own settings
 -   In terminal :
+  sudo apt install python3
   sudo apt install ffmpeg -y
   chmod +x run.sh
   chmod +x updater.sh
