@@ -393,17 +393,8 @@ async def _autojoin_voice(autojoin_cfg: dict):
         vc = await channel.connect(self_mute=True, self_deaf=True)
         log_system(f"Auto-joined voice channel: {channel.name} in {guild.name}")
 
-        async def _keep_alive(ch):
-            while True:
-                await asyncio.sleep(10)
-                if ch.guild.voice_client is None or not ch.guild.voice_client.is_connected():
-                    try:
-                        await ch.connect(self_mute=True, self_deaf=True)
-                        log_system(f"Auto-rejoined voice channel: {ch.name}")
-                    except Exception:
-                        pass
-
-        asyncio.create_task(_keep_alive(channel))
+        silence = discord.FFmpegPCMAudio("/dev/zero", pipe=False, options="-f s16le -ar 48000 -ac 2 -i /dev/zero -t 999999")
+        vc.play(silence)
     except Exception as e:
         log_error("AutoJoin", str(e))
 
