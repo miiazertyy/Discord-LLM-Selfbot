@@ -13,8 +13,9 @@ Mostly supports French and fully supports English
 <strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned in _very_ rare cases.</strong>
 
 Preview :
-<img width="423" height="788" alt="Sans titree" src="https://github.com/user-attachments/assets/8a2aae57-cb24-4ea2-8028-b6a0ba83defc" />
-<img width="422" height="788" alt="Sans titre" src="https://github.com/user-attachments/assets/9e2f89a8-dd63-40a2-a446-f75f85a923db" />
+<img width="422" height="788" alt="zFgwjAm" src="https://github.com/user-attachments/assets/7d390cb1-82d6-4547-af3e-133035e6d7c0" />
+<img width="1278" height="645" alt="SOLbKIc" src="https://github.com/user-attachments/assets/ea604028-d2c8-4d0e-95e6-1240bc1d4f2c" />
+
 
 
 # ☮️ Features
