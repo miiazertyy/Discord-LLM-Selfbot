@@ -323,6 +323,18 @@ async def _reply_pending_messages():
                 log_error("Pending Reply", f"No message found for user {user.name}, skipping")
                 continue
 
+            # Skip server channels unless the bot was directly mentioned or replied to
+            if isinstance(channel, discord.TextChannel):
+                was_mentioned = bot.user.mentioned_in(last_msg) and "@everyone" not in last_msg.content and "@here" not in last_msg.content
+                was_replied_to = (
+                    last_msg.reference
+                    and last_msg.reference.resolved
+                    and last_msg.reference.resolved.author.id == bot.selfbot_id
+                )
+                if not was_mentioned and not was_replied_to:
+                    log_system(f"Skipping pending reply to {user.name} — server channel, not a mention/reply")
+                    continue
+
             log_system(f"Replying to pending message from {user.name}")
             # Random delay between pending replies so they don't all fire at once
             await asyncio.sleep(random.uniform(8, 25))
@@ -734,10 +746,6 @@ async def on_message(message):
         await bot.process_commands(message)
         return
 
-    # Treat sticker-only messages as having content so they get processed
-    if not message.content and message.stickers:
-        message.content = f"[sent a sticker: {message.stickers[0].name}]"
-
     channel_id = message.channel.id
     user_id = message.author.id
     current_time = time.time()
@@ -860,13 +868,7 @@ async def process_message_queue(channel_id):
                             seen.add(msg.content)
                             unique_messages.append(msg)
 
-                    parts = []
-                    for msg in unique_messages:
-                        if msg.content:
-                            parts.append(msg.content)
-                        if msg.stickers:
-                            parts.append(f"[sent a sticker: {msg.stickers[0].name}]")
-                    combined_content = "\n".join(parts)
+                    combined_content = "\n".join(msg.content for msg in unique_messages)
                     if combined_content.startswith(PRIORITY_PREFIX):
                         combined_content = combined_content[len(PRIORITY_PREFIX):].lstrip()
                     message_to_reply_to = unique_messages[-1]
@@ -874,8 +876,7 @@ async def process_message_queue(channel_id):
 
                     del bot.user_message_batches[batch_key]
             else:
-                sticker_text = f"[sent a sticker: {message.stickers[0].name}]" if message.stickers else ""
-                combined_content = message.content or sticker_text
+                combined_content = message.content
                 message_to_reply_to = message
                 image_url = message.attachments[0].url if message.attachments else None
                 wait_time = 0
