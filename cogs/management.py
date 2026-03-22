@@ -723,24 +723,24 @@ class Management(commands.Cog):
 
 
     async def _connect_and_keep_alive(self, target: discord.VoiceChannel):
-        """Connect to a voice channel muted/deafened and keep the connection alive with silence."""
+        """Connect to a voice channel muted/deafened and keep alive by reconnecting on drop."""
         existing = target.guild.voice_client
         if existing:
             await existing.disconnect(force=True)
 
         vc = await target.connect(self_mute=True, self_deaf=True)
 
-        # Send silence frames to prevent Discord from dropping the idle connection
-        async def _silence_loop(voice_client):
-            silent_frame = b"\xf8\xff\xfe"  # Opus silent frame
-            while voice_client.is_connected():
-                try:
-                    voice_client.send_audio_packet(silent_frame, encode=False)
-                except Exception:
-                    pass
-                await asyncio.sleep(0.02)  # 20ms per frame, standard Opus interval
+        async def _keep_alive(channel):
+            while True:
+                await asyncio.sleep(10)
+                guild = channel.guild
+                if guild.voice_client is None or not guild.voice_client.is_connected():
+                    try:
+                        await channel.connect(self_mute=True, self_deaf=True)
+                    except Exception:
+                        pass
 
-        asyncio.create_task(_silence_loop(vc))
+        asyncio.create_task(_keep_alive(target))
         return vc
 
     @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id>, ,join <guild_id> <channel_id>, or ,join <discord_link>")
