@@ -722,5 +722,68 @@ class Management(commands.Cog):
             await ctx.send(f"Error: {e}", delete_after=10)
 
 
+    @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id> or ,join <guild_id> <channel_id>")
+    async def join(self, ctx, guild_or_channel_id: int = None, channel_id: int = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        target = None
+
+        if guild_or_channel_id is None:
+            await ctx.send("Usage: `,join <channel_id>` or `,join <guild_id> <channel_id>`", delete_after=15)
+            return
+
+        if channel_id is None:
+            # Only a channel ID was given — search all guilds
+            channel = self.bot.get_channel(guild_or_channel_id)
+            if not isinstance(channel, discord.VoiceChannel):
+                await ctx.send(f"Channel `{guild_or_channel_id}` not found or is not a voice channel.", delete_after=10)
+                return
+            target = channel
+        else:
+            # Both guild ID and channel ID given
+            guild = self.bot.get_guild(guild_or_channel_id)
+            if not guild:
+                await ctx.send(f"Guild `{guild_or_channel_id}` not found.", delete_after=10)
+                return
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, discord.VoiceChannel):
+                await ctx.send(f"Channel `{channel_id}` not found or is not a voice channel in that guild.", delete_after=10)
+                return
+            target = channel
+
+        try:
+            # Disconnect from any existing VC in the target guild
+            existing = target.guild.voice_client
+            if existing:
+                await existing.disconnect(force=True)
+            await target.connect(self_mute=True, self_deaf=True)
+            await ctx.send(f"Joined **{target.name}** in **{target.guild.name}** (muted & deafened).", delete_after=10)
+        except Exception as e:
+            await ctx.send(f"Error joining voice channel: {e}", delete_after=10)
+
+    @commands.command(name="leave", description="Leave a voice channel. Usage: ,leave or ,leave <guild_id>")
+    async def leave(self, ctx, guild_id: int = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        if guild_id:
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                await ctx.send(f"Guild `{guild_id}` not found.", delete_after=10)
+                return
+            vc = guild.voice_client
+        else:
+            vc = ctx.guild.voice_client if ctx.guild else None
+
+        if vc:
+            channel_name = vc.channel.name
+            guild_name = vc.guild.name
+            await vc.disconnect(force=True)
+            await ctx.send(f"Left **{channel_name}** in **{guild_name}**.", delete_after=10)
+        else:
+            await ctx.send("Not in a voice channel.", delete_after=10)
+
+
 async def setup(bot):
     await bot.add_cog(Management(bot))
