@@ -108,6 +108,10 @@ COOLDOWN_DURATION = 60.0
 MAX_HISTORY = 15
 
 IGNORE_CHANCE = config["bot"]["ignore_chance"]
+
+ALLOWED_MEMORY_KEYS = {"name", "age", "location", "job", "hobby", "game", "relationship_status", "nationality", "language_skill"}
+JUNK_VALUES = {"yes", "no", "there", "here", "playing", "maybe", "idk", "a lot", "too much", "not really", "kind of", "sort of", "nah", "yeah"}
+_memory_call_counter = {}  # user_id -> message count since last extraction
 PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
 REFUSAL_PHRASES = [
@@ -520,21 +524,20 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
             if response:
                 try:
-                    ALLOWED_MEMORY_KEYS = {"name", "age", "location", "job", "hobby", "game", "relationship_status", "nationality", "language_skill"}
-                    JUNK_VALUES = {"yes", "no", "there", "here", "playing", "maybe", "idk", "a lot", "too much", "not really", "kind of", "sort of", "nah", "yeah"}
-                    facts = await extract_memory(prompt, response)
-                    for key, value in facts.items():
-                        value = str(value).strip()
-                        if not value:
-                            continue
-                        if key not in ALLOWED_MEMORY_KEYS:
-                            continue
-                        if value.lower() in JUNK_VALUES:
-                            continue
-                        if len(value) < 2:
-                            continue
-                        set_memory(message.author.id, key, value)
-                        log_system(f"Memory saved for {message.author.name}: {key} = {value}")
+                    uid = message.author.id
+                    _memory_call_counter[uid] = _memory_call_counter.get(uid, 0) + 1
+                    # Only extract memory every 4 messages and only if message is long enough
+                    if _memory_call_counter[uid] >= 4 and len(prompt) >= 15:
+                        _memory_call_counter[uid] = 0
+                        facts = await extract_memory(prompt, response)
+                        for key, value in facts.items():
+                            value = str(value).strip()
+                            if not value or key not in ALLOWED_MEMORY_KEYS:
+                                continue
+                            if value.lower() in JUNK_VALUES or len(value) < 2:
+                                continue
+                            set_memory(uid, key, value)
+                            log_system(f"Memory saved for {message.author.name}: {key} = {value}")
                 except Exception as mem_err:
                     log_error("Memory Error", str(mem_err))
 
