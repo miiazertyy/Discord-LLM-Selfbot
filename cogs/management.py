@@ -907,7 +907,7 @@ class Management(commands.Cog):
         os.makedirs(folder, exist_ok=True)
         exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
-        if action == "ls":
+        if action in ("ls", "list"):
             files = [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts]
             if not files:
                 await ctx.send("No images in the folder yet. Use `,image upload` with an attachment.", delete_after=15)
