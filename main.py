@@ -53,7 +53,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, transcribe_voice
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, transcribe_voice, summarize_history
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -100,6 +100,7 @@ bot.processing_locks = {}
 bot.user_message_batches = {}
 
 bot.active_conversations = {}
+bot.sent_pictures = {}  # user_id -> set of sent picture paths/urls
 CONVERSATION_TIMEOUT = 150.0
 
 SPAM_MESSAGE_THRESHOLD = 5
@@ -543,6 +544,52 @@ async def _get_user_profile_block(user) -> str:
     return "\n[About this person: " + ", ".join(parts) + "]"
 
 
+def _is_picture_request(text: str) -> bool:
+    """Detect if the user is asking for a picture/selfie of the bot."""
+    import re
+    patterns = [
+        r"\b(send|show|envoie|montre).{0,15}(photo|pic|picture|selfie|image|face|gueule|tete|visage)\b",
+        r"\b(photo|pic|picture|selfie).{0,10}(de toi|of you|of u|yourself)\b",
+        r"\bt'as.{0,10}(photo|pic|selfie)\b",
+        r"\ba quoi.{0,10}ressemble\b",
+        r"\blet me see you\b",
+        r"\bshow me you\b",
+        r"\bt'es comment\b",
+    ]
+    compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
+    return any(p.search(text) for p in compiled)
+
+
+def _get_random_picture() -> tuple[str, str] | None:
+    """
+    Returns (type, value) where type is 'file' or 'url', or None if no pictures configured.
+    Picks randomly from folder + URLs, never repeating until all are exhausted per user.
+    """
+    pics_cfg = config["bot"].get("pictures") or {}
+    folder = pics_cfg.get("folder", "config/pictures")
+    urls = pics_cfg.get("urls", []) or []
+
+    all_pics = []
+
+    # Add folder files
+    folder_path = resource_path(folder)
+    if os.path.exists(folder_path):
+        exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        for f in os.listdir(folder_path):
+            if os.path.splitext(f)[1].lower() in exts:
+                all_pics.append(("file", os.path.join(folder_path, f)))
+
+    # Add URLs
+    for url in urls:
+        if url:
+            all_pics.append(("url", url))
+
+    if not all_pics:
+        return None
+
+    return all_pics
+
+
 async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
     uid = message.author.id
     if uid not in _memory_cache:
@@ -570,6 +617,13 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     late_opener = ""
     if _LATE_CFG.get("enabled", True) and wait_time >= _LATE_CFG.get("threshold", 300):
         late_opener = get_late_opener(prompt)
+
+    # Compress history if it's getting long (saves tokens)
+    if len(history) > 20:
+        try:
+            history = await summarize_history(history, enriched_instructions)
+        except Exception:
+            pass
 
     # Transcribe incoming voice messages before generating a response
     if message.attachments and (message.flags.value & (1 << 13)):
@@ -710,9 +764,69 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             traceback.print_exc()
             # Fall through to normal text response if TTS fails
 
-    chunks = split_response(response)
+    # Ask AI to split response naturally into 1-3 messages if it's long enough
+    if len(response) > 80:
+        try:
+            split_instructions = (
+                "You are a message splitter. Split the following message into 1, 2 or 3 separate "
+                "Discord messages that feel natural, like a real person texting. "
+                "Only split if it makes sense — short messages should stay as 1. "
+                "Return ONLY a JSON array of strings, no explanation. Example: [\"hey what's up\", \"lol yeah I know\"]"
+            )
+            split_resp = await generate_response(
+                "Split this into natural Discord messages: " + response,
+                split_instructions,
+                history=None,
+            )
+            import json as _json
+            split_resp = split_resp.strip()
+            if split_resp.startswith("["):
+                parsed = _json.loads(split_resp)
+                if isinstance(parsed, list) and 1 <= len(parsed) <= 3 and all(isinstance(s, str) for s in parsed):
+                    chunks = [s.strip() for s in parsed if s.strip()]
+                else:
+                    chunks = split_response(response)
+            else:
+                chunks = split_response(response)
+        except Exception:
+            chunks = split_response(response)
+    else:
+        chunks = split_response(response)
+
     if len(chunks) > 3:
         chunks = chunks[:3]
+
+    # Send picture if user is asking for one
+    pics_cfg = config["bot"].get("pictures") or {}
+    if pics_cfg.get("enabled", True) and _is_picture_request(prompt):
+        all_pics = _get_random_picture()
+        if all_pics:
+            uid = message.author.id
+            sent = bot.sent_pictures.get(uid, set())
+            available = [p for p in all_pics if p[1] not in sent]
+            if not available:
+                # Reset if all have been sent
+                bot.sent_pictures[uid] = set()
+                available = all_pics
+            pic_type, pic_value = random.choice(available)
+            bot.sent_pictures.setdefault(uid, set()).add(pic_value)
+            try:
+                if bot.realistic_typing:
+                    await asyncio.sleep(random.uniform(1, 3))
+                if pic_type == "file":
+                    f = discord.File(pic_value)
+                    if isinstance(message.channel, discord.DMChannel):
+                        await message.channel.send(file=f)
+                    else:
+                        await message.reply(file=f, mention_author=config["bot"]["reply_ping"])
+                else:
+                    if isinstance(message.channel, discord.DMChannel):
+                        await message.channel.send(pic_value)
+                    else:
+                        await message.reply(pic_value, mention_author=config["bot"]["reply_ping"])
+                log_system(f"Sent picture to {message.author.name}")
+            except Exception as _pe:
+                log_error("Picture Send", str(_pe))
 
     for i, chunk in enumerate(chunks):
         if DISABLE_MENTIONS:
