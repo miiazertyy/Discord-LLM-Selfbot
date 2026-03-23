@@ -76,14 +76,6 @@ bot:
 
   # Whether the bot should ping on replies
   reply_ping: true
-  
-  # Pictures the bot can send
-  pictures:
-  enabled: true
-  folder: "config/pictures"
-  urls:
-    - "https://example.com/pic1.jpg"
-    - "https://example.com/pic2.jpg"
 
   # --- Mood system ---
   mood:
