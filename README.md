@@ -28,7 +28,7 @@ Preview :
 - [x] Mood system that shifts automatically and affects how the AI writes
 - [x] Per-user persistent memory — remembers names, hobbies, and personal facts across conversations
 - [x] Reads the user's Discord profile (display name, status, bio) and factors it into responses
-- [x] Supports images, voice messages, and stickers
+- [x] Supports images, voice messages, and stickers. All that supports viewing and sending
 - [x] Sends real Discord voice message bubbles using Groq Orpheus TTS
 - [x] Transcribes incoming voice messages using Groq Whisper and responds to them
 - [x] Multiple Groq models with automatic fallback when rate limited
