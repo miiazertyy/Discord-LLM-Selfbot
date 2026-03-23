@@ -829,7 +829,7 @@ async def on_message(message):
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
 
-        if random.random() < IGNORE_CHANCE:
+        if random.random() < IGNORE_CHANCE and not message.content.startswith(PREFIX) and not message.content.startswith(PRIORITY_PREFIX):
             return
 
         if user_id in bot.user_cooldowns:
