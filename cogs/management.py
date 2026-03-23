@@ -897,5 +897,59 @@ class Management(commands.Cog):
             await ctx.send("Not in a voice channel.", delete_after=10)
 
 
+    @commands.command(name="pictures", description="Manage bot pictures (add URL or list current).")
+    async def pictures(self, ctx, action: str = "list", *, value: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        config = load_config()
+        pics_cfg = config["bot"].get("pictures") or {}
+        urls = pics_cfg.get("urls", []) or []
+        folder = pics_cfg.get("folder", "config/pictures")
+
+        if action == "list":
+            folder_path = resource_path(folder)
+            folder_files = []
+            if os.path.exists(folder_path):
+                exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+                folder_files = [f for f in os.listdir(folder_path) if os.path.splitext(f)[1].lower() in exts]
+
+            lines = ["```", "🖼️  Pictures"]
+            lines.append(f"Folder ({folder}): {len(folder_files)} file(s)")
+            for f in folder_files:
+                lines.append(f"  - {f}")
+            lines.append(f"URLs: {len(urls)}")
+            for u in urls:
+                lines.append(f"  - {u[:60]}")
+            lines.append("```")
+            lines.append(f"Use `,pictures add <url>` to add a URL or drop files in `{folder}/`")
+            await ctx.send("\n".join(lines), delete_after=60)
+
+        elif action == "add" and value:
+            if value not in urls:
+                urls.append(value)
+                if "pictures" not in config["bot"]:
+                    config["bot"]["pictures"] = {}
+                config["bot"]["pictures"]["urls"] = urls
+                config["bot"]["pictures"]["folder"] = folder
+                config["bot"]["pictures"]["enabled"] = True
+                self.save_config(config)
+                await ctx.send(f"✅ Added picture URL.", delete_after=10)
+            else:
+                await ctx.send("Already in the list.", delete_after=10)
+
+        elif action == "remove" and value:
+            if value in urls:
+                urls.remove(value)
+                config["bot"]["pictures"]["urls"] = urls
+                self.save_config(config)
+                await ctx.send(f"✅ Removed.", delete_after=10)
+            else:
+                await ctx.send("URL not found.", delete_after=10)
+
+        else:
+            await ctx.send("Usage: `,pictures list` | `,pictures add <url>` | `,pictures remove <url>`", delete_after=10)
+
+
 async def setup(bot):
     await bot.add_cog(Management(bot))
