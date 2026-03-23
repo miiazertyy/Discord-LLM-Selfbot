@@ -62,7 +62,7 @@ Preview :
     ,toggleactive       toggle current channel
     ,toggledm           toggle DM responses
     ,togglegc           toggle group chat responses
-    ,toggleserver       toggle server responses,
+    ,toggleserver       toggle server responses
     ,ignore [user]      ignore/unignore a user
 
 ###  🛠️   System
@@ -73,6 +73,9 @@ Preview :
     ,shutdown           shut down the bot
     ,ping               show latency
     ,getdb              download memory database
+    ,image ls           list bot pictures
+    ,image upload       upload a picture (attach file)
+    ,image download [n]  download a picture from folder
     ,status [emoji] [text]  set custom status
     ,bio [text]         set profile bio
     ,pfp [url/attach]   change profile picture
