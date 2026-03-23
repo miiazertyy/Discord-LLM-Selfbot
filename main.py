@@ -560,34 +560,18 @@ def _is_picture_request(text: str) -> bool:
     return any(p.search(text) for p in compiled)
 
 
-def _get_random_picture() -> tuple[str, str] | None:
-    """
-    Returns (type, value) where type is 'file' or 'url', or None if no pictures configured.
-    Picks randomly from folder + URLs, never repeating until all are exhausted per user.
-    """
-    pics_cfg = config["bot"].get("pictures") or {}
-    folder = pics_cfg.get("folder", "config/pictures")
-    urls = pics_cfg.get("urls", []) or []
-
-    all_pics = []
-
-    # Add folder files
-    folder_path = resource_path(folder)
-    if os.path.exists(folder_path):
-        exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-        for f in os.listdir(folder_path):
-            if os.path.splitext(f)[1].lower() in exts:
-                all_pics.append(("file", os.path.join(folder_path, f)))
-
-    # Add URLs
-    for url in urls:
-        if url:
-            all_pics.append(("url", url))
-
-    if not all_pics:
+def _get_random_picture() -> list | None:
+    """Returns list of (type, path) tuples from config/pictures folder."""
+    folder_path = resource_path("config/pictures")
+    if not os.path.exists(folder_path):
         return None
-
-    return all_pics
+    exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    files = [
+        ("file", os.path.join(folder_path, f))
+        for f in os.listdir(folder_path)
+        if os.path.splitext(f)[1].lower() in exts
+    ]
+    return files if files else None
 
 
 async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
