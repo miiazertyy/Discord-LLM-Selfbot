@@ -212,3 +212,48 @@ async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> s
     except Exception as e:
         print_error("Whisper Error", e)
         return ""
+
+
+async def summarize_history(history: list, instructions: str) -> list:
+    """Compress long history into summary + recent messages to save tokens."""
+    if not client:
+        init_ai()
+
+    KEEP_RECENT = 6
+    if len(history) <= KEEP_RECENT + 2:
+        return history
+
+    to_summarize = history[:-KEEP_RECENT]
+    recent = history[-KEEP_RECENT:]
+
+    lines = []
+    for msg in to_summarize:
+        role = "User" if msg["role"] == "user" else "You"
+        lines.append(role + ": " + msg["content"])
+    transcript = "\n".join(lines)
+
+    summary_prompt = (
+        "Here is a conversation transcript:\n\n" + transcript + "\n\n"
+        "Write a brief summary of this conversation in 2-3 sentences from your perspective. "
+        "Focus on key facts, topics discussed, and the emotional tone. "
+        "Write in first person as if you are remembering what was discussed."
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": summary_prompt},
+            ],
+            max_tokens=200,
+            temperature=0.3,
+        )
+        summary_text = response.choices[0].message.content.strip()
+        summary_msg = {
+            "role": "assistant",
+            "content": "[Earlier in this conversation: " + summary_text + "]"
+        }
+        return [summary_msg] + recent
+    except Exception:
+        return history
