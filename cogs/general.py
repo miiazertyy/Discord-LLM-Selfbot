@@ -63,6 +63,7 @@ class General(commands.Cog):
             f"  {p}shutdown           shut down the bot",
             f"  {p}ping               show latency",
             f"  {p}getdb              download memory database",
+            f"  {p}pictures           manage bot pictures",
             f"  {p}status [emoji] [text]  set custom status",
             f"  {p}bio [text]         set profile bio",
             f"  {p}pfp [url/attach]   change profile picture",
