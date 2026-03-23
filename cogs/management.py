@@ -897,58 +897,77 @@ class Management(commands.Cog):
             await ctx.send("Not in a voice channel.", delete_after=10)
 
 
-    @commands.command(name="pictures", description="Manage bot pictures (add URL or list current).")
-    async def pictures(self, ctx, action: str = "list", *, value: str = None):
+    @commands.command(name="image", description="Manage bot pictures. Subcommands: upload, ls, download [name]")
+    async def image(self, ctx, action: str = "ls", *, name: str = None):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        config = load_config()
-        pics_cfg = config["bot"].get("pictures") or {}
-        urls = pics_cfg.get("urls", []) or []
-        folder = pics_cfg.get("folder", "config/pictures")
+        from utils.helpers import resource_path
+        folder = resource_path("config/pictures")
+        os.makedirs(folder, exist_ok=True)
+        exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
-        if action == "list":
-            folder_path = resource_path(folder)
-            folder_files = []
-            if os.path.exists(folder_path):
-                exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-                folder_files = [f for f in os.listdir(folder_path) if os.path.splitext(f)[1].lower() in exts]
-
-            lines = ["```", "🖼️  Pictures"]
-            lines.append(f"Folder ({folder}): {len(folder_files)} file(s)")
-            for f in folder_files:
+        if action == "ls":
+            files = [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts]
+            if not files:
+                await ctx.send("No images in the folder yet. Use `,image upload` with an attachment.", delete_after=15)
+                return
+            lines = ["```", f"🖼️  Images ({len(files)} total)"]
+            for f in sorted(files):
                 lines.append(f"  - {f}")
-            lines.append(f"URLs: {len(urls)}")
-            for u in urls:
-                lines.append(f"  - {u[:60]}")
             lines.append("```")
-            lines.append(f"Use `,pictures add <url>` to add a URL or drop files in `{folder}/`")
             await ctx.send("\n".join(lines), delete_after=60)
 
-        elif action == "add" and value:
-            if value not in urls:
-                urls.append(value)
-                if "pictures" not in config["bot"]:
-                    config["bot"]["pictures"] = {}
-                config["bot"]["pictures"]["urls"] = urls
-                config["bot"]["pictures"]["folder"] = folder
-                config["bot"]["pictures"]["enabled"] = True
-                self.save_config(config)
-                await ctx.send(f"✅ Added picture URL.", delete_after=10)
+        elif action == "upload":
+            if not ctx.message.attachments:
+                await ctx.send("Attach an image to upload.", delete_after=10)
+                return
+            saved = []
+            for att in ctx.message.attachments:
+                ext = os.path.splitext(att.filename)[1].lower()
+                if ext not in exts:
+                    continue
+                data = await att.read()
+                dest = os.path.join(folder, att.filename)
+                with open(dest, "wb") as f:
+                    f.write(data)
+                saved.append(att.filename)
+            if saved:
+                await ctx.send(f"✅ Saved: {', '.join(saved)}", delete_after=10)
             else:
-                await ctx.send("Already in the list.", delete_after=10)
+                await ctx.send("No valid image attachments found.", delete_after=10)
 
-        elif action == "remove" and value:
-            if value in urls:
-                urls.remove(value)
-                config["bot"]["pictures"]["urls"] = urls
-                self.save_config(config)
-                await ctx.send(f"✅ Removed.", delete_after=10)
+        elif action == "download":
+            if not name:
+                await ctx.send("Provide a filename. Use `,image ls` to see available images.", delete_after=10)
+                return
+            path = os.path.join(folder, name)
+            if not os.path.exists(path):
+                # Try partial match
+                files = [f for f in os.listdir(folder) if name.lower() in f.lower()]
+                if len(files) == 1:
+                    path = os.path.join(folder, files[0])
+                elif len(files) > 1:
+                    await ctx.send(f"Multiple matches: {', '.join(files)}. Be more specific.", delete_after=15)
+                    return
+                else:
+                    await ctx.send(f"Image `{name}` not found.", delete_after=10)
+                    return
+            await ctx.send(file=discord.File(path), delete_after=60)
+
+        elif action == "delete":
+            if not name:
+                await ctx.send("Provide a filename to delete.", delete_after=10)
+                return
+            path = os.path.join(folder, name)
+            if os.path.exists(path):
+                os.remove(path)
+                await ctx.send(f"✅ Deleted `{name}`.", delete_after=10)
             else:
-                await ctx.send("URL not found.", delete_after=10)
+                await ctx.send(f"Image `{name}` not found.", delete_after=10)
 
         else:
-            await ctx.send("Usage: `,pictures list` | `,pictures add <url>` | `,pictures remove <url>`", delete_after=10)
+            await ctx.send("Usage: `,image ls` | `,image upload` | `,image download <name>` | `,image delete <name>`", delete_after=15)
 
 
 async def setup(bot):
