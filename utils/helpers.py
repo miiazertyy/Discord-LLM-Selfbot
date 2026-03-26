@@ -37,6 +37,34 @@ def load_config():
         sys.exit(1)
 
 
+def load_tokens() -> list[str]:
+    """Return all Discord tokens from the .env file.
+    Supports DISCORD_TOKEN_1, DISCORD_TOKEN_2, ... as well as the legacy DISCORD_TOKEN."""
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=get_env_path(), override=True)
+
+    tokens = []
+    i = 1
+    while True:
+        t = os.getenv(f"DISCORD_TOKEN_{i}")
+        if not t:
+            break
+        tokens.append(t.strip())
+        i += 1
+
+    # Fall back to the legacy single-token key
+    if not tokens:
+        t = os.getenv("DISCORD_TOKEN")
+        if t:
+            tokens.append(t.strip())
+
+    if not tokens:
+        print("No Discord token(s) found in config/.env. Please set DISCORD_TOKEN_1 (or DISCORD_TOKEN).")
+        sys.exit(1)
+
+    return tokens
+
+
 def load_instructions():
     instructions_path = resource_path("config/instructions.txt")
     if os.path.exists(instructions_path):
