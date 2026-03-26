@@ -17,6 +17,7 @@ from utils.helpers import (
     get_env_path,
     load_instructions,
     load_config,
+    load_tokens,
 )
 
 from utils.db import init_db, get_channels, get_ignored_users
@@ -69,56 +70,25 @@ init_db()
 init_ai()
 init_memory()
 
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKENS = load_tokens()
 PREFIX = config["bot"]["prefix"]
 OWNER_ID = config["bot"]["owner_id"]
 TRIGGER = config["bot"]["trigger"].lower().split(",")
 DISABLE_MENTIONS = config["bot"]["disable_mentions"]
-
-bot = commands.Bot(command_prefix=PREFIX, help_command=None, mobile=True)
-bot.retry_queue = deque()
-
-bot.owner_id = OWNER_ID
-bot.active_channels = set(get_channels())
-bot.ignore_users = get_ignored_users()
-bot.message_history = {}
-bot.paused = False
-bot.allow_dm = config["bot"]["allow_dm"]
-bot.allow_gc = config["bot"]["allow_gc"]
-bot.allow_server = config["bot"].get("allow_server", True)
-bot.realistic_typing = config["bot"]["realistic_typing"]
-bot.anti_age_ban = config["bot"]["anti_age_ban"]
-bot.batch_messages = config["bot"]["batch_messages"]
-bot.hold_conversation = config["bot"]["hold_conversation"]
-bot.user_message_counts = {}
-bot.user_cooldowns = {}
-
-bot.instructions = load_instructions()
-
-bot.message_queues = {}
-bot.processing_locks = {}
-bot.user_message_batches = {}
-
-bot.active_conversations = {}
-bot.sent_pictures = {}  # user_id -> set of sent picture paths/urls
-CONVERSATION_TIMEOUT = 150.0
+PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
 SPAM_MESSAGE_THRESHOLD = 5
 SPAM_TIME_WINDOW = 10.0
 COOLDOWN_DURATION = 60.0
-
 MAX_HISTORY = 15
-
 IGNORE_CHANCE = config["bot"]["ignore_chance"]
+CONVERSATION_TIMEOUT = 150.0
 
 _MOOD_CFG = config["bot"]["mood"]
 _LATE_CFG = config["bot"]["late_reply"]
-_memory_cache = {}
 
 ALLOWED_MEMORY_KEYS = {"name", "age", "location", "job", "hobby", "game", "relationship_status", "nationality", "language_skill"}
 JUNK_VALUES = {"yes", "no", "there", "here", "playing", "maybe", "idk", "a lot", "too much", "not really", "kind of", "sort of", "nah", "yeah"}
-_memory_call_counter = {}  # user_id -> message count since last extraction
-PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
 REFUSAL_PHRASES = [
     "i'm sorry, but i can't",
@@ -151,6 +121,40 @@ REFUSAL_PHRASES = [
     "i cannot generate",
     "i can't generate",
 ]
+
+
+def create_bot() -> commands.Bot:
+    """Instantiate a fully configured bot. Called once per token."""
+    b = commands.Bot(command_prefix=PREFIX, help_command=None, mobile=True)
+    b.retry_queue = deque()
+    b.owner_id = OWNER_ID
+    b.active_channels = set(get_channels())
+    b.ignore_users = get_ignored_users()
+    b.message_history = {}
+    b.paused = False
+    b.allow_dm = config["bot"]["allow_dm"]
+    b.allow_gc = config["bot"]["allow_gc"]
+    b.allow_server = config["bot"].get("allow_server", True)
+    b.realistic_typing = config["bot"]["realistic_typing"]
+    b.anti_age_ban = config["bot"]["anti_age_ban"]
+    b.batch_messages = config["bot"]["batch_messages"]
+    b.hold_conversation = config["bot"]["hold_conversation"]
+    b.user_message_counts = {}
+    b.user_cooldowns = {}
+    b.instructions = load_instructions()
+    b.message_queues = {}
+    b.processing_locks = {}
+    b.user_message_batches = {}
+    b.active_conversations = {}
+    b.sent_pictures = {}
+    b._memory_cache = {}
+    b._memory_call_counter = {}
+    return b
+
+
+# Single bot reference kept for top-level functions that reference `bot` directly.
+# When running multiple tokens each token gets its own instance via create_bot().
+bot = create_bot()
 
 def is_refusal(text: str) -> bool:
     lowered = text.lower()
@@ -576,9 +580,9 @@ def _get_random_picture() -> list | None:
 
 async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
     uid = message.author.id
-    if uid not in _memory_cache:
-        _memory_cache[uid] = get_memory(uid)
-    memory = _memory_cache[uid]
+    if uid not in bot._memory_cache:
+        bot._memory_cache[uid] = get_memory(uid)
+    memory = bot._memory_cache[uid]
     memory_block = format_memory_for_prompt(memory)
     mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if _MOOD_CFG.get("enabled", True) else ""
 
@@ -648,10 +652,10 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             if response:
                 try:
                     uid = message.author.id
-                    _memory_call_counter[uid] = _memory_call_counter.get(uid, 0) + 1
+                    bot._memory_call_counter[uid] = bot._memory_call_counter.get(uid, 0) + 1
                     # Only extract memory every 4 messages and only if message is long enough
-                    if _memory_call_counter[uid] >= 4 and len(prompt) >= 15:
-                        _memory_call_counter[uid] = 0
+                    if bot._memory_call_counter[uid] >= 4 and len(prompt) >= 15:
+                        bot._memory_call_counter[uid] = 0
                         facts = await extract_memory(prompt, response)
                         for key, value in facts.items():
                             value = str(value).strip()
@@ -660,7 +664,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                             if value.lower() in JUNK_VALUES or len(value) < 2:
                                 continue
                             set_memory(uid, key, value)
-                            _memory_cache.setdefault(uid, {})[key] = value
+                            bot._memory_cache.setdefault(uid, {})[key] = value
                             log_system(f"Memory saved for {message.author.name}: {key} = {value}")
                 except Exception as mem_err:
                     log_error("Memory Error", str(mem_err))
@@ -1169,7 +1173,53 @@ if __name__ == "__main__":
             print("Another instance is already running. Exiting.")
             sys.exit(1)
 
+    async def _run_token(token: str, index: int):
+        """Start one bot instance for a single token."""
+        global bot  # first token uses the already-created global bot
+        if index == 0:
+            b = bot
+        else:
+            b = create_bot()
+            # Wire up events and hooks for additional instances
+            b.event(on_ready)
+            b.event(on_message)
+            b.event(on_relationship_add)
+
+            async def _setup_hook_extra():
+                b.generate_response_and_reply = generate_response_and_reply
+                await load_extensions_for(b)
+
+            b.setup_hook = _setup_hook_extra
+
+        await b.start(token, bot=False)
+
+    async def load_extensions_for(b: commands.Bot):
+        """Load cogs into a specific bot instance."""
+        if getattr(sys, "frozen", False):
+            cogs_dir = os.path.join(sys._MEIPASS, "cogs")
+        else:
+            cogs_dir = os.path.join(os.path.abspath("."), "cogs")
+
+        if not os.path.exists(cogs_dir):
+            return
+
+        for filename in os.listdir(cogs_dir):
+            if filename.endswith(".py"):
+                cog_name = f"cogs.{filename[:-3]}"
+                try:
+                    await b.load_extension(cog_name)
+                except Exception as e:
+                    print(f"Error loading cog {cog_name} for token {TOKENS.index(b._connection.http.token) + 1}: {e}")
+
+    async def _main():
+        if len(TOKENS) == 1:
+            print(f"Starting 1 bot instance...")
+        else:
+            print(f"Starting {len(TOKENS)} bot instances (one per token)...")
+
+        await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
+
     try:
-        bot.run(TOKEN, log_handler=None)
+        asyncio.run(_main())
     finally:
         lock_file.close()
