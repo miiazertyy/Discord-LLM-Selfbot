@@ -129,17 +129,19 @@ class Management(commands.Cog):
     @commands.command(name="restart", description="Restarts the bot.")
     async def restart(self, ctx):
         if ctx.author.id == self.bot.owner_id:
-            await ctx.send("Restarting...")
+            msg = await ctx.send("Restarting...")
             print("Restarting bot...")
             if getattr(sys, "frozen", False):
                 exe_path = sys.executable
                 os.startfile(exe_path)
                 await asyncio.sleep(3)
+                await msg.delete()
                 await ctx.bot.close()
                 sys.exit(0)
             else:
                 python = sys.executable
                 subprocess.Popen([python] + sys.argv)
+                await msg.delete()
                 await ctx.bot.close()
                 sys.exit(0)
 
@@ -188,6 +190,7 @@ class Management(commands.Cog):
             subprocess.Popen(["bash", "updater.sh"])
 
         await msg.edit(content=f"Updated to {version_str}! Relaunching...")
+        await msg.delete()
         await asyncio.sleep(1)
         await ctx.bot.close()
         sys.exit(0)
@@ -928,7 +931,7 @@ class Management(commands.Cog):
 
             saved = []
             descriptions = []
-            status_msg = await ctx.send("Saving and analysing image(s)...", delete_after=60)
+            status_msg = await ctx.send("⏳ Saving and analysing image(s)...", delete_after=60)
 
             for att in ctx.message.attachments:
                 ext = os.path.splitext(att.filename)[1].lower()
@@ -959,7 +962,7 @@ class Management(commands.Cog):
                 await ctx.send("No valid image attachments found.", delete_after=10)
                 return
 
-            lines = [f"Saved {len(saved)} image(s):"]
+            lines = [f"✅ Saved {len(saved)} image(s):"]
             for filename, desc in descriptions:
                 lines.append(f"\n**{filename}**\n{desc}")
             result = "\n".join(lines)
@@ -995,7 +998,7 @@ class Management(commands.Cog):
             path = os.path.join(folder, name)
             if os.path.exists(path):
                 os.remove(path)
-                await ctx.send(f"Deleted `{name}`.", delete_after=10)
+                await ctx.send(f"✅ Deleted `{name}`.", delete_after=10)
             else:
                 await ctx.send(f"Image `{name}` not found.", delete_after=10)
 
