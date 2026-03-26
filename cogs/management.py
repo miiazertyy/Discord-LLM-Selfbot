@@ -948,7 +948,7 @@ class Management(commands.Cog):
                 return
 
             names = ", ".join(f"`{f}`" for f in saved)
-            await ctx.send(f"✅ Saved {len(saved)} image(s): {names}", delete_after=30)
+            await ctx.send(f"Saved {len(saved)} image(s): {names}", delete_after=30)
 
         elif action == "download":
             if not name:
@@ -975,7 +975,7 @@ class Management(commands.Cog):
             path = os.path.join(folder, name)
             if os.path.exists(path):
                 os.remove(path)
-                await ctx.send(f"✅ Deleted `{name}`.", delete_after=10)
+                await ctx.send(f"Deleted `{name}`.", delete_after=10)
             else:
                 await ctx.send(f"Image `{name}` not found.", delete_after=10)
 
