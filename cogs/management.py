@@ -911,50 +911,35 @@ class Management(commands.Cog):
         exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
         if action in ("ls", "list"):
-            files = [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts]
+            files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
             if not files:
                 await ctx.send("No images in the folder yet. Use `,image upload` with an attachment.", delete_after=15)
                 return
-            lines = ["```", f"🖼️  Images ({len(files)} total)"]
-            for f in sorted(files):
-                lines.append(f"  - {f}")
-            lines.append("```")
-            await ctx.send("\n".join(lines), delete_after=60)
+            await ctx.send(f"🖼️  **{len(files)} image(s):**", delete_after=120)
+            for f in files:
+                path = os.path.join(folder, f)
+                try:
+                    await ctx.send(f"`{f}`", file=discord.File(path), delete_after=120)
+                except Exception as e:
+                    await ctx.send(f"`{f}` (could not send: {e})", delete_after=60)
 
         elif action == "upload":
             if not ctx.message.attachments:
                 await ctx.send("Attach an image to upload.", delete_after=10)
                 return
 
-            from utils.ai import generate_response_image
-            from utils.split_response import split_response
-
             saved = []
-            descriptions = []
-            status_msg = await ctx.send("⏳ Saving and analysing image(s)...", delete_after=60)
+            status_msg = await ctx.send("⏳ Saving image(s)...", delete_after=30)
 
             for att in ctx.message.attachments:
                 ext = os.path.splitext(att.filename)[1].lower()
                 if ext not in exts:
                     continue
-
-                # Save the file locally
                 data = await att.read()
                 dest = os.path.join(folder, att.filename)
                 with open(dest, "wb") as f:
                     f.write(data)
                 saved.append(att.filename)
-
-                # Use the live Discord CDN URL for vision analysis
-                try:
-                    description = await generate_response_image(
-                        prompt="",
-                        instructions="You are an image analysis assistant. Describe the image in detail.",
-                        image_url=att.url,
-                    )
-                    descriptions.append((att.filename, description))
-                except Exception as e:
-                    descriptions.append((att.filename, f"(could not analyse: {e})"))
 
             await status_msg.delete()
 
@@ -962,16 +947,8 @@ class Management(commands.Cog):
                 await ctx.send("No valid image attachments found.", delete_after=10)
                 return
 
-            lines = [f"✅ Saved {len(saved)} image(s):"]
-            for filename, desc in descriptions:
-                lines.append(f"\n**{filename}**\n{desc}")
-            result = "\n".join(lines)
-
-            if len(result) > 1900:
-                for chunk in split_response(result):
-                    await ctx.send(chunk, delete_after=120)
-            else:
-                await ctx.send(result, delete_after=120)
+            names = ", ".join(f"`{f}`" for f in saved)
+            await ctx.send(f"✅ Saved {len(saved)} image(s): {names}", delete_after=30)
 
         elif action == "download":
             if not name:
