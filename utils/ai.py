@@ -193,6 +193,58 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
         return {}
 
 
+async def detect_memory_deletion(user_message: str, current_memory: dict) -> list:
+    """Ask the LLM to detect if the user is retracting, correcting, or joking about a stored fact."""
+    if not client:
+        init_ai()
+    if not current_memory:
+        return []
+
+    memory_lines = "\n".join(f"- {k}: {v}" for k, v in current_memory.items())
+    prompt = (
+        f'Stored facts about the user:\n{memory_lines}\n\n'
+        f'New user message: "{user_message}"\n\n'
+        "Does the user's message indicate that any stored fact is WRONG, was a JOKE, should be FORGOTTEN, "
+        "or is being CORRECTED? This includes:\n"
+        "- Explicit corrections: 'I'm not actually 22', 'my name isn't Jake', 'I lied about my job'\n"
+        "- Jokes/retractions: 'lol I was kidding', 'that was a joke', 'I made that up'\n"
+        "- Forget requests: 'forget what I said about my age', 'don't remember that', 'ignore that'\n"
+        "- Contradictions: if they previously said location=Paris and now say 'I live in Tokyo'\n\n"
+        "Return ONLY a JSON array of key names that should be DELETED from memory. "
+        "Example: [\"age\", \"location\"]\n"
+        "If nothing should be deleted, return exactly: []\n"
+        "Return ONLY the JSON array. No explanation, no markdown, no extra text."
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a JSON-only memory auditor. You output nothing except valid JSON arrays of strings."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=100,
+            temperature=0.1,
+        )
+        text = response.choices[0].message.content.strip()
+        text = text.replace("```json", "").replace("```", "").strip()
+        if not text.startswith("["):
+            return []
+        parsed = json.loads(text)
+        if not isinstance(parsed, list):
+            return []
+        return [k for k in parsed if isinstance(k, str)]
+    except json.JSONDecodeError:
+        return []
+    except Exception as e:
+        if "429" not in str(e) and "rate" not in str(e).lower():
+            print_error("Memory Deletion Detect Error", e)
+        return []
+
+
 async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
     """Transcribe a voice message using Groq Whisper."""
     if not client:
