@@ -1229,7 +1229,7 @@ if __name__ == "__main__":
 
             b.setup_hook = _setup_hook_extra
 
-        await b.start(token, bot=False)
+        await b.start(token)
 
     async def load_extensions_for(b: commands.Bot):
         """Load cogs into a specific bot instance."""
