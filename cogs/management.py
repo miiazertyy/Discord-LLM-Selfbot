@@ -922,20 +922,53 @@ class Management(commands.Cog):
             if not ctx.message.attachments:
                 await ctx.send("Attach an image to upload.", delete_after=10)
                 return
+
+            from utils.ai import generate_response_image
+            from utils.split_response import split_response
+
             saved = []
+            descriptions = []
+            status_msg = await ctx.send("Saving and analysing image(s)...", delete_after=60)
+
             for att in ctx.message.attachments:
                 ext = os.path.splitext(att.filename)[1].lower()
                 if ext not in exts:
                     continue
+
+                # Save the file locally
                 data = await att.read()
                 dest = os.path.join(folder, att.filename)
                 with open(dest, "wb") as f:
                     f.write(data)
                 saved.append(att.filename)
-            if saved:
-                await ctx.send(f"✅ Saved: {', '.join(saved)}", delete_after=10)
-            else:
+
+                # Use the live Discord CDN URL for vision analysis
+                try:
+                    description = await generate_response_image(
+                        prompt="",
+                        instructions="You are an image analysis assistant. Describe the image in detail.",
+                        image_url=att.url,
+                    )
+                    descriptions.append((att.filename, description))
+                except Exception as e:
+                    descriptions.append((att.filename, f"(could not analyse: {e})"))
+
+            await status_msg.delete()
+
+            if not saved:
                 await ctx.send("No valid image attachments found.", delete_after=10)
+                return
+
+            lines = [f"Saved {len(saved)} image(s):"]
+            for filename, desc in descriptions:
+                lines.append(f"\n**{filename}**\n{desc}")
+            result = "\n".join(lines)
+
+            if len(result) > 1900:
+                for chunk in split_response(result):
+                    await ctx.send(chunk, delete_after=120)
+            else:
+                await ctx.send(result, delete_after=120)
 
         elif action == "download":
             if not name:
@@ -962,7 +995,7 @@ class Management(commands.Cog):
             path = os.path.join(folder, name)
             if os.path.exists(path):
                 os.remove(path)
-                await ctx.send(f"✅ Deleted `{name}`.", delete_after=10)
+                await ctx.send(f"Deleted `{name}`.", delete_after=10)
             else:
                 await ctx.send(f"Image `{name}` not found.", delete_after=10)
 
