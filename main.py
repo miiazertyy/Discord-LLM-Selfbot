@@ -36,7 +36,7 @@ from utils.logger import (
 )
 
 from utils.mood import get_mood, get_mood_prompt, mood_loop, shift_mood
-from utils.memory import init_memory, get_memory, set_memory, format_memory_for_prompt
+from utils.memory import init_memory, get_memory, set_memory, delete_memory, format_memory_for_prompt
 from utils.tts import generate_voice_message
 from utils.tts_trigger import is_tts_request
 from utils.voice_send import send_voice_message
@@ -54,7 +54,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, transcribe_voice, summarize_history
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -653,6 +653,17 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 try:
                     uid = message.author.id
                     bot._memory_call_counter[uid] = bot._memory_call_counter.get(uid, 0) + 1
+
+                    # Always check if user is retracting/correcting/joking about stored facts
+                    current_mem = bot._memory_cache.get(uid, {})
+                    if current_mem:
+                        keys_to_delete = await detect_memory_deletion(prompt, current_mem)
+                        for key in keys_to_delete:
+                            if key in current_mem:
+                                delete_memory(uid, key)
+                                bot._memory_cache.get(uid, {}).pop(key, None)
+                                log_system(f"Memory deleted for {message.author.name}: {key} (retracted/joke/correction)")
+
                     # Only extract memory every 4 messages and only if message is long enough
                     if bot._memory_call_counter[uid] >= 4 and len(prompt) >= 15:
                         bot._memory_call_counter[uid] = 0
