@@ -552,13 +552,31 @@ def _is_picture_request(text: str) -> bool:
     """Detect if the user is asking for a picture/selfie of the bot."""
     import re
     patterns = [
-        r"\b(send|show|envoie|montre).{0,15}(photo|pic|picture|selfie|image|face|gueule|tete|visage)\b",
-        r"\b(photo|pic|picture|selfie).{0,10}(de toi|of you|of u|yourself)\b",
-        r"\bt'as.{0,10}(photo|pic|selfie)\b",
-        r"\ba quoi.{0,10}ressemble\b",
+        # English — send/show + visual noun
+        r"\b(send|show|post|drop|share).{0,20}(photo|pic|picture|selfie|image|face|look)\b",
+        r"\b(photo|pic|picture|selfie|image).{0,15}(of you|of u|yourself|ur face|your face)\b",
+        # English — "see" based
+        r"\b(let me|can i|may i|wanna|want to|id like to).{0,15}(see|look at).{0,10}(you|ur face|your face|what you look)\b",
+        r"\bwhat (do you|does she|u) look like\b",
+        r"\bshow me (you|ur|your)\b",
         r"\blet me see you\b",
-        r"\bshow me you\b",
-        r"\bt'es comment\b",
+        r"\bcan i see (you|ur|your|what you)\b",
+        r"\bi wanna see (you|ur|your)\b",
+        r"\bsend (me )?(a )?(pic|photo|selfie|image)\b",
+        # French — envoie/montre/partage + visual noun (no strict \b — handles accented chars)
+        r"(envoie|montre|montre.moi|partage).{0,20}(photo|pic|selfie|image|tete|t[eê]te|gueule|visage|face)",
+        # French — "voir ta tête/face/photo"
+        r"(voir|see).{0,15}(ta |ton |te |t').{0,10}(tete|t[eê]te|gueule|visage|face|photo|pic|selfie)",
+        # French — "je peux voir" variants
+        r"(je peux|je pourrais|puis.je|peux.tu).{0,20}(voir|see).{0,20}(toi|tete|t[eê]te|gueule|visage|photo|face)",
+        # French — "t'as une photo", "t'as un selfie"
+        r"t.as.{0,10}(photo|pic|selfie|image)",
+        # French — "à quoi tu ressembles"
+        r"(a quoi|[àa] quoi).{0,15}ressemble",
+        # French — "ta tête stp"
+        r"ta (tete|t[eê]te|gueule|visage|face)",
+        # Catch-all: face/look + you
+        r"\b(face|look).{0,10}(like|at).{0,10}(you|u)\b",
     ]
     compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
     return any(p.search(text) for p in compiled)
@@ -601,6 +619,15 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 pass
 
     enriched_instructions = bot.instructions + mood_block + memory_block + profile_block
+
+    # If a picture will be sent, tell the AI so it doesn't deflect or act coy
+    pics_cfg = config["bot"].get("pictures") or {}
+    if pics_cfg.get("enabled", True) and _is_picture_request(prompt) and _get_random_picture():
+        enriched_instructions += (
+            "\n\n[IMPORTANT: You are sending the user a photo of yourself right now as part of this reply. "
+            "React naturally like you just sent it — don't refuse, don't say you can't, "
+            "don't act shy about it. Respond as if the picture is already attached.]"
+        )
 
     late_opener = ""
     if _LATE_CFG.get("enabled", True) and wait_time >= _LATE_CFG.get("threshold", 300):
