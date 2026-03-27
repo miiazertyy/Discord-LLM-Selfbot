@@ -37,30 +37,6 @@ class Management(commands.Cog):
             self.bot.paused = not self.bot.paused
             await ctx.send(f"{'Paused' if self.bot.paused else 'Unpaused'} the bot from producing AI responses.")
 
-    @commands.command(name="pauseuser", description="Stop the bot from responding to a specific user.")
-    async def pauseuser(self, ctx, user: discord.User):
-        if ctx.author.id != self.bot.owner_id:
-            return
-        if not hasattr(self.bot, "paused_users"):
-            self.bot.paused_users = set()
-        if user.id in self.bot.paused_users:
-            await ctx.send(f"{user.name} is already paused.")
-        else:
-            self.bot.paused_users.add(user.id)
-            await ctx.send(f"Paused responses for {user.name}.")
-
-    @commands.command(name="unpauseuser", description="Resume responding to a previously paused user.")
-    async def unpauseuser(self, ctx, user: discord.User):
-        if ctx.author.id != self.bot.owner_id:
-            return
-        if not hasattr(self.bot, "paused_users"):
-            self.bot.paused_users = set()
-        if user.id not in self.bot.paused_users:
-            await ctx.send(f"{user.name} is not paused.")
-        else:
-            self.bot.paused_users.discard(user.id)
-            await ctx.send(f"Resumed responses for {user.name}.")
-
     @commands.command(name="toggledm", description="Toggle DM for chatting")
     async def toggledm(self, ctx):
         if ctx.author.id == self.bot.owner_id:
@@ -955,15 +931,20 @@ class Management(commands.Cog):
             saved = []
             status_msg = await ctx.send("⏳ Saving image(s)...", delete_after=30)
 
+            existing = [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts]
+            next_index = len(existing) + 1
+
             for att in ctx.message.attachments:
                 ext = os.path.splitext(att.filename)[1].lower()
                 if ext not in exts:
                     continue
                 data = await att.read()
-                dest = os.path.join(folder, att.filename)
+                new_name = f"IMG_{next_index}{ext}"
+                dest = os.path.join(folder, new_name)
                 with open(dest, "wb") as f:
                     f.write(data)
-                saved.append(att.filename)
+                saved.append(new_name)
+                next_index += 1
 
             await status_msg.delete()
 
