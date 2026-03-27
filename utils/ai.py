@@ -8,13 +8,18 @@ from utils.helpers import get_env_path, load_config
 from utils.error_notifications import webhook_log, print_error
 from utils.logger import log_model_fallback
 
-# Each entry: {"client": AsyncGroq, "key_label": str}
-_groq_clients = []
-_client_index = 0
+# Active Groq clients — one per API key
+_groq_clients = []   # list of {"client": AsyncGroq, "label": str}
+_client_index = 0    # which key is currently active
 
 model = None
 groq_models = []
 current_model_index = 0
+
+
+def _active_client():
+    """Return the currently active Groq client."""
+    return _groq_clients[_client_index]["client"]
 
 
 def init_ai():
@@ -23,21 +28,23 @@ def init_ai():
     config = load_config()
     load_dotenv(dotenv_path=env_path)
 
-    # Collect all GROQ_API_KEY, GROQ_API_KEY_2, GROQ_API_KEY_3, ... from .env
+    # Load keys: GROQ_API_KEY_1, GROQ_API_KEY_2, ...
+    # Falls back to legacy GROQ_API_KEY if no numbered keys are set.
     keys = []
-    primary = getenv("GROQ_API_KEY")
-    if primary:
-        keys.append(("GROQ_API_KEY", primary))
-    i = 2
+    i = 1
     while True:
         k = getenv(f"GROQ_API_KEY_{i}")
         if not k:
             break
         keys.append((f"GROQ_API_KEY_{i}", k))
         i += 1
+    if not keys:
+        legacy = getenv("GROQ_API_KEY")
+        if legacy:
+            keys.append(("GROQ_API_KEY", legacy))
 
     if not keys:
-        print("No GROQ_API_KEY found, exiting.")
+        print("No GROQ_API_KEY found in .env, exiting.")
         sys.exit(1)
 
     _groq_clients = [
@@ -54,25 +61,28 @@ def init_ai():
     current_model_index = 0
     model = groq_models[0]
 
-    print(f"[AI] Loaded {len(_groq_clients)} Groq API key(s), {len(groq_models)} model(s).")
+    key_count = len(_groq_clients)
+    print(f"[AI] Loaded {key_count} Groq API key(s), {len(groq_models)} model(s).")
 
 
 def _fallback_client():
     """Rotate to the next API key. Returns True if a new key is available."""
     global _client_index
-    next_index = (_client_index + 1) % len(_groq_clients)
-    if next_index == 0:
-        # Wrapped all the way around — all keys exhausted
+    if len(_groq_clients) <= 1:
         return False
+    next_index = _client_index + 1
+    if next_index >= len(_groq_clients):
+        return False  # All keys exhausted — let model fallback handle it
     old_label = _groq_clients[_client_index]["label"]
     _client_index = next_index
     new_label = _groq_clients[_client_index]["label"]
-    print(f"[AI] Rate limited on {old_label}, falling back to {new_label}.")
+    print(f"[AI] Rate limited on {old_label}, switching to {new_label}.")
     return True
 
 
 def fallback_model():
-    global model, current_model_index
+    """Rotate to next model and reset key index."""
+    global model, current_model_index, _client_index
     if not groq_models:
         return False
     old_model = model
@@ -81,6 +91,7 @@ def fallback_model():
         current_model_index = 0
         return False
     model = groq_models[current_model_index]
+    _client_index = 0  # Reset to first key when switching models
     log_model_fallback(old_model, model)
     return True
 
@@ -90,18 +101,15 @@ async def _create_completion(messages):
     if not _groq_clients:
         init_ai()
 
-    keys_tried = 0
     while True:
         try:
-            response = await _groq_clients[_client_index]["client"].chat.completions.create(
+            response = await _active_client().chat.completions.create(
                 model=model,
                 messages=messages,
             )
             return response
         except RateLimitError:
-            # Try next API key first, then fall back to next model
             if _fallback_client():
-                keys_tried += 1
                 continue
             if fallback_model():
                 continue
@@ -139,7 +147,7 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
         init_ai()
     try:
         _cfg = load_config()
-        image_response = await _groq_clients[_client_index]["client"].chat.completions.create(
+        image_response = await _active_client().chat.completions.create(
             model=_cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct"),
             messages=[
                 {
@@ -207,7 +215,7 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
     )
 
     try:
-        response = await _groq_clients[_client_index]["client"].chat.completions.create(
+        response = await _active_client().chat.completions.create(
             model=model,
             messages=[
                 {
@@ -260,7 +268,7 @@ async def detect_memory_deletion(user_message: str, current_memory: dict) -> lis
     )
 
     try:
-        response = await _groq_clients[_client_index]["client"].chat.completions.create(
+        response = await _active_client().chat.completions.create(
             model=model,
             messages=[
                 {
@@ -299,7 +307,7 @@ async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> s
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = filename
 
-        transcription = await _groq_clients[_client_index]["client"].audio.transcriptions.create(
+        transcription = await _active_client().audio.transcriptions.create(
             model=whisper_model,
             file=audio_file,
         )
@@ -335,7 +343,7 @@ async def summarize_history(history: list, instructions: str) -> list:
     )
 
     try:
-        response = await _groq_clients[_client_index]["client"].chat.completions.create(
+        response = await _active_client().chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": instructions},
