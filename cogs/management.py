@@ -37,6 +37,30 @@ class Management(commands.Cog):
             self.bot.paused = not self.bot.paused
             await ctx.send(f"{'Paused' if self.bot.paused else 'Unpaused'} the bot from producing AI responses.")
 
+    @commands.command(name="pauseuser", description="Stop the bot from responding to a specific user.")
+    async def pauseuser(self, ctx, user: discord.User):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if not hasattr(self.bot, "paused_users"):
+            self.bot.paused_users = set()
+        if user.id in self.bot.paused_users:
+            await ctx.send(f"⚠️ {user.name} is already paused.")
+        else:
+            self.bot.paused_users.add(user.id)
+            await ctx.send(f"🔇 Paused responses for **{user.name}**. The bot will no longer reply to them.")
+
+    @commands.command(name="unpauseuser", description="Resume responding to a previously paused user.")
+    async def unpauseuser(self, ctx, user: discord.User):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if not hasattr(self.bot, "paused_users"):
+            self.bot.paused_users = set()
+        if user.id not in self.bot.paused_users:
+            await ctx.send(f"⚠️ {user.name} is not paused.")
+        else:
+            self.bot.paused_users.discard(user.id)
+            await ctx.send(f"🔊 Resumed responses for **{user.name}**.")
+
     @commands.command(name="toggledm", description="Toggle DM for chatting")
     async def toggledm(self, ctx):
         if ctx.author.id == self.bot.owner_id:
