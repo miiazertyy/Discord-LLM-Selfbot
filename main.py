@@ -152,8 +152,6 @@ def create_bot() -> commands.Bot:
     return b
 
 
-# Single bot reference kept for top-level functions that reference `bot` directly.
-# When running multiple tokens each token gets its own instance via create_bot().
 bot = create_bot()
 
 def is_refusal(text: str) -> bool:
@@ -276,7 +274,7 @@ async def _reply_pending_messages():
 
     os.remove(path)
     log_system(f"Replying to {len(pending)} pending message(s) from before restart...")
-    await asyncio.sleep(3)  # Give the bot a moment to fully connect
+    await asyncio.sleep(3) 
 
     for key, data in pending.items():
         try:
@@ -285,11 +283,9 @@ async def _reply_pending_messages():
             history = data.get("history", [])
             content = data["content"]
 
-            # Skip if already replied
             if history and history[-1].get("role") == "assistant":
                 continue
 
-            # Try to fetch user
             try:
                 user = await bot.fetch_user(user_id)
             except Exception as e:
@@ -300,7 +296,6 @@ async def _reply_pending_messages():
             last_msg = None
             channel = None
 
-            # Try DM first
             try:
                 dm = await user.create_dm()
                 async for msg in dm.history(limit=30):
@@ -311,12 +306,10 @@ async def _reply_pending_messages():
             except Exception:
                 pass
 
-            # If not found in DM, try the original channel (GC or server)
             if last_msg is None:
                 try:
                     channel = bot.get_channel(channel_id)
                     if channel is None:
-                        # For GCs, try private channels
                         for pc in bot.private_channels:
                             if pc.id == channel_id:
                                 channel = pc
@@ -333,7 +326,6 @@ async def _reply_pending_messages():
                 log_error("Pending Reply", f"No message found for user {user.name}, skipping")
                 continue
 
-            # Skip server channels unless the bot was directly mentioned or replied to
             if isinstance(channel, discord.TextChannel):
                 was_mentioned = bot.user.mentioned_in(last_msg) and "@everyone" not in last_msg.content and "@here" not in last_msg.content
                 was_replied_to = (
@@ -346,13 +338,8 @@ async def _reply_pending_messages():
                     continue
 
             log_system(f"Replying to pending message from {user.name}")
-            # Random delay between pending replies so they don't all fire at once
             await asyncio.sleep(random.uniform(8, 25))
             response = await generate_response_and_reply(last_msg, content, history)
-            if response:
-                bot.message_history[key].append({"role": "assistant", "content": response})
-        except Exception as e:
-            log_error("Pending Reply Error", str(e))
             if response:
                 bot.message_history[key].append({"role": "assistant", "content": response})
         except Exception as e:
@@ -430,10 +417,8 @@ async def on_ready():
     if config["bot"]["status"].get("enabled", True):
         asyncio.create_task(random_status_loop())
 
-    # Reply to any messages that were pending when the bot updated/restarted
     asyncio.create_task(_reply_pending_messages())
 
-    # Auto-accept friend requests if enabled
     fr_cfg = config["bot"].get("friend_requests") or {}
     if fr_cfg.get("enabled", False):
         asyncio.create_task(_friend_request_loop())
@@ -517,12 +502,10 @@ async def _get_user_profile_block(user) -> str:
     """Fetch Discord profile info (status, bio, display name) and return as a context block."""
     parts = []
     try:
-        # display name / global name
         display = getattr(user, 'global_name', None) or user.display_name
         if display and display != user.name:
             parts.append(f"display name: {display}")
 
-        # custom status
         if hasattr(user, 'activities') and user.activities:
             for activity in user.activities:
                 if hasattr(activity, 'state') and activity.state:
@@ -532,7 +515,6 @@ async def _get_user_profile_block(user) -> str:
                     parts.append(f"status: {activity.name}")
                     break
 
-        # bio — requires fetch_user with profile
         try:
             profile = await user.profile()
             if profile and getattr(profile, 'bio', None):
@@ -550,12 +532,9 @@ async def _get_user_profile_block(user) -> str:
 
 def _is_picture_request(text: str) -> bool:
     """Detect if the user is asking for a picture/selfie of the bot."""
-    import re
     patterns = [
-        # English — send/show + visual noun
         r"\b(send|show|post|drop|share).{0,20}(photo|pic|picture|selfie|image|face|look)\b",
         r"\b(photo|pic|picture|selfie|image).{0,15}(of you|of u|yourself|ur face|your face)\b",
-        # English — "see" based
         r"\b(let me|can i|may i|wanna|want to|id like to).{0,15}(see|look at).{0,10}(you|ur face|your face|what you look)\b",
         r"\bwhat (do you|does she|u) look like\b",
         r"\bshow me (you|ur|your)\b",
@@ -563,19 +542,12 @@ def _is_picture_request(text: str) -> bool:
         r"\bcan i see (you|ur|your|what you)\b",
         r"\bi wanna see (you|ur|your)\b",
         r"\bsend (me )?(a )?(pic|photo|selfie|image)\b",
-        # French — envoie/montre/partage + visual noun (no strict \b — handles accented chars)
         r"(envoie|montre|montre.moi|partage).{0,20}(photo|pic|selfie|image|tete|t[eê]te|gueule|visage|face)",
-        # French — "voir ta tête/face/photo"
         r"(voir|see).{0,15}(ta |ton |te |t').{0,10}(tete|t[eê]te|gueule|visage|face|photo|pic|selfie)",
-        # French — "je peux voir" variants
         r"(je peux|je pourrais|puis.je|peux.tu).{0,20}(voir|see).{0,20}(toi|tete|t[eê]te|gueule|visage|photo|face)",
-        # French — "t'as une photo", "t'as un selfie"
         r"t.as.{0,10}(photo|pic|selfie|image)",
-        # French — "à quoi tu ressembles"
         r"(a quoi|[àa] quoi).{0,15}ressemble",
-        # French — "ta tête stp"
         r"ta (tete|t[eê]te|gueule|visage|face)",
-        # Catch-all: face/look + you
         r"\b(face|look).{0,10}(like|at).{0,10}(you|u)\b",
     ]
     compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
@@ -604,10 +576,8 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     memory_block = format_memory_for_prompt(memory)
     mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if _MOOD_CFG.get("enabled", True) else ""
 
-    # Fetch user profile and auto-save useful facts to memory
     profile_block = await _get_user_profile_block(message.author)
     if profile_block:
-        # Save display name to memory if not already known
         if "display name:" in profile_block and "name" not in memory:
             try:
                 display = getattr(message.author, 'global_name', None) or message.author.display_name
@@ -620,7 +590,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     enriched_instructions = bot.instructions + mood_block + memory_block + profile_block
 
-    # If a picture will be sent, tell the AI so it doesn't deflect or act coy
     pics_cfg = config["bot"].get("pictures") or {}
     if pics_cfg.get("enabled", True) and _is_picture_request(prompt) and _get_random_picture():
         enriched_instructions += (
@@ -633,14 +602,12 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     if _LATE_CFG.get("enabled", True) and wait_time >= _LATE_CFG.get("threshold", 300):
         late_opener = get_late_opener(prompt)
 
-    # Compress history if it's getting long (saves tokens)
     if len(history) > 20:
         try:
             history = await summarize_history(history, enriched_instructions)
         except Exception:
             pass
 
-    # Transcribe incoming voice messages before generating a response
     if message.attachments and (message.flags.value & (1 << 13)):
         try:
             import aiohttp as _aiohttp
@@ -681,7 +648,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     uid = message.author.id
                     bot._memory_call_counter[uid] = bot._memory_call_counter.get(uid, 0) + 1
 
-                    # Always check if user is retracting/correcting/joking about stored facts
                     current_mem = bot._memory_cache.get(uid, {})
                     if current_mem:
                         keys_to_delete = await detect_memory_deletion(prompt, current_mem)
@@ -689,9 +655,8 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                             if key in current_mem:
                                 delete_memory(uid, key)
                                 bot._memory_cache.get(uid, {}).pop(key, None)
-                                log_system(f"Memory deleted for {message.author.name}: {key} (retracted/joke/correction)")
+                                log_system(f"Memory deleted for {message.author.name}: {key}")
 
-                    # Only extract memory every 4 messages and only if message is long enough
                     if bot._memory_call_counter[uid] >= 4 and len(prompt) >= 15:
                         bot._memory_call_counter[uid] = 0
                         facts = await extract_memory(prompt, response)
@@ -714,7 +679,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
         except Exception as e:
             error_msg = str(e)
-
             if "Rate limit reached" in error_msg:
                 time_match = re.search(r"try again in (?:(\d+)m\s*)?(?:(\d+(?:\.\d+)?)s)?", error_msg)
                 if time_match:
@@ -726,15 +690,13 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     await asyncio.sleep(total_wait)
                     bot.paused = False
                     continue
-
             log_error("AI Error", error_msg)
             if attempt == max_retries - 1:
                 return None
             await asyncio.sleep(2)
-            continue
 
     if not response:
-        log_error("AI Error", "All retries exhausted, waiting 2 minutes before final attempt...")
+        log_error("AI Error", "Retrying one last time after wait...")
         await asyncio.sleep(120)
         try:
             if image_url:
@@ -749,17 +711,12 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     response = response.replace("—", "").replace("–", "")
 
-    # Voice message — triggers when user asks to hear the bot's voice
     tts_cfg = config["bot"].get("tts") or {}
     if tts_cfg.get("enabled", True) and is_tts_request(prompt):
         try:
-            # Regenerate a short natural spoken response instead of the deflecting one
             spoken_instructions = (
                 enriched_instructions
-                + "\n\n[IMPORTANT: You are sending a voice message. "
-                "Talk exactly how a real 19-year-old girl would speak out loud in a casual voice message to a friend. "
-                "Short, natural, zero cringe. No names, no greetings, no filler spam. "
-                "Just say what you'd say, like you hit record mid-thought. 1-2 sentences max.]"
+                + "\n\n[IMPORTANT: You are sending a voice message. Short, natural, zero cringe. 1-2 sentences max.]"
             )
             spoken_response = await generate_response(prompt, spoken_instructions, history)
             if not spoken_response or is_refusal(spoken_response):
@@ -774,8 +731,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             audio_chunks = await generate_voice_message(spoken_response)
             if audio_chunks:
                 for i, audio_bytes in enumerate(audio_chunks):
-                    # Use raw Discord API to send as a proper voice message bubble
-                    # (requires flags=1<<13, waveform and duration_secs like Vencord does)
                     reply_msg = message if i == 0 else None
                     await send_voice_message(
                         message.channel,
@@ -785,22 +740,15 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     )
             return spoken_response
         except Exception as e:
-            import traceback
-            print(f"[TTS] Failed to send voice message: {e}")
-            traceback.print_exc()
-            # Fall through to normal text response if TTS fails
+            print(f"[TTS] Failed: {e}")
 
-    # Ask AI to split response naturally into 1-3 messages if it's long enough
     if len(response) > 80:
         try:
             split_instructions = (
-                "You are a message splitter. Split the following message into 1, 2 or 3 separate "
-                "Discord messages that feel natural, like a real person texting. "
-                "Only split if it makes sense — short messages should stay as 1. "
-                "Return ONLY a JSON array of strings, no explanation. Example: [\"hey what's up\", \"lol yeah I know\"]"
+                "You are a message splitter. Split into 1-3 messages. Return ONLY a JSON array of strings."
             )
             split_resp = await generate_response(
-                "Split this into natural Discord messages: " + response,
+                "Split this: " + response,
                 split_instructions,
                 history=None,
             )
@@ -808,10 +756,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             split_resp = split_resp.strip()
             if split_resp.startswith("["):
                 parsed = _json.loads(split_resp)
-                if isinstance(parsed, list) and 1 <= len(parsed) <= 3 and all(isinstance(s, str) for s in parsed):
-                    chunks = [s.strip() for s in parsed if s.strip()]
-                else:
-                    chunks = split_response(response)
+                chunks = [s.strip() for s in parsed if s.strip()]
             else:
                 chunks = split_response(response)
         except Exception:
@@ -822,7 +767,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     if len(chunks) > 3:
         chunks = chunks[:3]
 
-    # Send picture if user is asking for one
     pics_cfg = config["bot"].get("pictures") or {}
     if pics_cfg.get("enabled", True) and _is_picture_request(prompt):
         all_pics = _get_random_picture()
@@ -831,7 +775,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             sent = bot.sent_pictures.get(uid, set())
             available = [p for p in all_pics if p[1] not in sent]
             if not available:
-                # Reset if all have been sent
                 bot.sent_pictures[uid] = set()
                 available = all_pics
             pic_type, pic_value = random.choice(available)
@@ -850,7 +793,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                         await message.channel.send(pic_value)
                     else:
                         await message.reply(pic_value, mention_author=config["bot"]["reply_ping"])
-                log_system(f"Sent picture to {message.author.name}")
             except Exception as _pe:
                 log_error("Picture Send", str(_pe))
 
@@ -865,7 +807,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             )
 
         chunk = add_typo(chunk)
-
         channel_name, guild_name = get_channel_context(message)
         log_incoming(message.author.name, channel_name, guild_name, prompt)
         log_response(message.author.name, chunk)
@@ -873,14 +814,12 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
         try:
             if bot.realistic_typing:
-                # First chunk: 2-8s pre-delay, subsequent chunks: 12-18s to avoid spam detection
                 pre_delay = random.uniform(2, 8) if i == 0 else random.uniform(12, 18)
                 await asyncio.sleep(pre_delay)
                 async with message.channel.typing():
                     cps = random.uniform(7, 18)
                     await asyncio.sleep(len(chunk) / cps)
             else:
-                # Even without realistic typing, add a gap between chunks
                 if i > 0:
                     await asyncio.sleep(random.uniform(12, 18))
 
@@ -889,59 +828,35 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             else:
                 await message.reply(chunk, mention_author=config["bot"]["reply_ping"])
 
-        except discord.errors.HTTPException as e:
-            print(f"{datetime.now().strftime('[%H:%M:%S]')} Error replying to message, original message may have been deleted.")
-            print_separator()
-            await webhook_log(message, e)
-        except discord.errors.Forbidden as e:
-            print(f"{datetime.now().strftime('[%H:%M:%S]')} Missing permissions to send message, bot may be muted.")
-            print_separator()
-            await webhook_log(message, e)
         except Exception as e:
-            print(f"{datetime.now().strftime('[%H:%M:%S]')} Error: {e}")
-            print_separator()
-            await webhook_log(message, e)
+            log_error("Reply Error", str(e))
 
     return response
 
 
 @bot.event
 async def on_relationship_add(relationship):
-    """Auto-accept incoming friend requests with a delay."""
     try:
         if relationship.type != discord.RelationshipType.incoming_request:
             return
-
         fr_cfg = config["bot"].get("friend_requests") or {}
         if not fr_cfg.get("enabled", False):
             return
-
         delay = fr_cfg.get("accept_delay", 300)
         user = relationship.user
         log_system(f"Friend request from {user.name} — accepting in {delay}s")
-
         await asyncio.sleep(delay)
-
-        # Use the HTTP API directly — discord.py-self's r.accept() sends the wrong request type
         token = bot._connection.http.token
         async with aiohttp.ClientSession() as session:
             resp = await session.put(
                 f"https://discord.com/api/v9/users/@me/relationships/{user.id}",
-                headers={
-                    "Authorization": token,
-                    "Content-Type": "application/json",
-                },
+                headers={"Authorization": token, "Content-Type": "application/json"},
                 json={"type": 1},
             )
             if resp.status in (200, 204):
                 log_system(f"Accepted friend request from {user.name}")
-            else:
-                data = await resp.json()
-                log_error("Friend Request Error", f"{resp.status}: {data}")
     except Exception as e:
         log_error("Friend Request Error", str(e))
-
-
 
 
 @bot.event
@@ -961,22 +876,18 @@ async def on_message(message):
     channel_id = message.channel.id
     user_id = message.author.id
     current_time = time.time()
-
     batch_key = f"{user_id}-{channel_id}"
     is_server_channel = isinstance(message.channel, discord.TextChannel)
     is_followup = batch_key in bot.user_message_batches and not is_server_channel
     is_trigger = is_trigger_message(message)
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
-
         if random.random() < IGNORE_CHANCE and not message.content.startswith(PREFIX) and not message.content.startswith(PRIORITY_PREFIX):
             return
 
         if user_id in bot.user_cooldowns:
             cooldown_end = bot.user_cooldowns[user_id]
             if current_time < cooldown_end:
-                remaining = int(cooldown_end - current_time)
-                log_cooldown(message.author.name, remaining)
                 return
             else:
                 del bot.user_cooldowns[user_id]
@@ -984,18 +895,11 @@ async def on_message(message):
         if user_id not in bot.user_message_counts:
             bot.user_message_counts[user_id] = []
 
-        bot.user_message_counts[user_id] = [
-            timestamp
-            for timestamp in bot.user_message_counts[user_id]
-            if current_time - timestamp < SPAM_TIME_WINDOW
-        ]
-
+        bot.user_message_counts[user_id] = [t for t in bot.user_message_counts[user_id] if current_time - t < SPAM_TIME_WINDOW]
         bot.user_message_counts[user_id].append(current_time)
 
         if len(bot.user_message_counts[user_id]) > SPAM_MESSAGE_THRESHOLD:
             bot.user_cooldowns[user_id] = current_time + COOLDOWN_DURATION
-            log_cooldown(message.author.name, int(COOLDOWN_DURATION))
-            bot.user_message_counts[user_id] = []
             return
 
         if channel_id not in bot.message_queues:
@@ -1003,7 +907,6 @@ async def on_message(message):
             bot.processing_locks[channel_id] = Lock()
 
         bot.message_queues[channel_id].append(message)
-
         if not bot.processing_locks[channel_id].locked():
             asyncio.create_task(process_message_queue(channel_id))
 
@@ -1021,240 +924,98 @@ async def process_message_queue(channel_id):
                     first_image_url = None
                     if message.attachments:
                         att = message.attachments[0]
-                        # Skip voice message attachments (flag 1<<13) — handled separately
                         if not (message.flags.value & (1 << 13)):
                             first_image_url = att.url
                     bot.user_message_batches[batch_key] = {
-                        "messages": [],
+                        "messages": [message],
                         "last_time": current_time,
                         "image_url": first_image_url,
                     }
-                    bot.user_message_batches[batch_key]["messages"].append(message)
-
                     priority = message.content.startswith(PRIORITY_PREFIX)
                     wait_time = 0 if priority else get_batch_wait_time()
-
                     channel_name, guild_name = get_channel_context(message)
                     log_received(message.author.name, channel_name, guild_name, wait_time)
-
                     if not priority:
-                        elapsed = 0.0
-                        interval = 1.0
-                        while elapsed < wait_time:
-                            await asyncio.sleep(min(interval, wait_time - elapsed))
-                            elapsed += interval
-                            if any(
-                                m.author.id == message.author.id and m.content.startswith(PRIORITY_PREFIX)
-                                for m in bot.message_queues[channel_id]
-                            ):
-                                wait_time = elapsed
-                                log_received(message.author.name, channel_name, guild_name, 0)
-                                break
+                        await asyncio.sleep(wait_time)
 
                     while bot.message_queues[channel_id]:
                         next_message = bot.message_queues[channel_id][0]
-                        if (
-                            next_message.author.id == message.author.id
-                            and not next_message.content.startswith(PREFIX)
-                        ):
+                        if next_message.author.id == message.author.id and not next_message.content.startswith(PREFIX):
                             next_message = bot.message_queues[channel_id].popleft()
-                            if next_message.content not in [
-                                m.content
-                                for m in bot.user_message_batches[batch_key]["messages"]
-                            ]:
-                                bot.user_message_batches[batch_key]["messages"].append(
-                                    next_message
-                                )
-                            if (
-                                not bot.user_message_batches[batch_key]["image_url"]
-                                and next_message.attachments
-                            ):
-                                bot.user_message_batches[batch_key]["image_url"] = (
-                                    next_message.attachments[0].url
-                                )
+                            bot.user_message_batches[batch_key]["messages"].append(next_message)
+                            if not bot.user_message_batches[batch_key]["image_url"] and next_message.attachments:
+                                bot.user_message_batches[batch_key]["image_url"] = next_message.attachments[0].url
                         else:
                             break
 
-                    messages_to_process = bot.user_message_batches[batch_key]["messages"]
-                    seen = set()
                     unique_messages = []
-                    for msg in messages_to_process:
+                    seen = set()
+                    for msg in bot.user_message_batches[batch_key]["messages"]:
                         if msg.content not in seen:
                             seen.add(msg.content)
                             unique_messages.append(msg)
-
                     combined_content = "\n".join(msg.content for msg in unique_messages)
                     if combined_content.startswith(PRIORITY_PREFIX):
                         combined_content = combined_content[len(PRIORITY_PREFIX):].lstrip()
                     message_to_reply_to = unique_messages[-1]
                     image_url = bot.user_message_batches[batch_key]["image_url"]
-
                     del bot.user_message_batches[batch_key]
             else:
                 combined_content = message.content
                 message_to_reply_to = message
-                if message.attachments and not (message.flags.value & (1 << 13)):
-                    image_url = message.attachments[0].url
-                else:
-                    image_url = None
+                image_url = message.attachments[0].url if (message.attachments and not (message.flags.value & (1 << 13))) else None
                 wait_time = 0
-
-            for mention in message_to_reply_to.mentions:
-                combined_content = combined_content.replace(
-                    f"<@{mention.id}>", f"@{mention.display_name}"
-                )
 
             key = f"{message_to_reply_to.author.id}-{message_to_reply_to.channel.id}"
             if key not in bot.message_history:
                 bot.message_history[key] = []
-
-            bot.message_history[key].append(
-                {"role": "user", "content": combined_content}
-            )
+            bot.message_history[key].append({"role": "user", "content": combined_content})
             history = bot.message_history[key]
-
-            total_wait = wait_time + message_age
-
-            _is_server_ch = isinstance(message_to_reply_to.channel, discord.TextChannel)
-            _is_direct_mention = (
-                bot.user.mentioned_in(message_to_reply_to)
-                and "@everyone" not in message_to_reply_to.content
-                and "@here" not in message_to_reply_to.content
-            )
-            _is_replied_to = (
-                message_to_reply_to.reference
-                and message_to_reply_to.reference.resolved
-                and message_to_reply_to.reference.resolved.author.id == bot.selfbot_id
-            )
-
-            if message_to_reply_to.channel.id in bot.active_channels or (
-                isinstance(message_to_reply_to.channel, discord.DMChannel)
-                and bot.allow_dm
-            ) or (
-                isinstance(message_to_reply_to.channel, discord.GroupChannel)
-                and bot.allow_gc
-            ) or (
-                _is_server_ch
-                and bot.allow_server
-                and (_is_direct_mention or _is_replied_to)
-            ):
-                response = await generate_response_and_reply(
-                    message_to_reply_to, combined_content, history, image_url,
-                    wait_time=total_wait
-                )
-                if response:
-                    bot.message_history[key].append(
-                        {"role": "assistant", "content": response}
-                    )
-
-
-async def notify_active_conversations(message: str):
-    now = time.time()
-    notified_channels = set()
-    for conv_key, last_time in bot.active_conversations.items():
-        if now - last_time > CONVERSATION_TIMEOUT:
-            continue
-        try:
-            user_id, channel_id = map(int, conv_key.split("-"))
-            if channel_id in notified_channels:
-                continue
-            channel = bot.get_channel(channel_id)
-            if channel is None:
-                channel = await bot.fetch_channel(channel_id)
-            await channel.send(message)
-            notified_channels.add(channel_id)
-        except Exception:
-            pass
+            
+            response = await generate_response_and_reply(message_to_reply_to, combined_content, history, image_url, wait_time=(wait_time + message_age))
+            if response:
+                bot.message_history[key].append({"role": "assistant", "content": response})
 
 
 async def load_extensions():
-    if getattr(sys, "frozen", False):
-        cogs_dir = os.path.join(sys._MEIPASS, "cogs")
-    else:
-        cogs_dir = os.path.join(os.path.abspath("."), "cogs")
-
+    cogs_dir = os.path.join(getattr(sys, "_MEIPASS", os.path.abspath(".")), "cogs")
     if not os.path.exists(cogs_dir):
-        print(f"Warning: Cogs directory not found at {cogs_dir}. Skipping cog loading.")
         return
-
-    clear_console()
-
     for filename in os.listdir(cogs_dir):
         if filename.endswith(".py"):
-            cog_name = f"cogs.{filename[:-3]}"
             try:
-                print(f"Loading cog: {cog_name}")
-                await bot.load_extension(cog_name)
+                await bot.load_extension(f"cogs.{filename[:-3]}")
             except Exception as e:
-                print(f"Error loading cog {cog_name}: {e}")
+                print(f"Error loading cog {filename}: {e}")
 
 
 if __name__ == "__main__":
     import tempfile
-
     lock_path = os.path.join(tempfile.gettempdir(), "llmselfbot.lock")
-
-    if sys.platform == "win32":
-        import msvcrt
-        try:
-            lock_file = open(lock_path, "w")
+    try:
+        lock_file = open(lock_path, "w")
+        if sys.platform == "win32":
+            import msvcrt
             msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError:
-            print("Another instance is already running. Exiting.")
-            sys.exit(1)
-    else:
-        import fcntl
-        try:
-            lock_file = open(lock_path, "w")
+        else:
+            import fcntl
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            print("Another instance is already running. Exiting.")
-            sys.exit(1)
+    except Exception:
+        print("Another instance is running.")
+        sys.exit(1)
 
     async def _run_token(token: str, index: int):
-        """Start one bot instance for a single token."""
-        global bot  # first token uses the already-created global bot
-        if index == 0:
-            b = bot
-        else:
-            b = create_bot()
-            # Wire up events and hooks for additional instances
+        global bot
+        b = bot if index == 0 else create_bot()
+        if index > 0:
             b.event(on_ready)
             b.event(on_message)
             b.event(on_relationship_add)
-
-            async def _setup_hook_extra():
-                b.generate_response_and_reply = generate_response_and_reply
-                await load_extensions_for(b)
-
-            b.setup_hook = _setup_hook_extra
-
+            b.generate_response_and_reply = generate_response_and_reply
         await b.start(token)
 
-    async def load_extensions_for(b: commands.Bot):
-        """Load cogs into a specific bot instance."""
-        if getattr(sys, "frozen", False):
-            cogs_dir = os.path.join(sys._MEIPASS, "cogs")
-        else:
-            cogs_dir = os.path.join(os.path.abspath("."), "cogs")
-
-        if not os.path.exists(cogs_dir):
-            return
-
-        for filename in os.listdir(cogs_dir):
-            if filename.endswith(".py"):
-                cog_name = f"cogs.{filename[:-3]}"
-                try:
-                    await b.load_extension(cog_name)
-                except Exception as e:
-                    print(f"Error loading cog {cog_name} for token {TOKENS.index(b._connection.http.token) + 1}: {e}")
-
     async def _main():
-        if len(TOKENS) == 1:
-            print(f"Starting 1 bot instance...")
-        else:
-            print(f"Starting {len(TOKENS)} bot instances (one per token)...")
-
+        print(f"Starting {len(TOKENS)} instance(s)...")
         await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
 
     try:
