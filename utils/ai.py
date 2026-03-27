@@ -124,6 +124,52 @@ async def _create_completion(messages):
             raise
 
 
+async def _create_image_completion(image_model, messages):
+    """Image description call with key fallback (no model fallback — image model is fixed)."""
+    if not _groq_clients:
+        init_ai()
+    while True:
+        try:
+            response = await _active_client().chat.completions.create(
+                model=image_model,
+                messages=messages,
+            )
+            return response
+        except RateLimitError:
+            if _fallback_client():
+                continue
+            raise
+        except Exception as e:
+            if "rate" not in str(e).lower() and "429" not in str(e):
+                print(f"[AI] {type(e).__name__} on image model {image_model}: {e}")
+            if _fallback_client():
+                continue
+            raise
+
+
+async def _create_transcription(whisper_model, audio_file):
+    """Whisper transcription call with key fallback."""
+    if not _groq_clients:
+        init_ai()
+    while True:
+        try:
+            transcription = await _active_client().audio.transcriptions.create(
+                model=whisper_model,
+                file=audio_file,
+            )
+            return transcription
+        except RateLimitError:
+            if _fallback_client():
+                continue
+            raise
+        except Exception as e:
+            if "rate" not in str(e).lower() and "429" not in str(e):
+                print(f"[AI] {type(e).__name__} on whisper model {whisper_model}: {e}")
+            if _fallback_client():
+                continue
+            raise
+
+
 async def generate_response(prompt, instructions, history=None):
     if not _groq_clients:
         init_ai()
@@ -147,8 +193,9 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
         init_ai()
     try:
         _cfg = load_config()
-        image_response = await _active_client().chat.completions.create(
-            model=_cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct"),
+        _image_model = _cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
+        image_response = await _create_image_completion(
+            _image_model,
             messages=[
                 {
                     "role": "user",
@@ -215,18 +262,24 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
     )
 
     try:
-        response = await _active_client().chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a JSON-only fact extractor. You output nothing except valid JSON objects."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=150,
-            temperature=0.1,
-        )
+        for _attempt in range(len(_groq_clients)):
+            try:
+                response = await _active_client().chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a JSON-only fact extractor. You output nothing except valid JSON objects."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=150,
+                    temperature=0.1,
+                )
+                break
+            except RateLimitError:
+                if not _fallback_client():
+                    raise
         text = response.choices[0].message.content.strip()
         text = text.replace("```json", "").replace("```", "").strip()
         if not text.startswith("{"):
@@ -268,18 +321,24 @@ async def detect_memory_deletion(user_message: str, current_memory: dict) -> lis
     )
 
     try:
-        response = await _active_client().chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a JSON-only memory auditor. You output nothing except valid JSON arrays of strings."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=100,
-            temperature=0.1,
-        )
+        for _attempt in range(len(_groq_clients)):
+            try:
+                response = await _active_client().chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a JSON-only memory auditor. You output nothing except valid JSON arrays of strings."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=100,
+                    temperature=0.1,
+                )
+                break
+            except RateLimitError:
+                if not _fallback_client():
+                    raise
         text = response.choices[0].message.content.strip()
         text = text.replace("```json", "").replace("```", "").strip()
         if not text.startswith("["):
@@ -307,10 +366,7 @@ async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> s
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = filename
 
-        transcription = await _active_client().audio.transcriptions.create(
-            model=whisper_model,
-            file=audio_file,
-        )
+        transcription = await _create_transcription(whisper_model, audio_file)
         return transcription.text.strip()
     except Exception as e:
         print_error("Whisper Error", e)
@@ -343,15 +399,21 @@ async def summarize_history(history: list, instructions: str) -> list:
     )
 
     try:
-        response = await _active_client().chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": instructions},
-                {"role": "user", "content": summary_prompt},
-            ],
-            max_tokens=200,
-            temperature=0.3,
-        )
+        for _attempt in range(len(_groq_clients)):
+            try:
+                response = await _active_client().chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": instructions},
+                        {"role": "user", "content": summary_prompt},
+                    ],
+                    max_tokens=200,
+                    temperature=0.3,
+                )
+                break
+            except RateLimitError:
+                if not _fallback_client():
+                    raise
         summary_text = response.choices[0].message.content.strip()
         summary_msg = {
             "role": "assistant",
