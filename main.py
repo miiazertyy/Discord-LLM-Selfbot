@@ -120,6 +120,7 @@ REFUSAL_PHRASES = [
     "i cannot support",
     "i cannot generate",
     "i can't generate",
+    "i can't help with that",
 ]
 
 
