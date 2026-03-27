@@ -149,6 +149,7 @@ def create_bot() -> commands.Bot:
     b.sent_pictures = {}
     b._memory_cache = {}
     b._memory_call_counter = {}
+    b.paused_users = set()
     return b
 
 
@@ -884,6 +885,9 @@ async def on_message(message):
         return
 
     if should_ignore_message(message):
+        return
+
+    if message.author.id in bot.paused_users:
         return
 
     if message.content.startswith(PREFIX):
