@@ -590,6 +590,23 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     enriched_instructions = bot.instructions + mood_block + memory_block + profile_block
 
+    # Detect the user's language from their current message and lock the reply language,
+    # ignoring the bot's own previous messages to prevent feedback loops.
+    _prompt_lower = prompt.lower().split()
+    _french_words = {"wesh", "ouais", "oui", "non", "salut", "merci", "mec", "frere", "fréro",
+                     "trop", "genre", "quoi", "nan", "bah", "vas", "tu", "je", "est", "les",
+                     "des", "une", "pour", "pas", "sur", "avec", "mais", "que", "qui", "dans"}
+    _is_user_french = any(w in _french_words for w in _prompt_lower)
+    if _is_user_french:
+        enriched_instructions += (
+            "\n\n[LANGUAGE: The user is writing in French. Reply in French, matching their casual tone.]"
+        )
+    else:
+        enriched_instructions += (
+            "\n\n[LANGUAGE: The user is writing in English. Reply in English only. "
+            "Do not use French words or phrases even if they appeared earlier in the conversation.]"
+        )
+
     pics_cfg = config["bot"].get("pictures") or {}
     if pics_cfg.get("enabled", True) and _is_picture_request(prompt) and _get_random_picture():
         enriched_instructions += (
@@ -962,8 +979,6 @@ async def process_message_queue(channel_id):
                     del bot.user_message_batches[batch_key]
             else:
                 combined_content = message.content
-                if combined_content.startswith(PRIORITY_PREFIX):
-                    combined_content = combined_content[len(PRIORITY_PREFIX):].lstrip()
                 message_to_reply_to = message
                 image_url = message.attachments[0].url if (message.attachments and not (message.flags.value & (1 << 13))) else None
                 wait_time = 0
