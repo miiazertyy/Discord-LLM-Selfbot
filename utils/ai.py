@@ -8,25 +8,44 @@ from utils.helpers import get_env_path, load_config
 from utils.error_notifications import webhook_log, print_error
 from utils.logger import log_model_fallback
 
-client = None
+# Each entry: {"client": AsyncGroq, "key_label": str}
+_groq_clients = []
+_client_index = 0
+
 model = None
 groq_models = []
 current_model_index = 0
 
 
 def init_ai():
-    global client, model, groq_models, current_model_index
+    global _groq_clients, _client_index, model, groq_models, current_model_index
     env_path = get_env_path()
     config = load_config()
-
     load_dotenv(dotenv_path=env_path)
 
-    api_key = getenv("GROQ_API_KEY")
-    if not api_key:
+    # Collect all GROQ_API_KEY, GROQ_API_KEY_2, GROQ_API_KEY_3, ... from .env
+    keys = []
+    primary = getenv("GROQ_API_KEY")
+    if primary:
+        keys.append(("GROQ_API_KEY", primary))
+    i = 2
+    while True:
+        k = getenv(f"GROQ_API_KEY_{i}")
+        if not k:
+            break
+        keys.append((f"GROQ_API_KEY_{i}", k))
+        i += 1
+
+    if not keys:
         print("No GROQ_API_KEY found, exiting.")
         sys.exit(1)
 
-    client = AsyncGroq(api_key=api_key)
+    _groq_clients = [
+        {"client": AsyncGroq(api_key=key), "label": label}
+        for label, key in keys
+    ]
+    _client_index = 0
+
     raw = config["bot"]["groq_models"]
     if isinstance(raw, str):
         groq_models = [m.strip() for m in raw.split(",") if m.strip()]
@@ -34,6 +53,22 @@ def init_ai():
         groq_models = list(raw)
     current_model_index = 0
     model = groq_models[0]
+
+    print(f"[AI] Loaded {len(_groq_clients)} Groq API key(s), {len(groq_models)} model(s).")
+
+
+def _fallback_client():
+    """Rotate to the next API key. Returns True if a new key is available."""
+    global _client_index
+    next_index = (_client_index + 1) % len(_groq_clients)
+    if next_index == 0:
+        # Wrapped all the way around — all keys exhausted
+        return False
+    old_label = _groq_clients[_client_index]["label"]
+    _client_index = next_index
+    new_label = _groq_clients[_client_index]["label"]
+    print(f"[AI] Rate limited on {old_label}, falling back to {new_label}.")
+    return True
 
 
 def fallback_model():
@@ -51,30 +86,38 @@ def fallback_model():
 
 
 async def _create_completion(messages):
-    """Attempt completion with automatic model fallback on rate limit."""
-    global model
-    if not client:
+    """Attempt completion with automatic key + model fallback on rate limit."""
+    if not _groq_clients:
         init_ai()
 
+    keys_tried = 0
     while True:
         try:
-            response = await client.chat.completions.create(
+            response = await _groq_clients[_client_index]["client"].chat.completions.create(
                 model=model,
                 messages=messages,
             )
             return response
-        except RateLimitError as e:
-            if not fallback_model():
-                raise
+        except RateLimitError:
+            # Try next API key first, then fall back to next model
+            if _fallback_client():
+                keys_tried += 1
+                continue
+            if fallback_model():
+                continue
+            raise
         except Exception as e:
             if "rate" not in str(e).lower() and "429" not in str(e):
                 print(f"[AI] {type(e).__name__} on {model}: {e}")
-            if not fallback_model():
-                raise
+            if _fallback_client():
+                continue
+            if fallback_model():
+                continue
+            raise
 
 
 async def generate_response(prompt, instructions, history=None):
-    if not client:
+    if not _groq_clients:
         init_ai()
     try:
         messages = [{"role": "system", "content": instructions}]
@@ -92,11 +135,11 @@ async def generate_response(prompt, instructions, history=None):
 
 
 async def generate_response_image(prompt, instructions, image_url, history=None):
-    if not client:
+    if not _groq_clients:
         init_ai()
     try:
         _cfg = load_config()
-        image_response = await client.chat.completions.create(
+        image_response = await _groq_clients[_client_index]["client"].chat.completions.create(
             model=_cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct"),
             messages=[
                 {
@@ -141,7 +184,7 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
 
 async def extract_memory(user_message: str, assistant_reply: str) -> dict:
     """Ask the LLM to extract any new personal facts the user revealed."""
-    if not client:
+    if not _groq_clients:
         init_ai()
 
     prompt = (
@@ -164,7 +207,7 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
     )
 
     try:
-        response = await client.chat.completions.create(
+        response = await _groq_clients[_client_index]["client"].chat.completions.create(
             model=model,
             messages=[
                 {
@@ -195,7 +238,7 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
 
 async def detect_memory_deletion(user_message: str, current_memory: dict) -> list:
     """Ask the LLM to detect if the user is retracting, correcting, or joking about a stored fact."""
-    if not client:
+    if not _groq_clients:
         init_ai()
     if not current_memory:
         return []
@@ -217,7 +260,7 @@ async def detect_memory_deletion(user_message: str, current_memory: dict) -> lis
     )
 
     try:
-        response = await client.chat.completions.create(
+        response = await _groq_clients[_client_index]["client"].chat.completions.create(
             model=model,
             messages=[
                 {
@@ -247,7 +290,7 @@ async def detect_memory_deletion(user_message: str, current_memory: dict) -> lis
 
 async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
     """Transcribe a voice message using Groq Whisper."""
-    if not client:
+    if not _groq_clients:
         init_ai()
 
     try:
@@ -256,7 +299,7 @@ async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> s
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = filename
 
-        transcription = await client.audio.transcriptions.create(
+        transcription = await _groq_clients[_client_index]["client"].audio.transcriptions.create(
             model=whisper_model,
             file=audio_file,
         )
@@ -268,7 +311,7 @@ async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> s
 
 async def summarize_history(history: list, instructions: str) -> list:
     """Compress long history into summary + recent messages to save tokens."""
-    if not client:
+    if not _groq_clients:
         init_ai()
 
     KEEP_RECENT = 6
@@ -292,7 +335,7 @@ async def summarize_history(history: list, instructions: str) -> list:
     )
 
     try:
-        response = await client.chat.completions.create(
+        response = await _groq_clients[_client_index]["client"].chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": instructions},
