@@ -962,6 +962,8 @@ async def process_message_queue(channel_id):
                     del bot.user_message_batches[batch_key]
             else:
                 combined_content = message.content
+                if combined_content.startswith(PRIORITY_PREFIX):
+                    combined_content = combined_content[len(PRIORITY_PREFIX):].lstrip()
                 message_to_reply_to = message
                 image_url = message.attachments[0].url if (message.attachments and not (message.flags.value & (1 << 13))) else None
                 wait_time = 0
