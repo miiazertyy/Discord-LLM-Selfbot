@@ -13,15 +13,13 @@ bot:
     - "llama-3.3-70b-versatile" 
     - "meta-llama/llama-4-scout-17b-16e-instruct"
     - "openai/gpt-oss-20b"
-
-  # Model used for image description (must support vision)
-  # If not set or model not found, falls back to primary groq model
   
   # Model used for image description (must support vision)
   groq_image_model: "meta-llama/llama-4-scout-17b-16e-instruct"
 
   # Model used for voice transcription
   groq_whisper_model: "whisper-large-v3-turbo"
+  
   # TTS voice settings
   tts:
     enabled: true
@@ -140,6 +138,14 @@ bot:
   friend_requests:
     enabled: true
     accept_delay: 300  # 5 minutes
+
+  nudge:
+    enabled: false          # flip to true to activate
+    threshold_days: 2       # how long before a nudge fires
+    check_interval_hours: 6 # how often the loop checks
+    send_during_hours:
+      - 10                  # don't nudge before 10am
+      - 22                  # don't nudge after 10pm
 
 notifications:
   error_webhook: "" 
