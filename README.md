@@ -1,7 +1,7 @@
 # 🌙 Discord LLM Selfbot
 
 Made with python, uses Groq LLM provider **ALL FOR FREE**
-Mostly supports French and fully supports English
+(full support in English)
 
 ### JOIN IF YOU NEED HELP : https://discord.gg/connard
 
