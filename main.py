@@ -8,8 +8,8 @@ import random
 import sys
 import time
 import requests
-import aiohttp
 import utils.ai as ai_module
+from utils.session import build_session
 
 from utils.helpers import (
     clear_console,
@@ -366,20 +366,15 @@ async def _friend_request_loop():
                     await asyncio.sleep(delay)
                     try:
                         token = bot._connection.http.token
-                        async with aiohttp.ClientSession() as session:
+                        async with build_session(token) as session:
                             resp = await session.put(
                                 f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
-                                headers={
-                                    "Authorization": token,
-                                    "Content-Type": "application/json",
-                                },
                                 json={"type": 1},
                             )
-                            if resp.status in (200, 204):
+                            if resp.status_code in (200, 204):
                                 log_system(f"Accepted friend request from {u.name}")
                             else:
-                                data = await resp.json()
-                                log_error("Friend Request Error", f"{resp.status}: {data}")
+                                log_error("Friend Request Error", f"{resp.status_code}: {resp.json()}")
                     except Exception as e:
                         log_error("Friend Request Loop", str(e))
 
@@ -631,9 +626,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         try:
             import aiohttp as _aiohttp
             att = message.attachments[0]
-            async with _aiohttp.ClientSession() as _session:
-                async with _session.get(att.url) as _resp:
-                    audio_bytes = await _resp.read()
+            async with build_session(bot._connection.http.token) as _session:
+                _resp = await _session.get(att.url)
+                audio_bytes = _resp.content
             transcribed = await transcribe_voice(audio_bytes, filename=att.filename or "voice.ogg")
             if transcribed:
                 log_system(f"Transcribed voice message from {message.author.name}: {transcribed}")
@@ -866,13 +861,12 @@ async def on_relationship_add(relationship):
         log_system(f"Friend request from {user.name} — accepting in {delay}s")
         await asyncio.sleep(delay)
         token = bot._connection.http.token
-        async with aiohttp.ClientSession() as session:
+        async with build_session(token) as session:
             resp = await session.put(
                 f"https://discord.com/api/v9/users/@me/relationships/{user.id}",
-                headers={"Authorization": token, "Content-Type": "application/json"},
                 json={"type": 1},
             )
-            if resp.status in (200, 204):
+            if resp.status_code in (200, 204):
                 log_system(f"Accepted friend request from {user.name}")
     except Exception as e:
         log_error("Friend Request Error", str(e))
