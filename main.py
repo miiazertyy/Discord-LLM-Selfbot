@@ -1051,27 +1051,18 @@ if __name__ == "__main__":
             b.event(on_message)
             b.event(on_relationship_add)
             b.generate_response_and_reply = generate_response_and_reply
-        try:
-            await b.start(token)
-        except discord.errors.ConnectionClosed as e:
-            if e.code == 4004:
-                short_token = token[:8] + "..." if len(token) > 8 else token
-                print(f"\n[Account #{index + 1} | {short_token}] ❌ Authentication failed — invalid or expired token. Skipping.\n")
-            else:
-                print(f"\n[Account #{index + 1}] ❌ Connection closed (code {e.code}): {e.reason}\n")
-        except Exception as e:
-            print(f"\n[Account #{index + 1}] ❌ Unexpected error: {e}\n")
+        await b.start(token)
 
     async def _main():
+        try:
+            async with AsyncSession(impersonate="chrome") as s:
+                r = await s.get("https://tls.browserleaks.com/json")
+                print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
+                print("JA4:", r.json().get("ja4", "N/A"))
+        except Exception as e:
+            log_error("Fingerprint Test", str(e))
         print(f"Starting {len(TOKENS)} instance(s)...")
         await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
-    try:
-        async with AsyncSession(impersonate="chrome") as s:
-            r = await s.get("https://tls.browserleaks.com/json")
-            print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
-            print("JA4:", r.json().get("ja4", "N/A"))
-    except Exception as e:
-        log_error("Fingerprint Test", str(e))
 
     try:
         asyncio.run(_main())
