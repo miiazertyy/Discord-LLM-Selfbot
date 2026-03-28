@@ -19,7 +19,7 @@ from utils.helpers import (
     load_tokens,
 )
 
-from utils.db import init_db, get_channels, get_ignored_users
+from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges
 from utils.error_notifications import webhook_log
 from colorama import init, Fore, Style
 
@@ -55,7 +55,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history, detect_language
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history, detect_language, generate_nudge
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -393,6 +393,75 @@ async def _friend_request_loop():
 
 
 
+async def _nudge_loop():
+    """Background task: periodically check for long-unanswered DMs and send a nudge."""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        nudge_cfg = config["bot"].get("nudge") or {}
+        if not nudge_cfg.get("enabled", False):
+            await asyncio.sleep(3600)
+            continue
+
+        check_interval_hours = nudge_cfg.get("check_interval_hours", 6)
+        threshold_days = nudge_cfg.get("threshold_days", 2)
+        send_hour_start = nudge_cfg.get("send_during_hours", [10, 22])[0]
+        send_hour_end = nudge_cfg.get("send_during_hours", [10, 22])[1]
+
+        current_hour = datetime.now().hour
+        if send_hour_start <= current_hour < send_hour_end:
+            threshold_seconds = threshold_days * 86400
+            pending = get_pending_nudges(threshold_seconds)
+
+            for entry in pending:
+                try:
+                    user_id = entry["user_id"]
+                    channel_id = entry["channel_id"]
+                    original_content = entry["content"]
+                    days_elapsed = (time.time() - entry["received_at"]) / 86400
+
+                    user = bot.get_user(user_id) or await bot.fetch_user(user_id)
+                    if not user:
+                        continue
+
+                    # Build minimal instructions for nudge tone
+                    uid = user_id
+                    if uid not in bot._memory_cache:
+                        bot._memory_cache[uid] = get_memory(uid)
+                    memory_block = format_memory_for_prompt(bot._memory_cache[uid])
+                    mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if _MOOD_CFG.get("enabled", True) else ""
+                    nudge_instructions = bot.instructions + mood_block + memory_block
+
+                    nudge_text = await generate_nudge(original_content, days_elapsed, nudge_instructions)
+                    if not nudge_text or is_refusal(nudge_text):
+                        continue
+
+                    # Human-like pre-send delay
+                    await asyncio.sleep(random.uniform(30, 120))
+
+                    try:
+                        dm = user.dm_channel or await user.create_dm()
+                        if bot.realistic_typing:
+                            async with dm.typing():
+                                cps = random.uniform(7, 18)
+                                await asyncio.sleep(len(nudge_text) / cps)
+                        await dm.send(nudge_text)
+                        mark_nudge_sent(user_id, channel_id)
+                        log_system(f"Nudge sent to {user.name} ({days_elapsed:.1f}d elapsed)")
+
+                        # Add to history so the conversation continues naturally
+                        key = f"{user_id}-{channel_id}"
+                        bot.message_history.setdefault(key, [])
+                        bot.message_history[key].append({"role": "assistant", "content": nudge_text})
+
+                    except Exception as send_err:
+                        log_error("Nudge Send", str(send_err))
+
+                except Exception as e:
+                    log_error("Nudge Loop", str(e))
+
+        await asyncio.sleep(check_interval_hours * 3600)
+
+
 @bot.event
 async def on_ready():
     if config["bot"]["owner_id"] == 123456789012345678:
@@ -423,6 +492,10 @@ async def on_ready():
         asyncio.create_task(random_status_loop())
 
     asyncio.create_task(_reply_pending_messages())
+
+    nudge_cfg = config["bot"].get("nudge") or {}
+    if nudge_cfg.get("enabled", False):
+        asyncio.create_task(_nudge_loop())
 
     fr_cfg = config["bot"].get("friend_requests") or {}
     if fr_cfg.get("enabled", False):
@@ -933,6 +1006,7 @@ async def on_message(message):
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
         if random.random() < IGNORE_CHANCE and not message.content.startswith(PREFIX) and not message.content.startswith(PRIORITY_PREFIX):
+            log_system(f"Ignored message from {message.author.name} (chance skip)")
             return
 
         if user_id in bot.user_cooldowns:
@@ -957,6 +1031,11 @@ async def on_message(message):
             bot.processing_locks[channel_id] = Lock()
 
         bot.message_queues[channel_id].append(message)
+        # Track DM messages for the nudge system — will be cleared once we reply
+        if isinstance(message.channel, discord.DMChannel):
+            nudge_cfg = config["bot"].get("nudge") or {}
+            if nudge_cfg.get("enabled", False):
+                add_unresponded(user_id, channel_id, message.content, time.time())
         if not bot.processing_locks[channel_id].locked():
             asyncio.create_task(process_message_queue(channel_id))
 
@@ -1025,6 +1104,10 @@ async def process_message_queue(channel_id):
             response = await generate_response_and_reply(message_to_reply_to, combined_content, history, image_url, wait_time=(wait_time + message_age))
             if response:
                 bot.message_history[key].append({"role": "assistant", "content": response})
+                # Clear the nudge tracking entry — we've replied
+                nudge_cfg = config["bot"].get("nudge") or {}
+                if nudge_cfg.get("enabled", False) and isinstance(message_to_reply_to.channel, discord.DMChannel):
+                    mark_responded(message_to_reply_to.author.id, message_to_reply_to.channel.id)
 
 
 async def load_extensions():
