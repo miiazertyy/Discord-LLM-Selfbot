@@ -72,13 +72,7 @@ init_db()
 init_ai()
 init_memory()
 
-TOKENS = [
-    t["token"] if isinstance(t, dict) and "token" in t
-    else t["value"] if isinstance(t, dict) and "value" in t
-    else next(iter(t.values())) if isinstance(t, dict)
-    else t
-    for t in load_tokens()
-]
+TOKENS = load_tokens()
 PREFIX = config["bot"]["prefix"]
 OWNER_ID = config["bot"]["owner_id"]
 TRIGGER = config["bot"]["trigger"].lower().split(",")
@@ -906,45 +900,6 @@ async def on_message(message):
     if message.author.id == bot.selfbot_id:
         if message.content.startswith(PREFIX):
             await bot.process_commands(message)
-            return
-        # Record any message the selfbot sends (manually or via bot) into the
-        # correct per-user history so the LLM stays aware of what was said.
-        # We look for an existing history keyed by the *other* participant in
-        # this channel and append as "assistant" so it slots naturally into the
-        # conversation without touching the language-mirror logic (which only
-        # runs inside generate_response_and_reply, further downstream).
-        if message.content:
-            channel_id = message.channel.id
-            matched = False
-            # Try to find which user's history this channel belongs to.
-            for hist_key, hist in bot.message_history.items():
-                try:
-                    key_user_id, key_channel_id = hist_key.rsplit("-", 1)
-                    if int(key_channel_id) == channel_id:
-                        # Only append if the last entry isn't already this exact message
-                        # (avoids double-logging bot's own auto-responses).
-                        if not hist or hist[-1].get("content") != message.content:
-                            hist.append({"role": "assistant", "content": message.content})
-                        matched = True
-                        break
-                except (ValueError, AttributeError):
-                    continue
-
-            # No existing history for this channel — seed it so future messages
-            # from the other participant have context right away.
-            if not matched:
-                other_user_id = None
-                if isinstance(message.channel, discord.DMChannel):
-                    other_user_id = message.channel.recipient.id if message.channel.recipient else None
-                elif isinstance(message.channel, discord.GroupChannel):
-                    # Pick the first non-bot recipient as the key user
-                    for r in message.channel.recipients:
-                        if r.id != bot.selfbot_id:
-                            other_user_id = r.id
-                            break
-                if other_user_id:
-                    new_key = f"{other_user_id}-{channel_id}"
-                    bot.message_history[new_key] = [{"role": "assistant", "content": message.content}]
         return
 
     if should_ignore_message(message):
@@ -1099,15 +1054,15 @@ if __name__ == "__main__":
         await b.start(token)
 
     async def _main():
-        try:
-            async with AsyncSession(impersonate="chrome") as s:
-                r = await s.get("https://tls.browserleaks.com/json")
-                print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
-                print("JA4:", r.json().get("ja4", "N/A"))
-        except Exception as e:
-            log_error("Fingerprint Test", str(e))
         print(f"Starting {len(TOKENS)} instance(s)...")
         await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
+    try:
+        async with AsyncSession(impersonate="chrome") as s:
+            r = await s.get("https://tls.browserleaks.com/json")
+            print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
+            print("JA4:", r.json().get("ja4", "N/A"))
+    except Exception as e:
+        log_error("Fingerprint Test", str(e))
 
     try:
         asyncio.run(_main())
