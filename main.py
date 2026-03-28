@@ -1051,7 +1051,16 @@ if __name__ == "__main__":
             b.event(on_message)
             b.event(on_relationship_add)
             b.generate_response_and_reply = generate_response_and_reply
-        await b.start(token)
+        try:
+            await b.start(token)
+        except discord.errors.ConnectionClosed as e:
+            if e.code == 4004:
+                short_token = token[:8] + "..." if len(token) > 8 else token
+                print(f"\n[Account #{index + 1} | {short_token}] ❌ Authentication failed — invalid or expired token. Skipping.\n")
+            else:
+                print(f"\n[Account #{index + 1}] ❌ Connection closed (code {e.code}): {e.reason}\n")
+        except Exception as e:
+            print(f"\n[Account #{index + 1}] ❌ Unexpected error: {e}\n")
 
     async def _main():
         print(f"Starting {len(TOKENS)} instance(s)...")
