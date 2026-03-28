@@ -72,13 +72,7 @@ init_db()
 init_ai()
 init_memory()
 
-TOKENS = [
-    t["token"] if isinstance(t, dict) and "token" in t
-    else t["value"] if isinstance(t, dict) and "value" in t
-    else next(iter(t.values())) if isinstance(t, dict)
-    else t
-    for t in load_tokens()
-]
+TOKENS = load_tokens()
 PREFIX = config["bot"]["prefix"]
 OWNER_ID = config["bot"]["owner_id"]
 TRIGGER = config["bot"]["trigger"].lower().split(",")
@@ -302,51 +296,39 @@ async def _reply_pending_messages():
                 log_error("Pending Reply", f"Could not fetch user {user_id}: {e}")
                 continue
 
+            bot.message_history[key] = history
             last_msg = None
             channel = None
-            recent_msgs = []  # consecutive user messages since last bot reply
 
-            # Try DM first
             try:
                 dm = await user.create_dm()
-                async for msg in dm.history(limit=50):
+                async for msg in dm.history(limit=30):
                     if msg.author.id == user_id:
-                        recent_msgs.append(msg)
-                    elif recent_msgs:
-                        # hit a non-user message after collecting some — stop
+                        last_msg = msg
+                        channel = dm
                         break
-                if recent_msgs:
-                    channel = dm
             except Exception:
                 pass
 
-            # Fall back to the saved channel_id
-            if not channel:
+            if last_msg is None:
                 try:
-                    ch = bot.get_channel(channel_id)
-                    if ch is None:
+                    channel = bot.get_channel(channel_id)
+                    if channel is None:
                         for pc in bot.private_channels:
                             if pc.id == channel_id:
-                                ch = pc
+                                channel = pc
                                 break
-                    if ch:
-                        async for msg in ch.history(limit=50):
+                    if channel:
+                        async for msg in channel.history(limit=30):
                             if msg.author.id == user_id:
-                                recent_msgs.append(msg)
-                            elif recent_msgs:
+                                last_msg = msg
                                 break
-                        if recent_msgs:
-                            channel = ch
                 except Exception as e:
                     log_error("Pending Reply", f"Could not check original channel {channel_id}: {e}")
 
-            if not recent_msgs or channel is None:
+            if last_msg is None or channel is None:
                 log_error("Pending Reply", f"No message found for user {user.name}, skipping")
                 continue
-
-            # history() returns newest-first, reverse to chronological
-            recent_msgs = list(reversed(recent_msgs))
-            last_msg = recent_msgs[-1]
 
             if isinstance(channel, discord.TextChannel):
                 was_mentioned = bot.user.mentioned_in(last_msg) and "@everyone" not in last_msg.content and "@here" not in last_msg.content
@@ -359,21 +341,9 @@ async def _reply_pending_messages():
                     log_system(f"Skipping pending reply to {user.name} — server channel, not a mention/reply")
                     continue
 
-            # Build combined content from all consecutive user messages found
-            combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
-            if not combined_content:
-                combined_content = content  # fall back to saved content
-
-            # Merge saved history with fresh Discord context:
-            # keep the saved history as base, then append the fresh user messages
-            # only if they aren't already the last entry (avoids duplicates).
-            if not history or history[-1].get("content") != combined_content:
-                history.append({"role": "user", "content": combined_content})
-            bot.message_history[key] = history
-
             log_system(f"Replying to pending message from {user.name}")
             await asyncio.sleep(random.uniform(8, 25))
-            response = await generate_response_and_reply(last_msg, combined_content, history)
+            response = await generate_response_and_reply(last_msg, content, history)
             if response:
                 bot.message_history[key].append({"role": "assistant", "content": response})
         except Exception as e:
@@ -666,10 +636,11 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     if message.attachments and (message.flags.value & (1 << 13)):
         try:
+            import aiohttp as _aiohttp
             att = message.attachments[0]
-            async with AsyncSession(impersonate="chrome") as _session:
-                _resp = await _session.get(att.url)
-                audio_bytes = _resp.content
+            async with _aiohttp.ClientSession() as _session:
+                async with _session.get(att.url) as _resp:
+                    audio_bytes = await _resp.read()
             transcribed = await transcribe_voice(audio_bytes, filename=att.filename or "voice.ogg")
             if transcribed:
                 log_system(f"Transcribed voice message from {message.author.name}: {transcribed}")
@@ -852,11 +823,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 log_error("Picture Send", str(_pe))
 
     for i, chunk in enumerate(chunks):
-        # Strip any LLM-generated picture placeholders like [sent you a pic] / [sending a photo]
-        chunk = re.sub(r"\[.*?(?:pic|photo|selfie|image|sending|sent).*?\]", "", chunk, flags=re.IGNORECASE).strip()
-        if not chunk:
-            continue
-
         if DISABLE_MENTIONS:
             chunk = chunk.replace("@", "@\u200b")
 
@@ -984,44 +950,6 @@ async def on_message(message):
             asyncio.create_task(process_message_queue(channel_id))
 
 
-def _extract_image_url(msg) -> str | None:
-    """Return an image URL from a message — attachment first, then embed image/thumbnail."""
-    # Direct image attachment (skip voice messages flagged with bit 13)
-    if msg.attachments and not (msg.flags.value & (1 << 13)):
-        return msg.attachments[0].url
-    # Embedded link (e.g. TikTok, Twitter, YouTube) — grab the embed image/thumbnail
-    for embed in msg.embeds:
-        if embed.image and embed.image.url:
-            return embed.image.url
-        if embed.thumbnail and embed.thumbnail.url:
-            return embed.thumbnail.url
-    return None
-
-
-async def _fetch_embed_image_url(msg, timeout: float = 4.0) -> str | None:
-    """
-    Wait up to `timeout` seconds for Discord to attach embeds to the message,
-    then return an image URL. Embeds arrive asynchronously after the message.
-    """
-    # If we already have something (attachment or embed loaded instantly), use it
-    url = _extract_image_url(msg)
-    if url:
-        return url
-
-    # Poll for embeds — Discord usually attaches them within 1-3 seconds
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        await asyncio.sleep(1.0)
-        try:
-            refreshed = await msg.channel.fetch_message(msg.id)
-            url = _extract_image_url(refreshed)
-            if url:
-                return url
-        except Exception:
-            break
-    return None
-
-
 async def process_message_queue(channel_id):
     async with bot.processing_locks[channel_id]:
         while bot.message_queues[channel_id]:
@@ -1032,7 +960,11 @@ async def process_message_queue(channel_id):
 
             if bot.batch_messages:
                 if batch_key not in bot.user_message_batches:
-                    first_image_url = _extract_image_url(message)
+                    first_image_url = None
+                    if message.attachments:
+                        att = message.attachments[0]
+                        if not (message.flags.value & (1 << 13)):
+                            first_image_url = att.url
                     bot.user_message_batches[batch_key] = {
                         "messages": [message],
                         "last_time": current_time,
@@ -1050,8 +982,8 @@ async def process_message_queue(channel_id):
                         if next_message.author.id == message.author.id and not next_message.content.startswith(PREFIX):
                             next_message = bot.message_queues[channel_id].popleft()
                             bot.user_message_batches[batch_key]["messages"].append(next_message)
-                            if not bot.user_message_batches[batch_key]["image_url"]:
-                                bot.user_message_batches[batch_key]["image_url"] = _extract_image_url(next_message)
+                            if not bot.user_message_batches[batch_key]["image_url"] and next_message.attachments:
+                                bot.user_message_batches[batch_key]["image_url"] = next_message.attachments[0].url
                         else:
                             break
 
@@ -1066,14 +998,11 @@ async def process_message_queue(channel_id):
                         combined_content = combined_content[len(PRIORITY_PREFIX):].lstrip()
                     message_to_reply_to = unique_messages[-1]
                     image_url = bot.user_message_batches[batch_key]["image_url"]
-                    # If no image yet, wait briefly for Discord to attach embeds
-                    if not image_url:
-                        image_url = await _fetch_embed_image_url(message_to_reply_to)
                     del bot.user_message_batches[batch_key]
             else:
                 combined_content = message.content
                 message_to_reply_to = message
-                image_url = await _fetch_embed_image_url(message)
+                image_url = message.attachments[0].url if (message.attachments and not (message.flags.value & (1 << 13))) else None
                 wait_time = 0
 
             key = f"{message_to_reply_to.author.id}-{message_to_reply_to.channel.id}"
@@ -1125,15 +1054,15 @@ if __name__ == "__main__":
         await b.start(token)
 
     async def _main():
-        try:
-            async with AsyncSession(impersonate="chrome") as s:
-                r = await s.get("https://tls.browserleaks.com/json")
-                print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
-                print("JA4:", r.json().get("ja4", "N/A"))
-        except Exception as e:
-            log_error("Fingerprint Test", str(e))
         print(f"Starting {len(TOKENS)} instance(s)...")
         await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
+    try:
+        async with AsyncSession(impersonate="chrome") as s:
+            r = await s.get("https://tls.browserleaks.com/json")
+            print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
+            print("JA4:", r.json().get("ja4", "N/A"))
+    except Exception as e:
+        log_error("Fingerprint Test", str(e))
 
     try:
         asyncio.run(_main())
