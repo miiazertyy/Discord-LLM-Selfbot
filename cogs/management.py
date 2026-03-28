@@ -17,6 +17,7 @@ from utils.db import (
     add_channel,
 )
 from utils.memory import set_persona, clear_persona, get_persona
+from utils.db import get_pending_nudges, mark_responded
 
 
 class Management(commands.Cog):
@@ -610,6 +611,7 @@ class Management(commands.Cog):
             fr = bot_cfg.get("friend_requests") or {}
             mood = bot_cfg.get("mood") or {}
             late = bot_cfg.get("late_reply") or {}
+            nudge = bot_cfg.get("nudge") or {}
 
             status = bot_cfg.get("status") or {}
             notif = config.get("notifications") or {}
@@ -618,6 +620,8 @@ class Management(commands.Cog):
             wt_str = "  ".join(f"{w['time']}s({w['weight']})" for w in wait_times)
 
             mood_list = ", ".join(mood.get("moods", {}).keys())
+
+            nudge_hours = nudge.get("send_during_hours", [10, 22])
 
             lines = [
                 "```",
@@ -674,6 +678,12 @@ class Management(commands.Cog):
                 "  👥  Friend Requests",
                 f"  friend_requests.enabled      {fr.get('enabled')}",
                 f"  friend_requests.accept_delay {fr.get('accept_delay')}",
+                "─────────────────────────────",
+                "  💤  Nudge",
+                f"  nudge.enabled              {nudge.get('enabled', False)}",
+                f"  nudge.threshold_days       {nudge.get('threshold_days', 2)}",
+                f"  nudge.check_interval_hours {nudge.get('check_interval_hours', 6)}",
+                f"  nudge.send_during_hours    {nudge_hours[0]}:00 – {nudge_hours[1]}:00",
                 "─────────────────────────────",
                 "  🔔  Notifications",
                 f"  error_webhook         {'set' if notif.get('error_webhook') else 'not set'}",
