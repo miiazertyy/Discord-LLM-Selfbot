@@ -16,6 +16,7 @@ from utils.db import (
     remove_channel,
     add_channel,
 )
+from utils.memory import set_persona, clear_persona, get_persona
 
 
 class Management(commands.Cog):
@@ -60,6 +61,49 @@ class Management(commands.Cog):
         else:
             self.bot.paused_users.discard(user.id)
             await ctx.send(f"🔊 Resumed responses for **{user.name}**.")
+
+    @commands.command(
+        name="persona",
+        description=(
+            "Set or clear a per-user persona override. "
+            "Usage: ,persona @user <instructions>  |  ,persona @user off  |  ,persona @user show"
+        ),
+    )
+    async def persona(self, ctx, user: discord.User, *, args: str = None):
+        """Attach a custom tone/personality instruction to a specific user.
+
+        Examples:
+            ,persona @jake  Be very formal and call him 'sir' in every reply.
+            ,persona @sara  off
+            ,persona @jake  show
+        """
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        if not args or args.strip().lower() in ("off", "clear", "remove", "none"):
+            clear_persona(user.id)
+            # Also invalidate the in-memory cache so the next reply picks up the change
+            if hasattr(self.bot, "_memory_cache") and user.id in self.bot._memory_cache:
+                self.bot._memory_cache[user.id].pop("__persona__", None)
+            await ctx.send(f"🗑️ Persona cleared for **{user.name}**. They will get the default instructions.")
+            return
+
+        if args.strip().lower() == "show":
+            current = get_persona(user.id)
+            if current:
+                await ctx.send(f"🎭 Persona for **{user.name}**:\n> {current}")
+            else:
+                await ctx.send(f"ℹ️ No custom persona set for **{user.name}**.")
+            return
+
+        set_persona(user.id, args.strip())
+        # Bust the in-memory cache so the next reply picks up the new persona immediately
+        if hasattr(self.bot, "_memory_cache") and user.id in self.bot._memory_cache:
+            self.bot._memory_cache[user.id]["__persona__"] = args.strip()
+        await ctx.send(
+            f"🎭 Persona set for **{user.name}**:\n> {args.strip()}\n"
+            f"The bot will use these instructions when replying to them from now on."
+        )
 
     @commands.command(name="toggledm", description="Toggle DM for chatting")
     async def toggledm(self, ctx):
