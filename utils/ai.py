@@ -442,6 +442,7 @@ async def detect_language(history: list, current_message: str) -> str:
         return "en"
 
 
+async def summarize_history(history: list, instructions: str) -> list:
     """Compress long history into summary + recent messages to save tokens."""
     if not _groq_clients:
         init_ai()
