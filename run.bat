@@ -34,4 +34,3 @@ call .\bot-env\Scripts\activate.bat
 echo Starting bot...
 title AI Selfbot
 python "main.py"
-cmd /k
