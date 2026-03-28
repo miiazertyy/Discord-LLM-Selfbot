@@ -55,8 +55,35 @@ def clear_memory(user_id: int):
     conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Per-user persona overrides
+# ---------------------------------------------------------------------------
+
+def get_persona(user_id: int) -> str | None:
+    """Return a custom persona/tone instruction for this user, or None."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT value FROM user_memory WHERE user_id = ? AND key = '__persona__'",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def set_persona(user_id: int, persona: str):
+    """Store a custom persona/tone instruction for this user."""
+    set_memory(user_id, "__persona__", persona)
+
+
+def clear_persona(user_id: int):
+    """Remove any custom persona for this user."""
+    delete_memory(user_id, "__persona__")
+
 def format_memory_for_prompt(memory: dict) -> str:
-    if not memory:
+    visible = {k: v for k, v in memory.items() if not k.startswith("__")}
+    if not visible:
         return ""
-    lines = "\n".join(f"- {k}: {v}" for k, v in memory.items())
+    lines = "\n".join(f"- {k}: {v}" for k, v in visible.items())
     return f"\nWhat you remember about this person:\n{lines}"
