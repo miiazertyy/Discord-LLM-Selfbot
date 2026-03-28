@@ -1,7 +1,7 @@
 import discord
-import aiohttp
 
 from datetime import datetime
+from curl_cffi.requests import AsyncSession
 from utils.helpers import load_config
 
 config = load_config()
@@ -56,11 +56,9 @@ async def webhook_log(ctx, error):
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(webhook_url, json=data) as response:
-                if response.status == 204:
-                    pass
-                else:
-                    print_error("Webhook Error", f"Status: {response.status}")
+        async with AsyncSession(impersonate="chrome") as session:
+            response = await session.post(webhook_url, json=data)
+            if response.status_code != 204:
+                print_error("Webhook Error", f"Status: {response.status_code}")
     except Exception as e:
         print(f"Error while sending webhook: {e}")
