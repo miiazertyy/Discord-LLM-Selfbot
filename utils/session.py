@@ -73,13 +73,18 @@ def make_chrome_headers(token: str, extra: dict = None) -> dict:
     return headers
 
 
-def build_session(token: str, extra_headers: dict = None) -> AsyncSession:
+def build_session(token: str, extra_headers: dict = None, proxy: str = None) -> AsyncSession:
     """
     Return a curl_cffi AsyncSession that impersonates Chrome.
     This gives us a realistic JA3/TLS fingerprint automatically.
+    If proxy is provided (e.g. 'http://user:pass@host:port' or 'socks5://host:port'),
+    all requests will be routed through it. Otherwise the local IP is used.
     Use as an async context manager:  async with build_session(token) as s: ...
     """
     ver = _random_chrome_version()
-    session = AsyncSession(impersonate=f"chrome{ver}")
+    kwargs = {"impersonate": f"chrome{ver}"}
+    if proxy:
+        kwargs["proxies"] = {"https": proxy, "http": proxy}
+    session = AsyncSession(**kwargs)
     session.headers.update(make_chrome_headers(token, extra_headers))
     return session
