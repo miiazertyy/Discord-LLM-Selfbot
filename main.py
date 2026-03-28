@@ -1065,15 +1065,16 @@ if __name__ == "__main__":
         await b.start(token)
 
     async def _main():
+        try:
+            async with AsyncSession(impersonate="chrome") as s:
+                r = await s.get("https://tls.browserleaks.com/json")
+                print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
+                print("JA4:", r.json().get("ja4", "N/A"))
+        except Exception as e:
+            log_error("Fingerprint Test", str(e))
+
         print(f"Starting {len(TOKENS)} instance(s)...")
         await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
-    try:
-        async with AsyncSession(impersonate="chrome") as s:
-            r = await s.get("https://tls.browserleaks.com/json")
-            print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
-            print("JA4:", r.json().get("ja4", "N/A"))
-    except Exception as e:
-        log_error("Fingerprint Test", str(e))
 
     try:
         asyncio.run(_main())
