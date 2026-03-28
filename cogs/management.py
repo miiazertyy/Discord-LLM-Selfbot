@@ -5,7 +5,7 @@ import subprocess
 import yaml
 import re
 import asyncio
-import requests
+from curl_cffi.requests import AsyncSession
 
 from discord.ext import commands
 from utils.helpers import load_instructions, load_config, resource_path
@@ -195,12 +195,13 @@ class Management(commands.Cog):
         else:
             latest = None
             try:
-                response = requests.get(
-                    "https://api.github.com/repos/miiazertyy/Discord-LLM-Selfbot/releases/latest",
-                    timeout=10
-                )
-                if response.status_code == 200:
-                    latest = response.json().get("tag_name", "unknown")
+                async with AsyncSession(impersonate="chrome") as _s:
+                    _r = await _s.get(
+                        "https://api.github.com/repos/miiazertyy/Discord-LLM-Selfbot/releases/latest",
+                        timeout=10
+                    )
+                    if _r.status_code == 200:
+                        latest = _r.json().get("tag_name", "unknown")
             except Exception:
                 pass
             version_str = latest if latest else "latest"
@@ -721,13 +722,12 @@ class Management(commands.Cog):
             image_data = await attachment.read()
         elif url:
             try:
-                import aiohttp
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as resp:
-                        if resp.status != 200:
-                            await ctx.send(f"Failed to fetch image (status {resp.status}).", delete_after=10)
-                            return
-                        image_data = await resp.read()
+                async with AsyncSession(impersonate="chrome") as session:
+                    resp = await session.get(url)
+                    if resp.status_code != 200:
+                        await ctx.send(f"Failed to fetch image (status {resp.status_code}).", delete_after=10)
+                        return
+                    image_data = resp.content
             except Exception as e:
                 await ctx.send(f"Error fetching image: {e}", delete_after=10)
                 return
