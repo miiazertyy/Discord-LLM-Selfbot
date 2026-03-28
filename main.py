@@ -151,10 +151,12 @@ def create_bot() -> commands.Bot:
     b._memory_cache = {}
     b._memory_call_counter = {}
     b.paused_users = set()
+    b.proxy = None  # set per-token in _run_token
     return b
 
 
 bot = create_bot()
+bot.proxy = None  # will be overwritten in _run_token
 
 def is_refusal(text: str) -> bool:
     lowered = text.lower()
@@ -366,7 +368,7 @@ async def _friend_request_loop():
                     await asyncio.sleep(delay)
                     try:
                         token = bot._connection.http.token
-                        async with build_session(token) as session:
+                        async with build_session(token, proxy=bot.proxy) as session:
                             resp = await session.put(
                                 f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
                                 json={"type": 1},
@@ -626,7 +628,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         try:
             import aiohttp as _aiohttp
             att = message.attachments[0]
-            async with build_session(bot._connection.http.token) as _session:
+            async with build_session(bot._connection.http.token, proxy=bot.proxy) as _session:
                 _resp = await _session.get(att.url)
                 audio_bytes = _resp.content
             transcribed = await transcribe_voice(audio_bytes, filename=att.filename or "voice.ogg")
@@ -861,7 +863,7 @@ async def on_relationship_add(relationship):
         log_system(f"Friend request from {user.name} — accepting in {delay}s")
         await asyncio.sleep(delay)
         token = bot._connection.http.token
-        async with build_session(token) as session:
+        async with build_session(token, proxy=bot.proxy) as session:
             resp = await session.put(
                 f"https://discord.com/api/v9/users/@me/relationships/{user.id}",
                 json={"type": 1},
@@ -1020,14 +1022,19 @@ if __name__ == "__main__":
         print("Another instance is running.")
         sys.exit(1)
 
-    async def _run_token(token: str, index: int):
+    async def _run_token(token_data: dict, index: int):
         global bot
+        token = token_data["token"]
+        proxy = token_data["proxy"]
         b = bot if index == 0 else create_bot()
+        b.proxy = proxy
         if index > 0:
             b.event(on_ready)
             b.event(on_message)
             b.event(on_relationship_add)
             b.generate_response_and_reply = generate_response_and_reply
+        if proxy:
+            log_system(f"Token {index + 1} using proxy: {proxy}")
         await b.start(token)
 
     async def _main():
