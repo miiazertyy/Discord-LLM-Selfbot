@@ -491,3 +491,53 @@ async def summarize_history(history: list, instructions: str) -> list:
         return [summary_msg] + recent
     except Exception:
         return history
+
+
+async def generate_nudge(original_message: str, days_elapsed: float, instructions: str) -> str:
+    """Generate a natural nudge message for a conversation the bot never replied to.
+
+    The tone shifts based on how many days have passed:
+    - < 1.5 days : brief acknowledgement that we missed it
+    - 1.5–3 days : casual brush-over, might or might not acknowledge the gap
+    - 3+ days    : just resume conversation naturally, no acknowledgement at all
+    """
+    if not _groq_clients:
+        init_ai()
+
+    if days_elapsed < 1.5:
+        tone_hint = (
+            "You only just noticed you missed their message. Give a very brief, casual acknowledgement "
+            "of missing it — one short phrase max — then respond to what they actually said. "
+            "Examples of the acknowledgement part: 'omg just saw this', 'wait I missed this lol', 'my bad just seeing this'. "
+            "Keep the whole message short and natural."
+        )
+    elif days_elapsed < 3:
+        tone_hint = (
+            "A couple of days have passed since their message. You may or may not acknowledge the gap — "
+            "do what feels most natural. If you do acknowledge it, keep it very brief and casual. "
+            "Either way, respond to what they actually said. Don't overthink it."
+        )
+    else:
+        tone_hint = (
+            "Several days have passed. Don't acknowledge the gap at all — just resume the conversation "
+            "naturally as if you're picking up where you left off. Real people do this all the time."
+        )
+
+    prompt = (
+        f"The person sent you this message {days_elapsed:.1f} day(s) ago and you never replied:\n"
+        f"\"{original_message}\"\n\n"
+        f"{tone_hint}\n\n"
+        "Write your reply now. Stay completely in character. No bullet points, no formal structure."
+    )
+
+    try:
+        response = await _create_completion([
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": prompt},
+        ])
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        if "429" not in str(e) and "rate" not in str(e).lower():
+            print_error("Nudge Generate Error", e)
+        return ""
+
