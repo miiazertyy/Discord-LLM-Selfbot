@@ -515,6 +515,7 @@ def should_ignore_message(message):
         message.author.id in bot.ignore_users
         or message.author.id == bot.selfbot_id
         or message.author.bot
+        or message.type != discord.MessageType.default
     )
 
 
@@ -1114,6 +1115,8 @@ async def process_message_queue(channel_id):
             if key not in bot.message_history:
                 bot.message_history[key] = []
             bot.message_history[key].append({"role": "user", "content": combined_content})
+            if len(bot.message_history[key]) > MAX_HISTORY * 2:
+                bot.message_history[key] = bot.message_history[key][-(MAX_HISTORY * 2):]
             history = bot.message_history[key]
             
             response = await generate_response_and_reply(message_to_reply_to, combined_content, history, image_url, wait_time=(wait_time + message_age))
