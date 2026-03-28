@@ -37,9 +37,11 @@ def load_config():
         sys.exit(1)
 
 
-def load_tokens() -> list[str]:
-    """Return all Discord tokens from the .env file.
-    Supports DISCORD_TOKEN_1, DISCORD_TOKEN_2, ... as well as the legacy DISCORD_TOKEN."""
+def load_tokens() -> list[dict]:
+    """Return all Discord tokens from the .env file as a list of dicts with 'token' and 'proxy'.
+    Supports DISCORD_TOKEN_1/DISCORD_PROXY_1, DISCORD_TOKEN_2/DISCORD_PROXY_2, ...
+    Also supports the legacy DISCORD_TOKEN / DISCORD_PROXY fallback.
+    If no proxy is set for a token, 'proxy' will be None (local IP used)."""
     from dotenv import load_dotenv
     load_dotenv(dotenv_path=get_env_path(), override=True)
 
@@ -49,14 +51,16 @@ def load_tokens() -> list[str]:
         t = os.getenv(f"DISCORD_TOKEN_{i}")
         if not t:
             break
-        tokens.append(t.strip())
+        proxy = os.getenv(f"DISCORD_PROXY_{i}", "").strip() or None
+        tokens.append({"token": t.strip(), "proxy": proxy})
         i += 1
 
     # Fall back to the legacy single-token key
     if not tokens:
         t = os.getenv("DISCORD_TOKEN")
         if t:
-            tokens.append(t.strip())
+            proxy = os.getenv("DISCORD_PROXY", "").strip() or None
+            tokens.append({"token": t.strip(), "proxy": proxy})
 
     if not tokens:
         print("No Discord token(s) found in config/.env. Please set DISCORD_TOKEN_1 (or DISCORD_TOKEN).")
