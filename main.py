@@ -72,7 +72,13 @@ init_db()
 init_ai()
 init_memory()
 
-TOKENS = load_tokens()
+TOKENS = [
+    t["token"] if isinstance(t, dict) and "token" in t
+    else t["value"] if isinstance(t, dict) and "value" in t
+    else next(iter(t.values())) if isinstance(t, dict)
+    else t
+    for t in load_tokens()
+]
 PREFIX = config["bot"]["prefix"]
 OWNER_ID = config["bot"]["owner_id"]
 TRIGGER = config["bot"]["trigger"].lower().split(",")
@@ -823,6 +829,11 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 log_error("Picture Send", str(_pe))
 
     for i, chunk in enumerate(chunks):
+        # Strip any LLM-generated picture placeholders like [sent you a pic] / [sending a photo]
+        chunk = re.sub(r"\[.*?(?:pic|photo|selfie|image|sending|sent).*?\]", "", chunk, flags=re.IGNORECASE).strip()
+        if not chunk:
+            continue
+
         if DISABLE_MENTIONS:
             chunk = chunk.replace("@", "@\u200b")
 
@@ -1054,15 +1065,15 @@ if __name__ == "__main__":
         await b.start(token)
 
     async def _main():
+        try:
+            async with AsyncSession(impersonate="chrome") as s:
+                r = await s.get("https://tls.browserleaks.com/json")
+                print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
+                print("JA4:", r.json().get("ja4", "N/A"))
+        except Exception as e:
+            log_error("Fingerprint Test", str(e))
         print(f"Starting {len(TOKENS)} instance(s)...")
         await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
-    try:
-        async with AsyncSession(impersonate="chrome") as s:
-            r = await s.get("https://tls.browserleaks.com/json")
-            print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
-            print("JA4:", r.json().get("ja4", "N/A"))
-    except Exception as e:
-        log_error("Fingerprint Test", str(e))
 
     try:
         asyncio.run(_main())
