@@ -1074,7 +1074,7 @@ if __name__ == "__main__":
             log_error("Fingerprint Test", str(e))
 
         print(f"Starting {len(TOKENS)} instance(s)...")
-        await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
+        await asyncio.gather(*[_run_token(t["token"], i) for i, t in enumerate(TOKENS)])
 
     try:
         asyncio.run(_main())
