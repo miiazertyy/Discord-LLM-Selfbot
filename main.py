@@ -7,7 +7,6 @@ import re
 import random
 import sys
 import time
-import requests
 import aiohttp
 import utils.ai as ai_module
 
@@ -38,7 +37,7 @@ from utils.logger import (
 from curl_cffi.requests import AsyncSession
 
 from utils.mood import get_mood, get_mood_prompt, mood_loop, shift_mood
-from utils.memory import init_memory, get_memory, set_memory, delete_memory, format_memory_for_prompt
+from utils.memory import init_memory, get_memory, set_memory, delete_memory, format_memory_for_prompt, get_persona
 from utils.tts import generate_voice_message
 from utils.tts_trigger import is_tts_request
 from utils.voice_send import send_voice_message
@@ -56,7 +55,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history, detect_language
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -88,9 +87,6 @@ CONVERSATION_TIMEOUT = 150.0
 
 _MOOD_CFG = config["bot"]["mood"]
 _LATE_CFG = config["bot"]["late_reply"]
-
-ALLOWED_MEMORY_KEYS = {"name", "age", "location", "job", "hobby", "game", "relationship_status", "nationality", "language_skill"}
-JUNK_VALUES = {"yes", "no", "there", "here", "playing", "maybe", "idk", "a lot", "too much", "not really", "kind of", "sort of", "nah", "yeah"}
 
 REFUSAL_PHRASES = [
     "i'm sorry, but i can't",
@@ -599,22 +595,32 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     enriched_instructions = bot.instructions + mood_block + memory_block + profile_block
 
-    # Detect the user's language from their current message and lock the reply language,
-    # ignoring the bot's own previous messages to prevent feedback loops.
-    _prompt_lower = prompt.lower().split()
-    _french_words = {"wesh", "ouais", "oui", "non", "salut", "merci", "mec", "frere", "fréro",
-                     "trop", "genre", "quoi", "nan", "bah", "vas", "tu", "je", "est", "les",
-                     "des", "une", "pour", "pas", "sur", "avec", "mais", "que", "qui", "dans"}
-    _is_user_french = any(w in _french_words for w in _prompt_lower)
-    if _is_user_french:
+    # Per-user persona override: inject a custom tone/personality for this specific user
+    _persona = get_persona(uid)
+    if _persona:
         enriched_instructions += (
-            "\n\n[LANGUAGE: The user is writing in French. Reply in French, matching their casual tone.]"
+            f"\n\n[PERSONA OVERRIDE FOR THIS USER: {_persona} "
+            f"Maintain this persona for the entirety of this conversation.]"
         )
-    else:
-        enriched_instructions += (
-            "\n\n[LANGUAGE: The user is writing in English. Reply in English only. "
-            "Do not use French words or phrases even if they appeared earlier in the conversation.]"
-        )
+
+    # Detect the user's language using the LLM, looking at recent history to
+    # catch gradual language drift rather than only the current message.
+    try:
+        _lang_tag = await detect_language(history, prompt)
+    except Exception:
+        _lang_tag = "en"
+
+    _LANG_NAMES = {
+        "fr": "French", "en": "English", "es": "Spanish", "de": "German",
+        "ar": "Arabic", "pt": "Portuguese", "it": "Italian", "nl": "Dutch",
+        "ru": "Russian", "ja": "Japanese", "zh": "Chinese", "ko": "Korean",
+        "tr": "Turkish", "pl": "Polish", "sv": "Swedish",
+    }
+    _lang_display = _LANG_NAMES.get(_lang_tag, _lang_tag.upper())
+    enriched_instructions += (
+        f"\n\n[LANGUAGE: The user is writing in {_lang_display}. "
+        f"Reply in {_lang_display} only, matching their casual tone and register.]"
+    )
 
     pics_cfg = config["bot"].get("pictures") or {}
     if pics_cfg.get("enabled", True) and _is_picture_request(prompt) and _get_random_picture():
@@ -651,6 +657,12 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     max_retries = 3
     response = None
 
+    # Simulate Discord "seen" receipt: the bot has opened the DM and is reading
+    # before it starts typing. Only applies to DMs where read receipts are visible.
+    if isinstance(message.channel, discord.DMChannel) and bot.realistic_typing:
+        _read_delay = random.uniform(2.5, 8.0)
+        await asyncio.sleep(_read_delay)
+
     for attempt in range(max_retries):
         try:
             if not bot.realistic_typing:
@@ -685,12 +697,11 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
                     if bot._memory_call_counter[uid] >= 4 and len(prompt) >= 15:
                         bot._memory_call_counter[uid] = 0
-                        facts = await extract_memory(prompt, response)
+                        current_mem_snapshot = dict(bot._memory_cache.get(uid, {}))
+                        facts = await extract_memory(prompt, response, existing_memory=current_mem_snapshot)
                         for key, value in facts.items():
                             value = str(value).strip()
-                            if not value or key not in ALLOWED_MEMORY_KEYS:
-                                continue
-                            if value.lower() in JUNK_VALUES or len(value) < 2:
+                            if not value:
                                 continue
                             set_memory(uid, key, value)
                             bot._memory_cache.setdefault(uid, {})[key] = value
