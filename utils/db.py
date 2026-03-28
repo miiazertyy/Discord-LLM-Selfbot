@@ -32,8 +32,87 @@ def init_db():
     """
     )
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS unresponded_messages (
+            user_id     INTEGER NOT NULL,
+            channel_id  INTEGER NOT NULL,
+            content     TEXT    NOT NULL,
+            received_at REAL    NOT NULL,
+            nudge_sent  INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, channel_id)
+        )
+    """
+    )
+
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Unresponded messages — nudge system
+# ---------------------------------------------------------------------------
+
+def add_unresponded(user_id: int, channel_id: int, content: str, received_at: float):
+    """Record a message that the bot received but hasn't replied to yet."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO unresponded_messages
+            (user_id, channel_id, content, received_at, nudge_sent)
+        VALUES (?, ?, ?, ?, 0)
+        """,
+        (user_id, channel_id, content, received_at),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_responded(user_id: int, channel_id: int):
+    """Remove a user's unresponded entry once the bot has replied."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM unresponded_messages WHERE user_id = ? AND channel_id = ?",
+        (user_id, channel_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_nudge_sent(user_id: int, channel_id: int):
+    """Flag that a nudge has already been sent so we don't send another."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE unresponded_messages SET nudge_sent = 1 WHERE user_id = ? AND channel_id = ?",
+        (user_id, channel_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_nudges(threshold_seconds: float) -> list[dict]:
+    """Return all unresponded messages older than threshold that haven't been nudged yet."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    import time as _time
+    cutoff = _time.time() - threshold_seconds
+    cursor.execute(
+        """
+        SELECT user_id, channel_id, content, received_at
+        FROM unresponded_messages
+        WHERE nudge_sent = 0 AND received_at <= ?
+        """,
+        (cutoff,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {"user_id": r[0], "channel_id": r[1], "content": r[2], "received_at": r[3]}
+        for r in rows
+    ]
 
 
 def add_channel(channel_id):
