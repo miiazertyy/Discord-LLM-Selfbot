@@ -8,8 +8,8 @@ import random
 import sys
 import time
 import requests
+import aiohttp
 import utils.ai as ai_module
-from utils.session import build_session
 
 from utils.helpers import (
     clear_console,
@@ -34,6 +34,8 @@ from utils.logger import (
     log_received,
     separator
 )
+
+from curl_cffi.requests import AsyncSession
 
 from utils.mood import get_mood, get_mood_prompt, mood_loop, shift_mood
 from utils.memory import init_memory, get_memory, set_memory, delete_memory, format_memory_for_prompt
@@ -151,12 +153,10 @@ def create_bot() -> commands.Bot:
     b._memory_cache = {}
     b._memory_call_counter = {}
     b.paused_users = set()
-    b.proxy = None  # set per-token in _run_token
     return b
 
 
 bot = create_bot()
-bot.proxy = None  # will be overwritten in _run_token
 
 def is_refusal(text: str) -> bool:
     lowered = text.lower()
@@ -368,15 +368,25 @@ async def _friend_request_loop():
                     await asyncio.sleep(delay)
                     try:
                         token = bot._connection.http.token
-                        async with build_session(token, proxy=bot.proxy) as session:
+                        async with AsyncSession(impersonate="chrome") as session:
                             resp = await session.put(
                                 f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
+                                headers={
+                                    "Authorization": token,
+                                    "Content-Type": "application/json",
+                                    # Optional: add a matching User-Agent if you want extra consistency
+                                    # "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+                                },
                                 json={"type": 1},
                             )
                             if resp.status_code in (200, 204):
                                 log_system(f"Accepted friend request from {u.name}")
                             else:
-                                log_error("Friend Request Error", f"{resp.status_code}: {resp.json()}")
+                                try:
+                                    data = resp.json()
+                                    log_error("Friend Request Error", f"{resp.status_code}: {data}")
+                                except:
+                                    log_error("Friend Request Error", f"{resp.status_code}: {resp.text}")
                     except Exception as e:
                         log_error("Friend Request Loop", str(e))
 
@@ -628,9 +638,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         try:
             import aiohttp as _aiohttp
             att = message.attachments[0]
-            async with build_session(bot._connection.http.token, proxy=bot.proxy) as _session:
-                _resp = await _session.get(att.url)
-                audio_bytes = _resp.content
+            async with _aiohttp.ClientSession() as _session:
+                async with _session.get(att.url) as _resp:
+                    audio_bytes = await _resp.read()
             transcribed = await transcribe_voice(audio_bytes, filename=att.filename or "voice.ogg")
             if transcribed:
                 log_system(f"Transcribed voice message from {message.author.name}: {transcribed}")
@@ -863,13 +873,24 @@ async def on_relationship_add(relationship):
         log_system(f"Friend request from {user.name} — accepting in {delay}s")
         await asyncio.sleep(delay)
         token = bot._connection.http.token
-        async with build_session(token, proxy=bot.proxy) as session:
+        token = bot._connection.http.token
+        async with AsyncSession(impersonate="chrome") as session:
             resp = await session.put(
                 f"https://discord.com/api/v9/users/@me/relationships/{user.id}",
+                headers={
+                    "Authorization": token,
+                    "Content-Type": "application/json",
+                },
                 json={"type": 1},
             )
             if resp.status_code in (200, 204):
                 log_system(f"Accepted friend request from {user.name}")
+            else:
+                try:
+                    data = resp.json()
+                    log_error("Friend Request Error", f"{resp.status_code}: {data}")
+                except:
+                    log_error("Friend Request Error", f"{resp.status_code}")
     except Exception as e:
         log_error("Friend Request Error", str(e))
 
@@ -1022,24 +1043,26 @@ if __name__ == "__main__":
         print("Another instance is running.")
         sys.exit(1)
 
-    async def _run_token(token_data: dict, index: int):
+    async def _run_token(token: str, index: int):
         global bot
-        token = token_data["token"]
-        proxy = token_data["proxy"]
         b = bot if index == 0 else create_bot()
-        b.proxy = proxy
         if index > 0:
             b.event(on_ready)
             b.event(on_message)
             b.event(on_relationship_add)
             b.generate_response_and_reply = generate_response_and_reply
-        if proxy:
-            log_system(f"Token {index + 1} using proxy: {proxy}")
         await b.start(token)
 
     async def _main():
         print(f"Starting {len(TOKENS)} instance(s)...")
         await asyncio.gather(*[_run_token(t, i) for i, t in enumerate(TOKENS)])
+    try:
+        async with AsyncSession(impersonate="chrome") as s:
+            r = await s.get("https://tls.browserleaks.com/json")
+            print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
+            print("JA4:", r.json().get("ja4", "N/A"))
+    except Exception as e:
+        log_error("Fingerprint Test", str(e))
 
     try:
         asyncio.run(_main())
