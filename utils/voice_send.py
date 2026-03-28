@@ -1,9 +1,9 @@
-import io
 import math
 import struct
 import base64
 import asyncio
-import aiohttp
+
+from utils.session import build_session
 
 
 def _wav_to_ogg_opus(wav_bytes: bytes) -> tuple:
@@ -115,8 +115,8 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
     Send audio as a proper Discord voice message bubble.
     Converts WAV -> OGG Opus via ffmpeg, then uses the Discord attachment
     upload API with flags=1<<13, waveform and duration_secs (same as Vencord).
+    Uses curl_cffi with Chrome JA3 fingerprint emulation.
     """
-    # Compute waveform from WAV PCM, get accurate duration from ffprobe
     ogg_bytes, duration = await asyncio.get_running_loop().run_in_executor(
         None, _wav_to_ogg_opus, wav_bytes
     )
@@ -125,16 +125,10 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
     token = channel._state.http.token
     channel_id = channel.id
 
-    headers = {
-        "Authorization": token,
-        "Content-Type": "application/json",
-    }
-
-    async with aiohttp.ClientSession() as session:
+    async with build_session(token) as session:
         # Step 1: request upload slot
         upload_resp = await session.post(
             f"https://discord.com/api/v9/channels/{channel_id}/attachments",
-            headers=headers,
             json={
                 "files": [{
                     "filename": "voice-message.ogg",
@@ -143,7 +137,7 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
                 }]
             }
         )
-        upload_data = await upload_resp.json()
+        upload_data = upload_resp.json()
 
         if "attachments" not in upload_data:
             raise Exception(f"Failed to get upload URL: {upload_data}")
@@ -153,9 +147,10 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
         uploaded_filename = attachment["upload_filename"]
 
         # Step 2: upload OGG bytes to CDN
-        put_resp = await session.put(
+        # No auth header needed for the CDN PUT — override Content-Type only
+        await session.put(
             upload_url,
-            data=ogg_bytes,
+            content=ogg_bytes,
             headers={"Content-Type": "audio/ogg"},
         )
 
@@ -188,10 +183,9 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
 
         msg_resp = await session.post(
             f"https://discord.com/api/v9/channels/{channel_id}/messages",
-            headers=headers,
             json=body,
         )
-        result = await msg_resp.json()
+        result = msg_resp.json()
 
         if "id" not in result:
             raise Exception(f"Failed to send voice message: {result}")
