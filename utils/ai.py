@@ -237,26 +237,39 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
         raise
 
 
-async def extract_memory(user_message: str, assistant_reply: str) -> dict:
-    """Ask the LLM to extract any new personal facts the user revealed."""
+async def extract_memory(user_message: str, assistant_reply: str, existing_memory: dict = None) -> dict:
+    """Ask the LLM to decide what's worth remembering — free-form, no fixed key allowlist.
+
+    The LLM chooses both the key name and value, so it can capture anything that
+    would genuinely be useful to recall later (name, job, city, pet, favourite show,
+    gaming handle, relationship status, hobbies, etc.). Short snake_case keys only.
+    """
     if not _groq_clients:
         init_ai()
 
+    existing_block = ""
+    if existing_memory:
+        existing_block = (
+            "\nAlready stored facts (do NOT re-extract these unless the value changed):\n"
+            + "\n".join(f"  {k}: {v}" for k, v in existing_memory.items())
+            + "\n"
+        )
+
     prompt = (
         f'User message: "{user_message}"\n'
-        f'Assistant reply: "{assistant_reply}"\n\n'
-        "Extract ONLY concrete, specific facts the USER explicitly stated about themselves. "
-        "STRICT RULES:\n"
-        "- ONLY extract from the USER message. Ignore everything the assistant said.\n"
-        "- Ignore Discord @mentions (e.g. @Alex) — those are not the user's name.\n"
-        "- Only save facts with a SPECIFIC, MEANINGFUL value. Examples of good facts:\n"
-        "    name=Jake, age=22, location=Paris, job=nurse, hobby=drawing, game=Minecraft, relationship_status=single\n"
-        "- REJECT vague or context-dependent values like: yes, no, there, here, playing, maybe, idk, too much, a lot\n"
-        "- REJECT transient states: tired, bored, busy, sad, happy — these are moods, not facts.\n"
-        "- REJECT anything the user asked as a question — questions reveal nothing about themselves.\n"
-        "- REJECT language/nationality unless the user explicitly says 'I am Italian' or 'I speak French'.\n"
-        "- Values must be at least 2 meaningful words OR a proper noun (name, city, game title, etc.).\n"
-        "- Allowed keys ONLY: name, age, location, job, hobby, game, relationship_status, nationality, language_skill\n"
+        f'Assistant reply: "{assistant_reply}"\n'
+        f'{existing_block}\n'
+        "Extract ONLY concrete, specific facts the USER explicitly stated about themselves "
+        "that would be genuinely useful to remember in a future conversation.\n"
+        "RULES:\n"
+        "- Only extract from the USER message. Ignore the assistant reply.\n"
+        "- Ignore Discord @mentions — they are not the user's name.\n"
+        "- Ignore transient states: tired, bored, sad, happy, busy.\n"
+        "- Ignore vague values: yes, no, maybe, idk, a lot, kind of.\n"
+        "- Ignore anything phrased as a question (questions reveal nothing).\n"
+        "- Keys must be short, lowercase, snake_case (e.g. 'name', 'city', 'pet_name', 'favourite_game').\n"
+        "- Values must be specific and meaningful (proper noun, number, or clear phrase).\n"
+        "- You decide which keys matter — no fixed list. Use good judgment.\n"
         "If nothing clearly qualifies, return exactly: {}\n"
         "Return ONLY the JSON object. No explanation, no markdown, no extra text."
     )
@@ -269,11 +282,11 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a JSON-only fact extractor. You output nothing except valid JSON objects."
+                            "content": "You are a JSON-only memory extractor. Output nothing except a valid JSON object."
                         },
                         {"role": "user", "content": prompt}
                     ],
-                    max_tokens=150,
+                    max_tokens=200,
                     temperature=0.1,
                 )
                 break
@@ -287,11 +300,17 @@ async def extract_memory(user_message: str, assistant_reply: str) -> dict:
         parsed = json.loads(text)
         if not isinstance(parsed, dict):
             return {}
-        return parsed
+        # Sanitise keys: lowercase, snake_case, max 40 chars
+        clean = {}
+        for k, v in parsed.items():
+            key = str(k).lower().replace(" ", "_").replace("-", "_")[:40]
+            val = str(v).strip()
+            if key and val and len(val) >= 2:
+                clean[key] = val
+        return clean
     except json.JSONDecodeError:
         return {}
     except Exception as e:
-        # Silently ignore rate limit errors — memory extraction is non-critical
         if "429" not in str(e) and "rate" not in str(e).lower():
             print_error("Memory Extract Error", e)
         return {}
@@ -373,7 +392,56 @@ async def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> s
         return ""
 
 
-async def summarize_history(history: list, instructions: str) -> list:
+async def detect_language(history: list, current_message: str) -> str:
+    """Use the LLM to detect the user's language from recent conversation history.
+    
+    Looks at the last few user turns (not just the current message) so it can
+    detect gradual language drift across a conversation.
+    Returns a BCP-47 language tag like 'fr', 'en', 'es', 'ar', 'de', etc.
+    Falls back to 'en' on any error.
+    """
+    if not _groq_clients:
+        init_ai()
+
+    # Build a compact view of recent user messages so the LLM can see drift
+    recent_user_msgs = [
+        m["content"] for m in history[-8:] if m.get("role") == "user"
+    ]
+    # Always include the current message (it may not be in history yet)
+    if not recent_user_msgs or recent_user_msgs[-1] != current_message:
+        recent_user_msgs.append(current_message)
+
+    sample = "\n".join(f"- {m}" for m in recent_user_msgs[-5:])
+
+    prompt = (
+        "Identify the single most likely language the user is writing in based on these recent messages.\n\n"
+        f"Messages:\n{sample}\n\n"
+        "Reply with ONLY the BCP-47 language tag (e.g. 'en', 'fr', 'es', 'ar', 'de', 'pt', 'it', 'nl', 'ru', 'ja', 'zh').\n"
+        "No explanation, no punctuation, no extra text."
+    )
+
+    try:
+        response = await _active_client().chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a language detector. Output only a BCP-47 language tag.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=8,
+            temperature=0.0,
+        )
+        tag = response.choices[0].message.content.strip().lower().split("-")[0]
+        # Basic sanity check — reject anything that looks like a sentence
+        if len(tag) > 5 or " " in tag:
+            return "en"
+        return tag
+    except Exception:
+        return "en"
+
+
     """Compress long history into summary + recent messages to save tokens."""
     if not _groq_clients:
         init_ai()
