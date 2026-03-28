@@ -709,7 +709,11 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     if len(history) > 20:
         try:
-            history = await summarize_history(history, enriched_instructions)
+            summarized = await summarize_history(history, enriched_instructions)
+            if summarized:
+                history = summarized
+                key = f"{message.author.id}-{message.channel.id}"
+                bot.message_history[key] = history
         except Exception:
             pass
 
