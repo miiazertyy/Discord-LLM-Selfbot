@@ -47,6 +47,7 @@ Preview :
     ,pause              pause/unpause AI responses
     ,pauseuser [user]   pause responses for a specific user
     ,unpauseuser [user] resume responses for a specific user
+    ,persona [user]     set/clear/show a per-user persona
     ,wipe               clear conversation history
     ,reply [user]       manually reply to a user's last message
     ,reply check        checks for unresponded users
