@@ -1,8 +1,40 @@
 import random
+import requests
 from curl_cffi.requests import AsyncSession
 
-# Realistic Chrome version pool to rotate through
-CHROME_VERSIONS = ["120", "121", "122", "123", "124"]
+# Fallback pool used if the version fetch fails
+_CHROME_FALLBACK = ["120", "121", "122", "123", "124"]
+
+# Populated at startup by fetch_chrome_versions()
+CHROME_VERSIONS: list[str] = []
+
+
+def fetch_chrome_versions(pool_size: int = 5) -> None:
+    """
+    Fetch the latest stable Chrome major version from Google's version API
+    and build a pool of the most recent `pool_size` versions.
+    Falls back to _CHROME_FALLBACK silently if the request fails.
+    Called once at import time.
+    """
+    global CHROME_VERSIONS
+    try:
+        resp = requests.get(
+            "https://versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions",
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # versions are returned newest-first, each looks like "124.0.6367.60"
+        latest_major = int(data["versions"][0]["version"].split(".")[0])
+        CHROME_VERSIONS = [str(latest_major - i) for i in range(pool_size)]
+        print(f"[Session] Chrome version pool updated: {CHROME_VERSIONS}")
+    except Exception as e:
+        CHROME_VERSIONS = list(_CHROME_FALLBACK)
+        print(f"[Session] Chrome version fetch failed ({e}), using fallback: {CHROME_VERSIONS}")
+
+
+# Auto-fetch on import so the pool is ready before any session is built
+fetch_chrome_versions()
 
 _PLATFORM_DATA = {
     "Windows": {
