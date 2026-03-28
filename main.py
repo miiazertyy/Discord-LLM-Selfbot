@@ -700,8 +700,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     if pics_cfg.get("enabled", True) and _is_picture_request(prompt) and _get_random_picture():
         enriched_instructions += (
             "\n\n[IMPORTANT: You are sending the user a photo of yourself right now as part of this reply. "
-            "React naturally like you just sent it — don't refuse, don't say you can't, "
-            "don't act shy about it. Respond as if the picture is already attached.]"
+            "React naturally like you just sent it — don't refuse, don't say you can't, don't act shy about it. "
+            "Do NOT describe the photo, do NOT write any caption or attachment text, do NOT say what is in the picture. "
+            "Just respond conversationally as a real person would after hitting send on a selfie.]"
         )
 
     late_opener = ""
