@@ -72,7 +72,13 @@ init_db()
 init_ai()
 init_memory()
 
-TOKENS = load_tokens()
+TOKENS = [
+    t["token"] if isinstance(t, dict) and "token" in t
+    else t["value"] if isinstance(t, dict) and "value" in t
+    else next(iter(t.values())) if isinstance(t, dict)
+    else t
+    for t in load_tokens()
+]
 PREFIX = config["bot"]["prefix"]
 OWNER_ID = config["bot"]["owner_id"]
 TRIGGER = config["bot"]["trigger"].lower().split(",")
