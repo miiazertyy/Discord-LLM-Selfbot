@@ -1071,15 +1071,26 @@ async def process_message_queue(channel_id):
                     if not priority:
                         await asyncio.sleep(wait_time)
 
-                    while bot.message_queues[channel_id]:
-                        next_message = bot.message_queues[channel_id][0]
-                        if next_message.author.id == message.author.id and not next_message.content.startswith(PREFIX):
-                            next_message = bot.message_queues[channel_id].popleft()
-                            bot.user_message_batches[batch_key]["messages"].append(next_message)
-                            if not bot.user_message_batches[batch_key]["image_url"] and next_message.attachments:
-                                bot.user_message_batches[batch_key]["image_url"] = next_message.attachments[0].url
-                        else:
+                    # Keep collecting messages until the user stops sending for 3s
+                    BATCH_TAIL_WAIT = 3.0
+                    BATCH_POLL_INTERVAL = 0.3
+                    last_received = time.time()
+                    while True:
+                        collected_any = False
+                        while bot.message_queues[channel_id]:
+                            next_message = bot.message_queues[channel_id][0]
+                            if next_message.author.id == message.author.id and not next_message.content.startswith(PREFIX):
+                                next_message = bot.message_queues[channel_id].popleft()
+                                bot.user_message_batches[batch_key]["messages"].append(next_message)
+                                if not bot.user_message_batches[batch_key]["image_url"] and next_message.attachments:
+                                    bot.user_message_batches[batch_key]["image_url"] = next_message.attachments[0].url
+                                last_received = time.time()
+                                collected_any = True
+                            else:
+                                break
+                        if not collected_any and time.time() - last_received >= BATCH_TAIL_WAIT:
                             break
+                        await asyncio.sleep(BATCH_POLL_INTERVAL)
 
                     unique_messages = []
                     seen = set()
