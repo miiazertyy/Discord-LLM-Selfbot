@@ -666,11 +666,10 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     if message.attachments and (message.flags.value & (1 << 13)):
         try:
-            import aiohttp as _aiohttp
             att = message.attachments[0]
-            async with _aiohttp.ClientSession() as _session:
-                async with _session.get(att.url) as _resp:
-                    audio_bytes = await _resp.read()
+            async with AsyncSession(impersonate="chrome") as _session:
+                _resp = await _session.get(att.url)
+                audio_bytes = _resp.content
             transcribed = await transcribe_voice(audio_bytes, filename=att.filename or "voice.ogg")
             if transcribed:
                 log_system(f"Transcribed voice message from {message.author.name}: {transcribed}")
