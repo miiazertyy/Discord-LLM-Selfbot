@@ -990,6 +990,52 @@ async def on_message(message):
     if message.author.id == bot.selfbot_id:
         if message.content.startswith(PREFIX):
             await bot.process_commands(message)
+            return
+
+        # Owner priority trigger: owner sends a message starting with =
+        if message.author.id == OWNER_ID and message.content.startswith(PRIORITY_PREFIX):
+            hint = message.content[len(PRIORITY_PREFIX):].lstrip()
+            target_msg = None
+
+            # If the owner replied to someone, use that message
+            if message.reference and message.reference.resolved:
+                ref = message.reference.resolved
+                if isinstance(ref, discord.Message):
+                    target_msg = ref
+
+            # Otherwise find the last message in the channel not from the bot/owner
+            if target_msg is None:
+                try:
+                    async for msg in message.channel.history(limit=20):
+                        if msg.author.id != bot.selfbot_id and msg.author.id != OWNER_ID and msg.type == discord.MessageType.default:
+                            target_msg = msg
+                            break
+                except Exception as e:
+                    log_error("Priority Trigger", str(e))
+
+            if target_msg is None:
+                return
+
+            channel_id = target_msg.channel.id
+            user_id = target_msg.author.id
+            key = f"{user_id}-{channel_id}"
+
+            if key not in bot.message_history:
+                bot.message_history[key] = []
+
+            combined = hint if hint else target_msg.content
+
+            bot.message_history[key].append({"role": "user", "content": target_msg.content})
+            if len(bot.message_history[key]) > MAX_HISTORY * 2:
+                bot.message_history[key] = bot.message_history[key][-(MAX_HISTORY * 2):]
+
+            history = bot.message_history[key]
+            log_system(f"Priority trigger by owner → responding to {target_msg.author.name} in #{getattr(target_msg.channel, 'name', 'DM')}")
+            response = await generate_response_and_reply(target_msg, combined, history, wait_time=0)
+            if response:
+                bot.message_history[key].append({"role": "assistant", "content": response})
+            return
+
         return
 
     if should_ignore_message(message):
