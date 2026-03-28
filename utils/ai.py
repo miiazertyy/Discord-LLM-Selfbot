@@ -26,7 +26,7 @@ def init_ai():
     global _groq_clients, _client_index, model, groq_models, current_model_index
     env_path = get_env_path()
     config = load_config()
-    load_dotenv(dotenv_path=env_path)
+    load_dotenv(dotenv_path=env_path, override=True)
 
     # Load keys: GROQ_API_KEY_1, GROQ_API_KEY_2, ...
     # Falls back to legacy GROQ_API_KEY if no numbered keys are set.
