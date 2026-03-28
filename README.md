@@ -1,7 +1,6 @@
 # 🌙 Discord LLM Selfbot
 
 Made with python, uses Groq LLM provider **ALL FOR FREE**
-(full support in English)
 
 ### JOIN IF YOU NEED HELP : https://discord.gg/connard
 
@@ -130,13 +129,13 @@ Windows:
 -   Activate the virtual environment by running `bot-env\Scripts\activate.bat`
 -   Run `pip install -r requirements.txt` to install all the dependencies
 -   Fill out `example.env` with your own credentials and rename it to `.env`
--   Fill out the `config.yaml` file with your own settings
+-   Use the config command to fill out the `config.yaml` with your own settings
 -   Run the bot using `python3 main.py`
 
 Linux:
 
 -   Fill out `example.env` with your own credentials and rename it to `.env`
--   Fill out the `config.yaml` file with your own settings
+-   Use the config command to fill out the `config.yaml` with your own settings
 -   In terminal :
   sudo apt install python3
   sudo apt install ffmpeg -y
@@ -144,11 +143,12 @@ Linux:
   chmod +x updater.sh
 -   Run the bot using `./run.sh`
 
-# 🗨️ How to talk to the bot
+# 🗨️ How to use the bot
 
+-   Use the help command in chat to get all the commands
 -   To activate it in a channel use **~toggleactive channelid** (channelid is optional).
 -   To see all commands use **(prefix)help**
--   You can also set a trigger word within the `config.yaml` or with the ,config command, this is the word that the bot will respond to.
+-   You can also set a trigger word within the `config.yaml` or with the ,config trigger command, this is the word that the bot will respond to.
 # 💭 Changing the Personality of the bot
 
 To change the personality of the bot and set custom instructions, simply go into the `config` folder and edit the default instructions in `instructions.txt` to whatever you want! 
