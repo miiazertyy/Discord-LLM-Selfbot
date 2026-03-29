@@ -114,7 +114,9 @@ async def generate_voice_message(text: str) -> list[bytes] | None:
             )
             audio_chunks.append(await response.read())
         except Exception as e:
-            print(f"[TTS] Error on chunk {i + 1}/{len(text_chunks)}: {e}")
+            import traceback
+            print(f"[TTS] Error on chunk {i + 1}/{len(text_chunks)}: {type(e).__name__}: {e}")
+            traceback.print_exc()
             if i == 0:
                 return None
             break
