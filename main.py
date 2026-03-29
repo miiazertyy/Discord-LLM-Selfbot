@@ -528,21 +528,21 @@ async def is_trigger_message(message):
     replied_to = False
     if message.reference:
         ref_msg = message.reference.resolved
-        if ref_msg is None:
+        if ref_msg is None or isinstance(ref_msg, discord.DeletedReferencedMessage):
+            # Try the internal message cache before making an API call
+            ref_msg = bot._connection._get_message(message.reference.message_id)
+        if ref_msg and ref_msg.author.id == bot.user.id:
+            replied_to = True
+        elif ref_msg is None:
+            # Last resort — only fetch if we truly can't find it
             try:
                 ref_msg = await message.channel.fetch_message(message.reference.message_id)
+                if ref_msg.author.id == bot.user.id:
+                    replied_to = True
             except Exception as e:
                 log_system(f"[reply-debug] fetch_message failed: {e}")
-                ref_msg = None
-        if ref_msg:
-            log_system(f"[reply-debug] ref author={ref_msg.author.id} bot={bot.user.id} match={ref_msg.author.id == bot.user.id}")
-            if ref_msg.author.id == bot.user.id:
-                replied_to = True
-        else:
-            log_system(f"[reply-debug] ref_msg is None after fetch")
-    else:
         if isinstance(message.channel, discord.TextChannel):
-            log_system(f"[reply-debug] server msg from {message.author.name} — no reference, mentioned={mentioned}")
+            log_system(f"[reply-debug] ref author={getattr(ref_msg, 'author', None) and ref_msg.author.id} bot={bot.user.id} replied_to={replied_to}")
     is_dm = isinstance(message.channel, discord.DMChannel) and bot.allow_dm
     is_group_dm = isinstance(message.channel, discord.GroupChannel) and bot.allow_gc
 
