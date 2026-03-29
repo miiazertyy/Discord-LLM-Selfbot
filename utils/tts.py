@@ -12,7 +12,14 @@ TTS_MAX_CHARS = 180  # Orpheus hard limit is 200, stay safe with 180
 def _get_client() -> AsyncGroq:
     env_path = get_env_path()
     load_dotenv(dotenv_path=env_path)
-    return AsyncGroq(api_key=getenv("GROQ_API_KEY"))
+    # Try GROQ_API_KEY first, then GROQ_API_KEY_1, _2, etc.
+    api_key = getenv("GROQ_API_KEY")
+    if not api_key:
+        for i in range(1, 10):
+            api_key = getenv(f"GROQ_API_KEY_{i}")
+            if api_key:
+                break
+    return AsyncGroq(api_key=api_key)
 
 
 def _clean_text_for_tts(text: str) -> str:
