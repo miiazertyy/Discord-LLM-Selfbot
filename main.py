@@ -528,7 +528,7 @@ def is_trigger_message(message):
     replied_to = (
         message.reference
         and message.reference.resolved
-        and message.reference.resolved.author.id == bot.selfbot_id
+        and message.reference.resolved.author.id == bot.user.id
     )
     is_dm = isinstance(message.channel, discord.DMChannel) and bot.allow_dm
     is_group_dm = isinstance(message.channel, discord.GroupChannel) and bot.allow_gc
