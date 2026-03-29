@@ -19,7 +19,7 @@ from utils.helpers import (
     load_tokens,
 )
 
-from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges, get_picture_description, record_user_message
+from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges, get_picture_description, record_user_message, get_cached_profile, set_cached_profile
 from utils.error_notifications import webhook_log
 from colorama import init, Fore, Style
 
@@ -301,25 +301,41 @@ async def _reply_pending_messages():
             if history and history[-1].get("role") == "assistant":
                 continue
 
-            try:
-                user = await bot.fetch_user(user_id)
-            except Exception as e:
-                log_error("Pending Reply", f"Could not fetch user {user_id}: {e}")
-                continue
+            # Try to get user from cache first, fall back to fetch
+            user = bot.get_user(user_id)
+            if user is None:
+                try:
+                    user = await bot.fetch_user(user_id)
+                except Exception as e:
+                    log_error("Pending Reply", f"Could not fetch user {user_id}: {e}")
+                    continue
 
             bot.message_history[key] = history
             last_msg = None
             channel = None
 
-            try:
-                dm = await user.create_dm()
-                async for msg in dm.history(limit=30):
-                    if msg.author.id == user_id:
-                        last_msg = msg
-                        channel = dm
-                        break
-            except Exception:
-                pass
+            # Use stored last_message_id to fetch directly — no history scan needed
+            last_message_id = data.get("last_message_id")
+            if last_message_id:
+                try:
+                    channel = bot.get_channel(channel_id)
+                    if channel is None:
+                        channel = await user.create_dm()
+                    last_msg = await channel.fetch_message(int(last_message_id))
+                except Exception:
+                    last_msg = None
+
+            # Fallback: scan DM history (only if we had no stored message id)
+            if last_msg is None:
+                try:
+                    dm = await user.create_dm()
+                    async for msg in dm.history(limit=15):
+                        if msg.author.id == user_id:
+                            last_msg = msg
+                            channel = dm
+                            break
+                except Exception:
+                    pass
 
             if last_msg is None:
                 try:
@@ -330,7 +346,7 @@ async def _reply_pending_messages():
                                 channel = pc
                                 break
                     if channel:
-                        async for msg in channel.history(limit=30):
+                        async for msg in channel.history(limit=15):
                             if msg.author.id == user_id:
                                 last_msg = msg
                                 break
@@ -647,10 +663,14 @@ def update_message_history(author_id, message_content):
     bot.message_history[author_id] = bot.message_history[author_id][-MAX_HISTORY:]
 
 
-_profile_cache: dict = {}  # user_id -> bio string, cached forever per session
+_profile_cache: dict = {}  # user_id -> bio string, in-memory layer on top of DB
 
 async def _get_user_profile_block(user) -> str:
-    """Fetch Discord profile info (status, bio, display name) and return as a context block."""
+    """Fetch Discord profile info (status, bio, display name) and return as a context block.
+
+    Bio is cached in-memory first, then falls back to the DB, then fetches from Discord.
+    This means a bio fetch survives restarts without hitting the API every time.
+    """
     parts = []
     try:
         display = getattr(user, 'global_name', None) or user.display_name
@@ -666,16 +686,20 @@ async def _get_user_profile_block(user) -> str:
                     parts.append(f"status: {activity.name}")
                     break
 
-        # Cache bio per user — only fetch once per session
+        # 1. Check in-memory cache
         if user.id in _profile_cache:
             bio = _profile_cache[user.id]
         else:
-            bio = None
-            try:
-                profile = await user.profile()
-                bio = getattr(profile, 'bio', None) or None
-            except Exception:
-                pass
+            # 2. Check persistent DB cache
+            bio = get_cached_profile(user.id)
+            if bio is None:
+                # 3. Fetch from Discord and persist
+                try:
+                    profile = await user.profile()
+                    bio = getattr(profile, 'bio', None) or None
+                except Exception:
+                    bio = None
+                set_cached_profile(user.id, bio)
             _profile_cache[user.id] = bio
 
         if bio:
@@ -1148,13 +1172,22 @@ async def on_message(message):
                 if isinstance(ref, discord.Message):
                     target_msg = ref
 
-            # Otherwise find the last message in the channel not from the bot/owner
+            # Otherwise find the last non-bot/non-owner message id from the raw cache,
+            # then fetch it directly — avoids a full history scan.
             if target_msg is None:
                 try:
-                    async for msg in message.channel.history(limit=20):
-                        if msg.author.id != bot.selfbot_id and msg.author.id != OWNER_ID and msg.type == discord.MessageType.default:
-                            target_msg = msg
+                    # Walk the raw cache in reverse insertion order to find a candidate
+                    for msg_id, ref_id in reversed(list(_raw_reply_cache.items())):
+                        cached = bot._connection._get_message(msg_id)
+                        if cached and cached.channel.id == message.channel.id and cached.author.id != bot.selfbot_id and cached.author.id != OWNER_ID and cached.type == discord.MessageType.default:
+                            target_msg = cached
                             break
+                    # If not in internal cache, fall back to a short history scan
+                    if target_msg is None:
+                        async for msg in message.channel.history(limit=10):
+                            if msg.author.id != bot.selfbot_id and msg.author.id != OWNER_ID and msg.type == discord.MessageType.default:
+                                target_msg = msg
+                                break
                 except Exception as e:
                     log_error("Priority Trigger", str(e))
 
