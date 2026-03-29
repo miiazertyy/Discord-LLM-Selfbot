@@ -6,7 +6,7 @@ from os import getenv
 from dotenv import load_dotenv
 from utils.helpers import get_env_path, load_config
 from utils.error_notifications import webhook_log, print_error
-from utils.logger import log_model_fallback
+from utils.logger import log_model_fallback, log_system
 
 # Active Groq clients — one per API key
 _groq_clients = []   # list of {"client": AsyncGroq, "label": str}
@@ -76,7 +76,7 @@ def _fallback_client():
     old_label = _groq_clients[_client_index]["label"]
     _client_index = next_index
     new_label = _groq_clients[_client_index]["label"]
-    print(f"[AI] Rate limited on {old_label}, switching to {new_label}.")
+    log_system(f"Rate limited on {old_label} → switching to {new_label}")
     return True
 
 
