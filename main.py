@@ -19,7 +19,7 @@ from utils.helpers import (
     load_tokens,
 )
 
-from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges
+from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges, get_picture_description
 from utils.error_notifications import webhook_log
 from colorama import init, Fore, Style
 
@@ -747,16 +747,18 @@ def _is_picture_request(text: str) -> bool:
 
 
 def _get_random_picture() -> list | None:
-    """Returns list of (type, path) tuples from config/pictures folder."""
+    """Returns list of (type, path, description) tuples from config/pictures — only files with a stored description."""
     folder_path = resource_path("config/pictures")
     if not os.path.exists(folder_path):
         return None
     exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-    files = [
-        ("file", os.path.join(folder_path, f))
-        for f in os.listdir(folder_path)
-        if os.path.splitext(f)[1].lower() in exts
-    ]
+    files = []
+    for f in os.listdir(folder_path):
+        if os.path.splitext(f)[1].lower() not in exts:
+            continue
+        desc = get_picture_description(f)
+        if desc:
+            files.append(("file", os.path.join(folder_path, f), desc))
     return files if files else None
 
 
@@ -831,9 +833,13 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     pics_cfg = config["bot"].get("pictures") or {}
     if pics_cfg.get("enabled", True) and _is_picture_request(prompt) and _get_random_picture():
+        # Peek at one picture's description to give the AI context about what it's "sending"
+        _peek_pics = _get_random_picture()
+        _peek_desc = _peek_pics[0][2] if _peek_pics else ""
         enriched_instructions += (
             "\n\n[IMPORTANT: You are sending the user a photo of yourself right now as part of this reply. "
-            "React naturally like you just sent it — don't refuse, don't say you can't, don't act shy about it. "
+            + (f"The photo shows: {_peek_desc} " if _peek_desc else "")
+            + "React naturally like you just sent it — don't refuse, don't say you can't, don't act shy about it. "
             "Do NOT describe the photo, do NOT write any caption or attachment text, do NOT say what is in the picture. "
             "Just respond conversationally as a real person would after hitting send on a selfie.]"
         )
@@ -1026,7 +1032,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             if not available:
                 bot.sent_pictures[uid] = set()
                 available = all_pics
-            pic_type, pic_value = random.choice(available)
+            pic_type, pic_value, _pic_desc = random.choice(available)
             bot.sent_pictures.setdefault(uid, set()).add(pic_value)
             try:
                 if bot.realistic_typing:
