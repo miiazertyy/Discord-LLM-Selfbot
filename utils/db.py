@@ -46,6 +46,16 @@ def init_db():
 
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            user_id     INTEGER PRIMARY KEY,
+            bio         TEXT,
+            fetched_at  REAL    NOT NULL
+        )
+    """
+    )
+
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS unresponded_messages (
             user_id     INTEGER NOT NULL,
             channel_id  INTEGER NOT NULL,
@@ -251,6 +261,36 @@ def record_user_message(user_id: int, username: str):
             username = excluded.username
         """,
         (user_id, username, _time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# User profiles — persistent bio cache
+# ---------------------------------------------------------------------------
+
+def get_cached_profile(user_id: int) -> str | None:
+    """Return the cached bio for a user, or None if not found."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute("SELECT bio FROM user_profiles WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def set_cached_profile(user_id: int, bio: str | None):
+    """Store or update the cached bio for a user."""
+    import time as _time
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO user_profiles (user_id, bio, fetched_at)
+        VALUES (?, ?, ?)
+        """,
+        (user_id, bio, _time.time()),
     )
     conn.commit()
     conn.close()
