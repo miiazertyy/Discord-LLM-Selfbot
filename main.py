@@ -775,6 +775,19 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             f"Maintain this persona for the entirety of this conversation.]"
         )
 
+    # Tone: straight/casual in servers, emotional/personal in DMs and GCs
+    if isinstance(message.channel, discord.TextChannel):
+        enriched_instructions += (
+            "\n\n[CONTEXT: You are in a public server channel. Keep your tone straight, "
+            "casual and concise — no excessive emotions, no deep personal feelings, no vulnerability. "
+            "Talk like a normal person chatting in a group chat. Short replies are fine.]"
+        )
+    else:
+        enriched_instructions += (
+            "\n\n[CONTEXT: You are in a private DM. You can be more open, emotional and personal here. "
+            "Show genuine feelings, be warmer and more expressive than you would in a public server.]"
+        )
+
     # Detect the user's language using the LLM, looking at recent history to
     # catch gradual language drift rather than only the current message.
     try:
