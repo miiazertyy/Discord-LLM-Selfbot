@@ -93,14 +93,6 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 | `,pfp [url / attach]` | Change profile picture |
 | `,mood [name]` | View or set the current mood |
 
-### 🔊 Voice
-| Command | Description |
-|---|---|
-| `,join <channel_id>` | Join a voice channel |
-| `,leave` | Leave the current voice channel |
-| `,autojoin <channel_id>` | Set a voice channel to auto-join on startup |
-| `,autojoin off` | Disable auto-join |
-
 ### 🛠️ System
 | Command | Description |
 |---|---|
