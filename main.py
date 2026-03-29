@@ -525,13 +525,21 @@ async def on_socket_raw_receive(data):
         if payload.get("t") != "MESSAGE_CREATE":
             return
         d = payload.get("d", {})
+        msg_id = int(d["id"]) if d.get("id") else None
+        if not msg_id:
+            return
+
+        # Cache bot's own message IDs so replies to manual messages are detected
+        author_id = int(d.get("author", {}).get("id", 0))
+        if author_id and hasattr(bot, "selfbot_id") and author_id == bot.selfbot_id:
+            _raw_reply_cache[msg_id] = 0  # 0 = "this is a bot message"
+
+        # Cache reply references
         ref = d.get("message_reference")
-        if ref and d.get("id"):
-            msg_id = int(d["id"])
+        if ref:
             ref_id = int(ref.get("message_id", 0))
             if ref_id:
                 _raw_reply_cache[msg_id] = ref_id
-                # Trim cache
                 if len(_raw_reply_cache) > _RAW_REPLY_CACHE_MAX:
                     oldest = next(iter(_raw_reply_cache))
                     del _raw_reply_cache[oldest]
@@ -556,16 +564,23 @@ async def is_trigger_message(message):
     )
     replied_to = False
     if message.reference:
+        ref_id = message.reference.message_id
         ref_msg = message.reference.resolved
         if ref_msg is None or isinstance(ref_msg, discord.DeletedReferencedMessage):
-            ref_msg = bot._connection._get_message(message.reference.message_id)
+            ref_msg = bot._connection._get_message(ref_id)
         if ref_msg and ref_msg.author.id == bot.user.id:
+            replied_to = True
+        elif ref_id in _raw_reply_cache and _raw_reply_cache[ref_id] == 0:
+            # ref_id is cached as a bot-sent message (value 0 = bot's own message)
             replied_to = True
     elif message.id in _raw_reply_cache:
         ref_id = _raw_reply_cache[message.id]
-        ref_msg = bot._connection._get_message(ref_id)
-        if ref_msg and ref_msg.author.id == bot.user.id:
-            replied_to = True
+        if ref_id == 0:
+            replied_to = True  # replying to a bot message tracked via raw cache
+        else:
+            ref_msg = bot._connection._get_message(ref_id)
+            if ref_msg and ref_msg.author.id == bot.user.id:
+                replied_to = True
     is_dm = isinstance(message.channel, discord.DMChannel) and bot.allow_dm
     is_group_dm = isinstance(message.channel, discord.GroupChannel) and bot.allow_gc
 
