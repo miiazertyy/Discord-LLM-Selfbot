@@ -35,6 +35,17 @@ def init_db():
 
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS user_stats (
+            user_id       INTEGER PRIMARY KEY,
+            username      TEXT    NOT NULL DEFAULT '',
+            message_count INTEGER NOT NULL DEFAULT 0,
+            first_seen    REAL    NOT NULL
+        )
+    """
+    )
+
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS unresponded_messages (
             user_id     INTEGER NOT NULL,
             channel_id  INTEGER NOT NULL,
@@ -220,4 +231,48 @@ def clear_all_pictures_db():
     cursor.execute("DELETE FROM pictures")
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# User stats — leaderboard
+# ---------------------------------------------------------------------------
+
+def record_user_message(user_id: int, username: str):
+    """Increment message count for a user, inserting them if first time."""
+    import time as _time
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO user_stats (user_id, username, message_count, first_seen)
+        VALUES (?, ?, 1, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            message_count = message_count + 1,
+            username = excluded.username
+        """,
+        (user_id, username, _time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_leaderboard(limit: int = 50) -> list[dict]:
+    """Return top users sorted by message count descending."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT user_id, username, message_count, first_seen
+        FROM user_stats
+        ORDER BY message_count DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {"user_id": r[0], "username": r[1], "message_count": r[2], "first_seen": r[3]}
+        for r in rows
+    ]
 
