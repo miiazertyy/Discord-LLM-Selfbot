@@ -689,7 +689,7 @@ class Management(commands.Cog):
                 f"  error_webhook         {'set' if notif.get('error_webhook') else 'not set'}",
                 f"  ratelimit_notifications  {notif.get('ratelimit_notifications')}",
                 "```",
-                f"Use `,config <key> <value>` to edit. Example: `,config tts.voice diana`",
+                f"Use `,config <key> <value>` to edit. Examples: `,config tts.voice diana`  |  `,config error_webhook <url>`",
             ]
             await ctx.send("\n".join(lines), delete_after=60)
             return
@@ -723,11 +723,18 @@ class Management(commands.Cog):
             return node, final_key
 
         try:
-            # Try bot.* first; if the first segment matches a top-level key that
-            # isn't "bot", resolve from the config root instead (e.g. notifications.*).
+            # 1. Try bot.* first (most keys live here).
             result = _resolve_node(config["bot"], keys)
+            # 2. Try from the config root (e.g. notifications.error_webhook).
             if result is None:
                 result = _resolve_node(config, keys)
+            # 3. Bare key with no dots — search every top-level section so that
+            #    e.g. `error_webhook` works the same as `notifications.error_webhook`.
+            if result is None and len(keys) == 1:
+                for section in config.values():
+                    if isinstance(section, dict) and keys[0] in section:
+                        result = (section, keys[0])
+                        break
             if result is None:
                 await ctx.send(f"Key `{key}` not found.", delete_after=10)
                 return
