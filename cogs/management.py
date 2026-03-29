@@ -1106,43 +1106,60 @@ class Management(commands.Cog):
                 await ctx.send(f"Image `{name}` not found.", delete_after=10)
 
         elif action == "vision":
+            # Show what the image model sees for a stored picture
+            # Usage: ,image vision        -> picks a random stored image
+            #        ,image vision 2      -> inspects IMG_2
+            #        ,image vision IMG_2.jpg -> inspects by filename
             from utils.ai import _prepare_image_url, load_config as _load_cfg
             from utils.ai import _create_image_completion
+            import base64
 
-            image_url = None
-            if ctx.message.attachments:
-                image_url = ctx.message.attachments[0].url
-            if not image_url and ctx.message.reference:
-                ref = ctx.message.reference.resolved
-                if ref is None:
-                    try:
-                        ref = await ctx.channel.fetch_message(ctx.message.reference.message_id)
-                    except Exception:
-                        pass
-                if ref:
-                    if ref.attachments:
-                        image_url = ref.attachments[0].url
-                    if not image_url:
-                        for embed in ref.embeds:
-                            if embed.image and embed.image.url:
-                                image_url = embed.image.url
-                                break
-            if not image_url and name and name.startswith("http"):
-                image_url = name
-
-            if not image_url:
-                await ctx.send(
-                    "❌ No image found. Attach one, reply to a message with an image, or pass a URL: "
-                    "`,image vision https://...`",
-                    delete_after=15,
-                )
+            files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
+            if not files:
+                await ctx.send("❌ No images stored yet. Use `,image upload` first.", delete_after=15)
                 return
 
-            status = await ctx.send("🔍 Analysing image...", delete_after=30)
+            # Resolve which file to inspect
+            target_file = None
+            if not name:
+                import random as _random
+                target_file = _random.choice(files)
+            elif name.isdigit():
+                index = int(name)
+                matches = [f for f in files if os.path.splitext(f)[0] == f"IMG_{index}"]
+                if not matches:
+                    await ctx.send(f"❌ No image with number `{index}`. Use `,image ls` to see images.", delete_after=10)
+                    return
+                target_file = matches[0]
+            else:
+                if name in files:
+                    target_file = name
+                else:
+                    matches = [f for f in files if name.lower() in f.lower()]
+                    if len(matches) == 1:
+                        target_file = matches[0]
+                    elif len(matches) > 1:
+                        await ctx.send(f"Multiple matches: {', '.join(matches)}. Be more specific.", delete_after=15)
+                        return
+                    else:
+                        await ctx.send(f"❌ Image `{name}` not found.", delete_after=10)
+                        return
+
+            path = os.path.join(folder, target_file)
+            status = await ctx.send(f"🔍 Analysing `{target_file}`...", delete_after=30)
             try:
                 _cfg = _load_cfg()
                 _image_model = _cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
-                prepared = await _prepare_image_url(image_url)
+
+                # Read the file and encode as base64 so the model can see it directly
+                ext = os.path.splitext(target_file)[1].lower()
+                mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                            ".gif": "image/gif", ".webp": "image/webp"}
+                mime = mime_map.get(ext, "image/jpeg")
+                with open(path, "rb") as _f:
+                    b64 = base64.b64encode(_f.read()).decode()
+                data_url = f"data:{mime};base64,{b64}"
+
                 response = await _create_image_completion(
                     _image_model,
                     messages=[
@@ -1153,18 +1170,17 @@ class Management(commands.Cog):
                                     "type": "text",
                                     "text": (
                                         "Describe this image in full detail exactly as you see it. "
-                                        "Include all visible text, objects, people, colors, layout, and context. "
-                                        "This is a debug view of what you pass to the AI before it replies."
+                                        "Include all visible text, objects, people, colors, layout, and context."
                                     ),
                                 },
-                                {"type": "image_url", "image_url": {"url": prepared}},
+                                {"type": "image_url", "image_url": {"url": data_url}},
                             ],
                         }
                     ],
                 )
                 await status.delete()
                 description = response.choices[0].message.content.strip()
-                header = f"**🔍 What `{_image_model}` sees:**\n"
+                header = f"**🔍 `{target_file}` \u2014 what `{_image_model}` sees:**\n"
                 if len(header) + len(description) <= 1900:
                     await ctx.send(header + description, delete_after=120)
                 else:
@@ -1177,7 +1193,7 @@ class Management(commands.Cog):
                 await ctx.send(f"❌ Vision failed: `{e}`", delete_after=20)
 
         else:
-            await ctx.send("Usage: `,image ls` | `,image upload` | `,image download <n>` | `,image delete <n>` | `,image vision`", delete_after=15)
+            await ctx.send("Usage: `,image ls` | `,image upload` | `,image download <n>` | `,image delete <n>` | `,image vision [n]`", delete_after=15)
 
 
 async def setup(bot):
