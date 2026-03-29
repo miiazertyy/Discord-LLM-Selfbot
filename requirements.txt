@@ -9,3 +9,4 @@ requests
 groq
 openai
 PyNaCl
+Pillow
