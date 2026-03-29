@@ -188,12 +188,59 @@ async def generate_response(prompt, instructions, history=None):
         raise
 
 
+GROQ_IMAGE_SIZE_LIMIT = 20 * 1024 * 1024  # 20MB
+
+
+async def _prepare_image_url(image_url: str) -> str:
+    """Fetch the image, compress if over Groq's 20MB limit, return a usable URL or base64 data URL."""
+    import aiohttp
+    import io
+    import base64
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return image_url
+                data = await resp.read()
+
+        if len(data) <= GROQ_IMAGE_SIZE_LIMIT:
+            return image_url  # Fine as-is, use original URL
+
+        # Need to compress — use Pillow
+        try:
+            from PIL import Image
+        except ImportError:
+            return image_url  # Pillow not installed, fall back to original
+
+        img = Image.open(io.BytesIO(data))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        # Progressively reduce quality/size until under limit
+        for quality in (85, 70, 55, 40):
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            if buf.tell() <= GROQ_IMAGE_SIZE_LIMIT:
+                break
+            # If still too big, also halve the dimensions
+            img = img.resize((img.width // 2, img.height // 2), Image.LANCZOS)
+
+        buf.seek(0)
+        b64 = base64.b64encode(buf.read()).decode()
+        return f"data:image/jpeg;base64,{b64}"
+
+    except Exception:
+        return image_url  # Any failure — fall back to original URL
+
+
 async def generate_response_image(prompt, instructions, image_url, history=None):
     if not _groq_clients:
         init_ai()
     try:
         _cfg = load_config()
         _image_model = _cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
+        image_url = await _prepare_image_url(image_url)
         image_response = await _create_image_completion(
             _image_model,
             messages=[
