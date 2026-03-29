@@ -81,6 +81,7 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 |---|---|
 | `,image ls` | List all pictures |
 | `,image upload` | Upload picture(s) (attach file) |
+| `image vision` | outputs what the bot sees |
 | `,image download <n>` | Download a picture by number |
 | `,image delete <n>` | Delete a picture by number |
 | `,image delete all` | Delete all pictures |
