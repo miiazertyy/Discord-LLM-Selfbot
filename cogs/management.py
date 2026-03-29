@@ -710,17 +710,28 @@ class Management(commands.Cog):
                 return [item.strip() for item in v.split(",") if item.strip()]
             return v
 
-        try:
-            node = config["bot"]
-            for k in keys[:-1]:
-                if k not in node:
-                    await ctx.send(f"Key `{key}` not found.", delete_after=10)
-                    return
+        def _resolve_node(root, path_keys):
+            """Walk `root` along `path_keys[:-1]`, return (node, final_key) or None."""
+            node = root
+            for k in path_keys[:-1]:
+                if not isinstance(node, dict) or k not in node:
+                    return None
                 node = node[k]
-            final_key = keys[-1]
-            if final_key not in node:
+            final_key = path_keys[-1]
+            if not isinstance(node, dict) or final_key not in node:
+                return None
+            return node, final_key
+
+        try:
+            # Try bot.* first; if the first segment matches a top-level key that
+            # isn't "bot", resolve from the config root instead (e.g. notifications.*).
+            result = _resolve_node(config["bot"], keys)
+            if result is None:
+                result = _resolve_node(config, keys)
+            if result is None:
                 await ctx.send(f"Key `{key}` not found.", delete_after=10)
                 return
+            node, final_key = result
             old_val = node[final_key]
             node[final_key] = coerce(value, old_val)
             self.save_config(config)
