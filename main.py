@@ -1055,6 +1055,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             else:
                 await message.reply(chunk, mention_author=config["bot"]["reply_ping"])
 
+        except discord.Forbidden:
+            log_error("Reply Error", f"403 Forbidden — cannot send to {message.author.name}")
+            return None
         except Exception as e:
             log_error("Reply Error", str(e))
 
