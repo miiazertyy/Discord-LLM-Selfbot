@@ -55,7 +55,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history, detect_language, generate_nudge
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history, detect_language, generate_nudge, reset_client_index
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -934,7 +934,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
         except Exception as e:
             error_msg = str(e)
-            if "Rate limit reached" in error_msg:
+            if "Rate limit reached" in error_msg or "rate_limit_exceeded" in error_msg:
                 time_match = re.search(r"try again in (?:(\d+)m\s*)?(?:(\d+(?:\.\d+)?)s)?", error_msg)
                 if time_match:
                     minutes = int(time_match.group(1)) if time_match.group(1) else 0
@@ -944,6 +944,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     bot.paused = True
                     await asyncio.sleep(total_wait)
                     bot.paused = False
+                    reset_client_index()
                     continue
             log_error("AI Error", error_msg)
             if attempt == max_retries - 1:
