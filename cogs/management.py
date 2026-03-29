@@ -203,22 +203,23 @@ class Management(commands.Cog):
             try:
                 reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
             except asyncio.TimeoutError:
-                try:
-                    await msg.clear_reactions()
-                except Exception:
-                    pass
+                # Don't call clear_reactions — saves an API call, message expires via delete_after
                 break
 
+            new_page = current_page
             if str(reaction.emoji) == "▶" and current_page < total_pages - 1:
-                current_page += 1
+                new_page = current_page + 1
             elif str(reaction.emoji) == "◀" and current_page > 0:
-                current_page -= 1
+                new_page = current_page - 1
 
-            await msg.edit(content=build_page(current_page))
             try:
                 await msg.remove_reaction(reaction.emoji, user)
             except Exception:
                 pass
+
+            if new_page != current_page:
+                current_page = new_page
+                await msg.edit(content=build_page(current_page))
 
     @commands.command(name="toggleactive", description="Toggle active channels")
     async def toggleactive(self, ctx, channel=None):
@@ -475,11 +476,26 @@ class Management(commands.Cog):
             user_id, channel_id = key.split("-")
             if _is_server_channel(channel_id):
                 continue
+
+            # Try to get the actual last message id from the channel cache
+            last_message_id = None
+            try:
+                ch = self.bot.get_channel(int(channel_id))
+                if ch and hasattr(ch, '_state'):
+                    # Pull from internal message cache
+                    for cached_msg in reversed(list(ch._state._messages)):
+                        if str(cached_msg.author.id) == user_id:
+                            last_message_id = cached_msg.id
+                            break
+            except Exception:
+                pass
+
             pending[key] = {
                 "user_id": user_id,
                 "channel_id": channel_id,
                 "content": "\n".join(real_msgs),
                 "history": history,
+                "last_message_id": last_message_id,
             }
 
         # 2. Messages sitting in the queue (not yet responded to)
@@ -498,6 +514,7 @@ class Management(commands.Cog):
                     "channel_id": str(channel_id),
                     "content": msg.content,
                     "history": history,
+                    "last_message_id": msg.id,
                 }
 
         # 3. Messages in batch buffers (collected but not yet sent to AI)
@@ -509,6 +526,7 @@ class Management(commands.Cog):
             if not combined:
                 continue
             first_msg = msgs[0]
+            last_msg = msgs[-1]
             channel_id = first_msg.channel.id
             if _is_server_channel(channel_id):
                 continue
@@ -521,6 +539,7 @@ class Management(commands.Cog):
                 "channel_id": str(channel_id),
                 "content": combined,
                 "history": history,
+                "last_message_id": last_msg.id,
             }
 
         path = resource_path("config/pending_messages.json")
@@ -535,24 +554,57 @@ class Management(commands.Cog):
         target_channel = None
         recent_msgs = []
 
-        try:
-            dm = user.dm_channel or await user.create_dm()
-            async for msg in dm.history(limit=20):
-                if msg.author.id == user.id:
-                    recent_msgs.append(msg)
-                elif recent_msgs:
-                    break
-            if recent_msgs:
-                target_channel = dm
-        except Exception as e:
-            print(f"[Respond] DM error for {user.name}: {e}")
+        # --- Fast path: check in-memory message history first ---
+        # Find any key matching this user across all channels
+        matching_key = None
+        for key in self.bot.message_history:
+            if key.startswith(f"{user.id}-"):
+                matching_key = key
+                break
 
+        if matching_key:
+            channel_id = int(matching_key.split("-")[1])
+            try:
+                channel = self.bot.get_channel(channel_id)
+                if channel is None:
+                    # Could be a DM — try to get it from private channels
+                    channel = next((pc for pc in self.bot.private_channels if pc.id == channel_id), None)
+                if channel is None:
+                    channel = await user.create_dm()
+                # Fetch just the last message from this user directly
+                async for msg in channel.history(limit=5):
+                    if msg.author.id == user.id:
+                        recent_msgs.append(msg)
+                        break
+                if recent_msgs:
+                    target_channel = channel
+            except Exception as e:
+                print(f"[Respond] Fast-path channel error for {user.name}: {e}")
+
+        # --- Slow path: DM history scan (only if fast path missed) ---
         if not target_channel:
+            try:
+                dm = user.dm_channel or await user.create_dm()
+                async for msg in dm.history(limit=10):
+                    if msg.author.id == user.id:
+                        recent_msgs.append(msg)
+                    elif recent_msgs:
+                        break
+                if recent_msgs:
+                    target_channel = dm
+            except Exception as e:
+                print(f"[Respond] DM error for {user.name}: {e}")
+
+        # --- Fallback: scan active channels (limited to 3 to cap API calls) ---
+        if not target_channel:
+            checked = 0
             for channel_id in self.bot.active_channels:
+                if checked >= 3:
+                    break
                 try:
                     channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
                     msgs = []
-                    async for msg in channel.history(limit=50):
+                    async for msg in channel.history(limit=20):
                         if msg.author.id == user.id:
                             msgs.append(msg)
                         elif msgs:
@@ -561,6 +613,7 @@ class Management(commands.Cog):
                         recent_msgs = msgs
                         target_channel = channel
                         break
+                    checked += 1
                 except Exception as e:
                     print(f"[Respond] Channel error: {e}")
                     continue
@@ -1100,18 +1153,26 @@ class Management(commands.Cog):
                 try:
                     reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
                 except asyncio.TimeoutError:
-                    try:
-                        await msg.clear_reactions()
-                    except Exception:
-                        pass
+                    # Don't call clear_reactions — saves an API call, message will expire via delete_after
                     break
 
+                new_page = current
                 if str(reaction.emoji) == "\u25b6" and current < total - 1:
-                    current += 1
+                    new_page = current + 1
                 elif str(reaction.emoji) == "\u25c0" and current > 0:
-                    current -= 1
+                    new_page = current - 1
 
+                if new_page == current:
+                    # Same page — just remove the reaction, no resend needed
+                    try:
+                        await msg.remove_reaction(reaction.emoji, user)
+                    except Exception:
+                        pass
+                    continue
+
+                current = new_page
                 caption, fpath = build_image_page(current)
+                # delete+resend is unavoidable since Discord won't let us edit file attachments
                 try:
                     await msg.delete()
                 except Exception:
