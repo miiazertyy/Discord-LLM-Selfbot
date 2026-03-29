@@ -78,7 +78,7 @@ TRIGGER = config["bot"]["trigger"].lower().split(",")
 DISABLE_MENTIONS = config["bot"]["disable_mentions"]
 PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
-SPAM_MESSAGE_THRESHOLD = 5
+SPAM_MESSAGE_THRESHOLD = 15
 SPAM_TIME_WINDOW = 10.0
 COOLDOWN_DURATION = 60.0
 MAX_HISTORY = 15
