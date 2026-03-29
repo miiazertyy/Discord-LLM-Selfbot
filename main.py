@@ -561,14 +561,11 @@ async def is_trigger_message(message):
             ref_msg = bot._connection._get_message(message.reference.message_id)
         if ref_msg and ref_msg.author.id == bot.user.id:
             replied_to = True
-        if isinstance(message.channel, discord.TextChannel):
     elif message.id in _raw_reply_cache:
         ref_id = _raw_reply_cache[message.id]
         ref_msg = bot._connection._get_message(ref_id)
         if ref_msg and ref_msg.author.id == bot.user.id:
             replied_to = True
-    else:
-        if isinstance(message.channel, discord.TextChannel):
     is_dm = isinstance(message.channel, discord.DMChannel) and bot.allow_dm
     is_group_dm = isinstance(message.channel, discord.GroupChannel) and bot.allow_gc
 
