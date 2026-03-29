@@ -577,6 +577,8 @@ def update_message_history(author_id, message_content):
     bot.message_history[author_id] = bot.message_history[author_id][-MAX_HISTORY:]
 
 
+_profile_cache: dict = {}  # user_id -> bio string, cached forever per session
+
 async def _get_user_profile_block(user) -> str:
     """Fetch Discord profile info (status, bio, display name) and return as a context block."""
     parts = []
@@ -594,12 +596,20 @@ async def _get_user_profile_block(user) -> str:
                     parts.append(f"status: {activity.name}")
                     break
 
-        try:
-            profile = await user.profile()
-            if profile and getattr(profile, 'bio', None):
-                parts.append(f"bio: {profile.bio}")
-        except Exception:
-            pass
+        # Cache bio per user — only fetch once per session
+        if user.id in _profile_cache:
+            bio = _profile_cache[user.id]
+        else:
+            bio = None
+            try:
+                profile = await user.profile()
+                bio = getattr(profile, 'bio', None) or None
+            except Exception:
+                pass
+            _profile_cache[user.id] = bio
+
+        if bio:
+            parts.append(f"bio: {bio}")
 
     except Exception:
         pass
