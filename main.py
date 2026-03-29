@@ -19,7 +19,7 @@ from utils.helpers import (
     load_tokens,
 )
 
-from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges, get_picture_description
+from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges, get_picture_description, record_user_message
 from utils.error_notifications import webhook_log
 from colorama import init, Fore, Style
 
@@ -1313,6 +1313,7 @@ async def process_message_queue(channel_id):
             response = await generate_response_and_reply(message_to_reply_to, combined_content, history, image_url, wait_time=(wait_time + message_age))
             if response:
                 bot.message_history[key].append({"role": "assistant", "content": response})
+                record_user_message(message_to_reply_to.author.id, message_to_reply_to.author.name)
                 # Clear the nudge tracking entry — we've replied
                 nudge_cfg = config["bot"].get("nudge") or {}
                 if nudge_cfg.get("enabled", False) and isinstance(message_to_reply_to.channel, discord.DMChannel):
