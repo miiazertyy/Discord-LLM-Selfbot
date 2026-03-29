@@ -544,7 +544,7 @@ def should_ignore_message(message):
         message.author.id in bot.ignore_users
         or message.author.id == bot.selfbot_id
         or message.author.bot
-        or message.type != discord.MessageType.default
+        or message.type not in (discord.MessageType.default, discord.MessageType.reply)
     )
 
 
