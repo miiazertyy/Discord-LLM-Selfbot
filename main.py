@@ -562,16 +562,13 @@ async def is_trigger_message(message):
         if ref_msg and ref_msg.author.id == bot.user.id:
             replied_to = True
         if isinstance(message.channel, discord.TextChannel):
-            log_system(f"[reply-debug] ref author={getattr(ref_msg, 'author', None) and ref_msg.author.id} bot={bot.user.id} replied_to={replied_to}")
     elif message.id in _raw_reply_cache:
         ref_id = _raw_reply_cache[message.id]
         ref_msg = bot._connection._get_message(ref_id)
         if ref_msg and ref_msg.author.id == bot.user.id:
             replied_to = True
-            log_system(f"[reply-debug] caught via raw cache from {message.author.name}: replied_to=True")
     else:
         if isinstance(message.channel, discord.TextChannel):
-            log_system(f"[reply-debug] server msg from {message.author.name} — no reference, mentioned={mentioned}")
     is_dm = isinstance(message.channel, discord.DMChannel) and bot.allow_dm
     is_group_dm = isinstance(message.channel, discord.GroupChannel) and bot.allow_gc
 
@@ -1145,7 +1142,6 @@ async def on_message(message):
     is_followup = batch_key in bot.user_message_batches and not is_server_channel
     is_trigger = await is_trigger_message(message)
     if isinstance(message.channel, discord.TextChannel):
-        log_system(f"[reply-debug] server msg from {message.author.name}: is_trigger={is_trigger} allow_server={getattr(bot, 'allow_server', True)}")
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
         if random.random() < IGNORE_CHANCE and not message.content.startswith(PREFIX) and not message.content.startswith(PRIORITY_PREFIX):
