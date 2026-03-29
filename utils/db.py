@@ -26,14 +26,6 @@ def init_db():
 
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS paused_users (
-            id INTEGER PRIMARY KEY
-        )
-    """
-    )
-
-    cursor.execute(
-        """
         CREATE TABLE IF NOT EXISTS pictures (
             filename    TEXT PRIMARY KEY,
             description TEXT NOT NULL DEFAULT ''
@@ -174,31 +166,6 @@ def get_ignored_users():
     return users
 
 
-def add_paused_user(user_id):
-    conn = sqlite3.connect(resource_path(db_path))
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR IGNORE INTO paused_users (id) VALUES (?)", (user_id,))
-    conn.commit()
-    conn.close()
-
-
-def remove_paused_user(user_id):
-    conn = sqlite3.connect(resource_path(db_path))
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM paused_users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-
-
-def get_paused_users():
-    conn = sqlite3.connect(resource_path(db_path))
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM paused_users")
-    users = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    return users
-
-
 # ---------------------------------------------------------------------------
 # Pictures — description cache
 # ---------------------------------------------------------------------------
@@ -254,12 +221,3 @@ def clear_all_pictures_db():
     conn.commit()
     conn.close()
 
-
-def get_all_picture_descriptions() -> dict[str, str]:
-    """Return a {filename: description} dict for every stored picture."""
-    conn = sqlite3.connect(resource_path(db_path))
-    cursor = conn.cursor()
-    cursor.execute("SELECT filename, description FROM pictures")
-    rows = cursor.fetchall()
-    conn.close()
-    return {r[0]: r[1] for r in rows}
