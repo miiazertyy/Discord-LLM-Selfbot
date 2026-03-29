@@ -543,6 +543,10 @@ def is_trigger_message(message):
 
     is_server = isinstance(message.channel, discord.TextChannel)
 
+    if is_server and not getattr(bot, "allow_server", True):
+        mentioned = False
+        replied_to = False
+
     content_has_trigger = (
         not is_server and any(
             re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
