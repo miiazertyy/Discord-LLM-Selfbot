@@ -1138,7 +1138,6 @@ async def on_message(message):
     is_server_channel = isinstance(message.channel, discord.TextChannel)
     is_followup = batch_key in bot.user_message_batches and not is_server_channel
     is_trigger = await is_trigger_message(message)
-    if isinstance(message.channel, discord.TextChannel):
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
         if random.random() < IGNORE_CHANCE and not message.content.startswith(PREFIX) and not message.content.startswith(PRIORITY_PREFIX):
