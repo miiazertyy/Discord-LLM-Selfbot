@@ -1105,8 +1105,79 @@ class Management(commands.Cog):
             else:
                 await ctx.send(f"Image `{name}` not found.", delete_after=10)
 
+        elif action == "vision":
+            from utils.ai import _prepare_image_url, load_config as _load_cfg
+            from utils.ai import _create_image_completion
+
+            image_url = None
+            if ctx.message.attachments:
+                image_url = ctx.message.attachments[0].url
+            if not image_url and ctx.message.reference:
+                ref = ctx.message.reference.resolved
+                if ref is None:
+                    try:
+                        ref = await ctx.channel.fetch_message(ctx.message.reference.message_id)
+                    except Exception:
+                        pass
+                if ref:
+                    if ref.attachments:
+                        image_url = ref.attachments[0].url
+                    if not image_url:
+                        for embed in ref.embeds:
+                            if embed.image and embed.image.url:
+                                image_url = embed.image.url
+                                break
+            if not image_url and name and name.startswith("http"):
+                image_url = name
+
+            if not image_url:
+                await ctx.send(
+                    "❌ No image found. Attach one, reply to a message with an image, or pass a URL: "
+                    "`,image vision https://...`",
+                    delete_after=15,
+                )
+                return
+
+            status = await ctx.send("🔍 Analysing image...", delete_after=30)
+            try:
+                _cfg = _load_cfg()
+                _image_model = _cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
+                prepared = await _prepare_image_url(image_url)
+                response = await _create_image_completion(
+                    _image_model,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Describe this image in full detail exactly as you see it. "
+                                        "Include all visible text, objects, people, colors, layout, and context. "
+                                        "This is a debug view of what you pass to the AI before it replies."
+                                    ),
+                                },
+                                {"type": "image_url", "image_url": {"url": prepared}},
+                            ],
+                        }
+                    ],
+                )
+                await status.delete()
+                description = response.choices[0].message.content.strip()
+                header = f"**🔍 What `{_image_model}` sees:**\n"
+                if len(header) + len(description) <= 1900:
+                    await ctx.send(header + description, delete_after=120)
+                else:
+                    chunks = [description[i:i+1900] for i in range(0, len(description), 1900)]
+                    for i, chunk in enumerate(chunks):
+                        await ctx.send((header if i == 0 else "") + chunk, delete_after=120)
+            except Exception as e:
+                await status.delete()
+                log_error("Vision Command", str(e))
+                await ctx.send(f"❌ Vision failed: `{e}`", delete_after=20)
+
         else:
-            await ctx.send("Usage: `,image ls` | `,image upload` | `,image download <name>` | `,image delete <name>`", delete_after=15)
+            await ctx.send("Usage: `,image ls` | `,image upload` | `,image download <n>` | `,image delete <n>` | `,image vision`", delete_after=15)
 
 
 async def setup(bot):
