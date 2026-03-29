@@ -8,7 +8,9 @@ from utils.session import build_session
 
 def _wav_to_ogg_opus(wav_bytes: bytes) -> tuple:
     """Convert WAV bytes to OGG Opus, returns (ogg_bytes, duration_secs)."""
-    import subprocess, json
+    import subprocess, json, shutil
+    if not shutil.which("ffmpeg"):
+        raise Exception("ffmpeg not found — install it or add it to PATH")
 
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-f", "wav", "-i", "pipe:0"],
