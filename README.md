@@ -110,6 +110,7 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 | `,update` | Update to the latest stable release |
 | `,update main` | Update to the latest commit |
 | `,getdb` | Download the memory database |
+| `,leaderboard` | Show top users by message count |
 | `,ping` | Show latency |
 
 ---
