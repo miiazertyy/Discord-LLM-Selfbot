@@ -1010,7 +1010,15 @@ class Management(commands.Cog):
             status_msg = await ctx.send("⏳ Saving image(s)...", delete_after=30)
 
             existing = [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts]
-            next_index = len(existing) + 1
+            # Find the next unused index to avoid duplicates after deletions
+            used_indices = set()
+            for f in existing:
+                stem = os.path.splitext(f)[0]
+                if stem.startswith("IMG_") and stem[4:].isdigit():
+                    used_indices.add(int(stem[4:]))
+            next_index = 1
+            while next_index in used_indices:
+                next_index += 1
 
             for att in ctx.message.attachments:
                 ext = os.path.splitext(att.filename)[1].lower()
@@ -1035,25 +1043,51 @@ class Management(commands.Cog):
 
         elif action == "download":
             if not name:
-                await ctx.send("Provide a filename. Use `,image ls` to see available images.", delete_after=10)
+                await ctx.send("Provide a number or filename. Use `,image ls` to see images.", delete_after=10)
                 return
+            files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
+            # Accept just a number like "3" → IMG_3.jpg
+            if name.isdigit():
+                index = int(name)
+                matches = [f for f in files if os.path.splitext(f)[0] == f"IMG_{index}"]
+                if not matches:
+                    await ctx.send(f"No image with number `{index}` found. Use `,image ls` to see images.", delete_after=10)
+                    return
+                name = matches[0]
             path = os.path.join(folder, name)
             if not os.path.exists(path):
                 # Try partial match
-                files = [f for f in os.listdir(folder) if name.lower() in f.lower()]
-                if len(files) == 1:
-                    path = os.path.join(folder, files[0])
-                elif len(files) > 1:
-                    await ctx.send(f"Multiple matches: {', '.join(files)}. Be more specific.", delete_after=15)
+                matches = [f for f in files if name.lower() in f.lower()]
+                if len(matches) == 1:
+                    path = os.path.join(folder, matches[0])
+                elif len(matches) > 1:
+                    await ctx.send(f"Multiple matches: {', '.join(matches)}. Be more specific.", delete_after=15)
                     return
                 else:
                     await ctx.send(f"Image `{name}` not found.", delete_after=10)
                     return
             await ctx.send(file=discord.File(path), delete_after=60)
 
-        elif action == "delete":
+        elif action in ("delete", "remove"):
             if not name:
-                await ctx.send("Provide a filename to delete.", delete_after=10)
+                await ctx.send("Provide a number or filename to delete. Use `,image ls` to see images.", delete_after=10)
+                return
+            files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
+            # Accept just a number like "3" → IMG_3.jpg
+            if name.isdigit():
+                index = int(name)
+                matches = [f for f in files if os.path.splitext(f)[0] == f"IMG_{index}"]
+                if not matches:
+                    await ctx.send(f"No image with number `{index}` found. Use `,image ls` to see images.", delete_after=10)
+                    return
+                name = matches[0]
+            elif name.lower() == "all":
+                if not files:
+                    await ctx.send("No images to delete.", delete_after=10)
+                    return
+                for f in files:
+                    os.remove(os.path.join(folder, f))
+                await ctx.send(f"Deleted all {len(files)} image(s).", delete_after=10)
                 return
             path = os.path.join(folder, name)
             if os.path.exists(path):
