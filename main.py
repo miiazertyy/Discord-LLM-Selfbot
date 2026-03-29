@@ -519,17 +519,22 @@ def should_ignore_message(message):
     )
 
 
-def is_trigger_message(message):
+async def is_trigger_message(message):
     mentioned = (
         bot.user.mentioned_in(message)
         and "@everyone" not in message.content
         and "@here" not in message.content
     )
-    replied_to = (
-        message.reference
-        and message.reference.resolved
-        and message.reference.resolved.author.id == bot.user.id
-    )
+    replied_to = False
+    if message.reference:
+        ref_msg = message.reference.resolved
+        if ref_msg is None:
+            try:
+                ref_msg = await message.channel.fetch_message(message.reference.message_id)
+            except Exception:
+                ref_msg = None
+        if ref_msg and ref_msg.author.id == bot.user.id:
+            replied_to = True
     is_dm = isinstance(message.channel, discord.DMChannel) and bot.allow_dm
     is_group_dm = isinstance(message.channel, discord.GroupChannel) and bot.allow_gc
 
@@ -1101,7 +1106,7 @@ async def on_message(message):
     batch_key = f"{user_id}-{channel_id}"
     is_server_channel = isinstance(message.channel, discord.TextChannel)
     is_followup = batch_key in bot.user_message_batches and not is_server_channel
-    is_trigger = is_trigger_message(message)
+    is_trigger = await is_trigger_message(message)
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
         if random.random() < IGNORE_CHANCE and not message.content.startswith(PREFIX) and not message.content.startswith(PRIORITY_PREFIX):
