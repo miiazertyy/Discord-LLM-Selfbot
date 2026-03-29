@@ -64,7 +64,6 @@ class General(commands.Cog):
             "  🖼️   Images",
             f"  {p}image ls                 list all pictures",
             f"  {p}image upload             upload picture(s) (attach file)",
-            f"  {p}image vision             outputs what the bot sees",
             f"  {p}image download <n>       download a picture by number",
             f"  {p}image delete <n>         delete a picture by number",
             f"  {p}image delete all         delete all pictures",
