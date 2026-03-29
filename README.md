@@ -9,7 +9,7 @@ Made with python, uses Groq LLM provider **ALL FOR FREE**
 ### **❗ Important:**  
 *I take no responsibility for any actions taken against your account for using these selfbots or how users use my open-source code.*
 
-<strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned in _very_ rare cases.</strong>
+<strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned.</strong>
 
 Preview :
 <img width="1623" height="645" alt="SOLbKIc" src="https://github.com/user-attachments/assets/6b75131f-716c-448c-97ed-5275241cb8ef" />
