@@ -1,154 +1,166 @@
 # 🌙 Discord LLM Selfbot
 
-Made with python, uses Groq LLM provider **ALL FOR FREE**
+A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 
-### JOIN IF YOU NEED HELP : https://discord.gg/connard
+> **Need help?** Join the Discord: https://discord.gg/connard
 
-> There is always the slight risk of a ban when using selfbots, so make sure to use this selfbot on an account you don't mind losing, but the risk is incredibly low and I have used it for over a year without any issues.
+---
 
-### **❗ Important:**  
-*I take no responsibility for any actions taken against your account for using these selfbots or how users use my open-source code.*
+> ⚠️ **Disclaimer**
+> Using this on a user account violates [Discord's Terms of Service](https://discord.com/terms) and may result in your account being banned. Only use this on an account you're willing to lose. I take no responsibility for any actions taken against your account.
 
-<strong>Using this on a user account is prohibited by the [Discord TOS](https://discord.com/terms) and can lead to your account getting banned.</strong>
+---
 
-Preview :
-<img width="1623" height="645" alt="SOLbKIc" src="https://github.com/user-attachments/assets/6b75131f-716c-448c-97ed-5275241cb8ef" />
+## ☮️ Features
 
+- Fully customizable personality via `instructions.txt`
+- Responds in the same language as the user automatically
+- Realistic typing speed with variable pauses and occasional typos
+- Batches multiple messages before responding, just like a real person
+- Weighted random reply delays — quick, distracted, or away
+- Mood system that shifts automatically and affects how the AI writes
+- Per-user persistent memory — remembers names, hobbies, and personal facts
+- Reads the user's Discord profile (display name, status, bio) and uses it in responses
+- Sees images, embedded links (imgur, tenor, giphy, etc.), and voice messages
+- Sends real Discord voice message bubbles using Groq Orpheus TTS
+- Transcribes incoming voice messages via Groq Whisper and responds to them
+- Multiple Groq API keys + models with automatic fallback when rate limited
+- Responds to trigger words, mentions, and replies — server-aware
+- Holds conversations naturally in DMs and group chats
+- Auto-accepts friend requests with a configurable delay
+- Late reply openers when responding after a long pause
+- Anti-spam cooldown per user
+- Random status cycling on a configurable schedule
+- All credentials stored securely in `.env`
+- Everything configurable in `config.yaml` — editable live from Discord
 
+---
 
+## 📋 Commands
 
-# ☮️ Features
+> Prefix: `,` by default (configurable)
 
-- [x] Fully customizable personality via `instructions.txt`
-- [x] Responds in the same language as the user automatically
-- [x] Realistic typing speed with variable pauses and occasional typos
-- [x] Batches multiple messages before responding, just like a real person
-- [x] Weighted random reply delays — quick, distracted, or away
-- [x] Mood system that shifts automatically and affects how the AI writes
-- [x] Per-user persistent memory — remembers names, hobbies, and personal facts across conversations
-- [x] Reads the user's Discord profile (display name, status, bio) and factors it into responses
-- [x] Supports images, voice messages, and stickers. All that supports viewing and sending
-- [x] Sends real Discord voice message bubbles using Groq Orpheus TTS
-- [x] Transcribes incoming voice messages using Groq Whisper and responds to them
-- [x] Multiple Groq models with automatic fallback when rate limited
-- [x] Responds to trigger words, mentions, and replies — server-aware
-- [x] Holds conversations naturally in DMs and group chats
-- [x] Auto-accepts friend requests with a configurable delay
-- [x] Late reply openers when responding after a long pause
-- [x] Anti-spam cooldown per user
-- [x] Random status cycling on a configurable schedule
-- [x] Secure credential storage via `.env`
-- [x] Everything configurable in `config.yaml` with live editing from Discord
+### 🤖 AI
+| Command | Description |
+|---|---|
+| `,pause` | Pause / unpause AI responses |
+| `,pauseuser <user>` | Stop responding to a specific user |
+| `,unpauseuser <user>` | Resume responding to a user |
+| `,persona <user> [text]` | Set, clear, or view a per-user persona |
+| `,wipe` | Clear conversation history |
+| `,analyse <user>` | Generate a psychological read of a user |
 
-##  📋 Commands
+### 💬 Replies
+| Command | Description |
+|---|---|
+| `,reply <user>` | Manually trigger a reply to a user's last message |
+| `,reply check` | Show users with unread messages |
+| `= [hint]` | Priority reply — instantly respond in any channel |
 
-###  🤖  AI
-    ,pause              pause/unpause AI responses
-    ,pauseuser [user]   pause responses for a specific user
-    ,unpauseuser [user] resume responses for a specific user
-    ,persona [user]     set/clear/show a per-user persona
-    ,wipe               clear conversation history
-    ,reply [user]       manually reply to a user's last message
-    ,reply check        checks for unresponded users
-    ,analyse [user]     psychological profile of a user
+### ⚙️ Instructions & Config
+| Command | Description |
+|---|---|
+| `,prompt [text]` | View, set, or clear instructions inline |
+| `,instructions` | Upload a new `instructions.txt` (attach file) |
+| `,getinstructions` | Download the current `instructions.txt` |
+| `,config` | View and edit config inline |
+| `,getconfig` | Download the current `config.yaml` |
+| `,setconfig` | Upload a new `config.yaml` (attach file) |
 
-###  ⚙️   Config
-    ,config             view/edit config inline
-    ,getconfig          download config.yaml
-    ,setconfig          upload a new config.yaml
-    ,instructions       upload new instructions.txt
-    ,getinstructions    download instructions.txt
-    ,prompt [text]      view/set/clear instructions inline
+### 📡 Channels
+| Command | Description |
+|---|---|
+| `,toggleactive` | Toggle the current channel as active |
+| `,toggledm` | Toggle DM responses |
+| `,togglegc` | Toggle group chat responses |
+| `,toggleserver` | Toggle server mention/reply responses |
+| `,ignore <user>` | Ignore / unignore a user |
 
-###  📡  Channels
-    ,toggleactive       toggle current channel
-    ,toggledm           toggle DM responses
-    ,togglegc           toggle group chat responses
-    ,toggleserver       toggle server responses
-    ,ignore [user]      ignore/unignore a user
+### 🖼️ Images
+| Command | Description |
+|---|---|
+| `,image ls` | List all pictures |
+| `,image upload` | Upload picture(s) (attach file) |
+| `,image download <n>` | Download a picture by number |
+| `,image delete <n>` | Delete a picture by number |
+| `,image delete all` | Delete all pictures |
 
-###  🛠️   System
-    ,update             update to latest release
-    ,update main        update to latest commit
-    ,reload             reload all cogs + instructions
-    ,restart            restart the bot
-    ,shutdown           shut down the bot
-    ,ping               show latency
-    ,getdb              download memory database
-    ,image ls           list bot pictures
-    ,image upload       upload a picture (attach file)
-    ,image download [n]  download a picture from folder
-    ,status [emoji] [text]  set custom status
-    ,bio [text]         set profile bio
-    ,pfp [url/attach]   change profile picture
-    ,mood [name]        view or set current mood
+### 🎭 Profile & Status
+| Command | Description |
+|---|---|
+| `,status [emoji] [text]` | Set a custom status |
+| `,bio [text]` | Set profile bio |
+| `,pfp [url / attach]` | Change profile picture |
+| `,mood [name]` | View or set the current mood |
 
-### Step 1: Download the Selfbot
-- Go to Release and download the lastest stable version
+### 🔊 Voice
+| Command | Description |
+|---|---|
+| `,join <channel_id>` | Join a voice channel |
+| `,leave` | Leave the current voice channel |
+| `,autojoin <channel_id>` | Set a voice channel to auto-join on startup |
+| `,autojoin off` | Disable auto-join |
 
-### Step 2: Extract the files
-- Extract the files to a folder of your choice, using 7Zip or Windows Explorer.
+### 🛠️ System
+| Command | Description |
+|---|---|
+| `,reload` | Reload all cogs and instructions |
+| `,restart` | Restart the bot |
+| `,shutdown` | Shut down the bot |
+| `,update` | Update to the latest stable release |
+| `,update main` | Update to the latest commit |
+| `,getdb` | Download the memory database |
+| `,ping` | Show latency |
 
-# 🛠️ Setting up the bot manually:
+---
 
-### Step 1: Git clone repository
+## 🚀 Setup
 
-```
+### Step 1 — Clone the repository
+```bash
 git clone https://github.com/miiazertyy/Discord-LLM-Selfbot
-```
-
-### Step 2: Changing directory to cloned directory
-
-```
 cd Discord-LLM-Selfbot
 ```
 
-### Step 3: Getting your Discord token
+### Step 2 — Get your Discord token
+1. Open [Discord](https://discord.com) in your browser and log in
+2. Press `Ctrl+Shift+I` (Windows) or `Cmd+Opt+I` (Mac) to open DevTools
+3. Go to the **Network** tab
+4. Send a message or switch server
+5. Find a request named `messages?limit=50`, `science`, or `preview`
+6. Scroll to **Request Headers** and copy the `Authorization` value — that's your token
 
--   Go to [Discord](https://discord.com) and login to the account you want the token of
--   Press `Ctrl + Shift + I` (If you are on Windows) or `Cmd + Opt + I` (If you are on a Mac).
--   Go to the `Network` tab
--   Type a message in any chat, or change server
--   Find one of the following headers: `"messages?limit=50"`, `"science"` or `"preview"` under `"Name"` and click on it
--   Scroll down until you find `"Authorization"` under `"Request Headers"`
--   Copy the value which is your token
+### Step 3 — Get a Groq API key
+1. Sign up at [console.groq.com](https://console.groq.com/keys)
+2. Create a free API key (looks like `gsk_...`)
 
-### Step 4: Getting a Groq API key
+### Step 4 — Configure credentials
+- Rename `example.env` to `.env`
+- Fill in your Discord token and Groq API key
 
--   Go to [Groq](https://console.groq.com/keys) and sign up for a free account
--   Get your API key, which should look like `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` (this is an example key, it isn't real)
+### Step 5 — Run the bot
 
-### Step 5: Install all the dependencies and run the bot
+**Windows:**
+```
+run.bat
+```
+Or manually:
+```bash
+python -m venv bot-env
+bot-env\Scripts\activate.bat
+pip install -r requirements.txt
+python main.py
+```
 
-Windows:
+**Linux:**
+```bash
+sudo apt install python3 ffmpeg -y
+chmod +x run.sh updater.sh
+./run.sh
+```
 
--   Simply open `run.bat` if you're on Windows. This will install all pre-requisites, guide you through the process of setting up the bot and run it for you.
--   
--   If `run.bat` doesn't work, then open CMD and run `cd Discord-AI-Selfbot` to change directory to the bot files directory
--   Create a virtual environment by running `python -m venv bot-env`
--   Activate the virtual environment by running `bot-env\Scripts\activate.bat`
--   Run `pip install -r requirements.txt` to install all the dependencies
--   Fill out `example.env` with your own credentials and rename it to `.env`
--   Use the config command to fill out the `config.yaml` with your own settings
--   Run the bot using `python3 main.py`
+---
 
-Linux:
+## 💭 Customizing the Personality
 
--   Fill out `example.env` with your own credentials and rename it to `.env`
--   Use the config command to fill out the `config.yaml` with your own settings
--   In terminal :
-  sudo apt install python3
-  sudo apt install ffmpeg -y
-  chmod +x run.sh
-  chmod +x updater.sh
--   Run the bot using `./run.sh`
-
-# 🗨️ How to use the bot
-
--   Use the help command in chat to get all the commands
--   To activate it in a channel use **~toggleactive channelid** (channelid is optional).
--   To see all commands use **(prefix)help**
--   You can also set a trigger word within the `config.yaml` or with the ,config trigger command, this is the word that the bot will respond to.
-# 💭 Changing the Personality of the bot
-
-To change the personality of the bot and set custom instructions, simply go into the `config` folder and edit the default instructions in `instructions.txt` to whatever you want! 
+Edit `config/instructions.txt` to set the bot's personality, tone, and behavior. You can also update it live from Discord using `,instructions` (attach a `.txt` file) or `,prompt <text>`.
