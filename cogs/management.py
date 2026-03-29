@@ -22,6 +22,7 @@ from utils.db import (
     delete_picture_db,
     rename_picture_db,
     clear_all_pictures_db,
+    get_leaderboard,
 )
 from utils.memory import set_persona, clear_persona, get_persona
 
@@ -153,6 +154,71 @@ class Management(commands.Cog):
                     await ctx.send(f"Ignoring {user.name}.")
         except Exception as e:
             await ctx.send(f"Error: {e}")
+
+    @commands.command(name="leaderboard", aliases=["lb", "top"], description="Show the users who've talked to the bot the most.")
+    async def leaderboard(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        rows = get_leaderboard(limit=50)
+        if not rows:
+            await ctx.send("No conversations recorded yet.", delete_after=15)
+            return
+
+        from datetime import datetime
+
+        PER_PAGE = 5
+        medals = ["🥇", "🥈", "🥉"]
+        total_pages = (len(rows) + PER_PAGE - 1) // PER_PAGE
+
+        def build_page(page: int) -> str:
+            start = page * PER_PAGE
+            chunk = rows[start:start + PER_PAGE]
+            lines = [f"**📊 Top conversations** — page {page + 1}/{total_pages}\n"]
+            for i, row in enumerate(chunk):
+                rank_n = start + i
+                rank = medals[rank_n] if rank_n < 3 else f"`#{rank_n + 1}`"
+                first_seen = datetime.fromtimestamp(row["first_seen"]).strftime("%d %b %Y")
+                lines.append(f"{rank} **{row['username']}** — {row['message_count']} msgs · since {first_seen}")
+            return "\n".join(lines)
+
+        current_page = 0
+        msg = await ctx.send(build_page(current_page), delete_after=120)
+
+        if total_pages == 1:
+            return
+
+        await msg.add_reaction("◀")
+        await msg.add_reaction("▶")
+
+        def check(reaction, user):
+            return (
+                user.id == self.bot.owner_id
+                and str(reaction.emoji) in ("◀", "▶")
+                and reaction.message.id == msg.id
+            )
+
+        import asyncio
+        while True:
+            try:
+                reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
+            except asyncio.TimeoutError:
+                try:
+                    await msg.clear_reactions()
+                except Exception:
+                    pass
+                break
+
+            if str(reaction.emoji) == "▶" and current_page < total_pages - 1:
+                current_page += 1
+            elif str(reaction.emoji) == "◀" and current_page > 0:
+                current_page -= 1
+
+            await msg.edit(content=build_page(current_page))
+            try:
+                await msg.remove_reaction(reaction.emoji, user)
+            except Exception:
+                pass
 
     @commands.command(name="toggleactive", description="Toggle active channels")
     async def toggleactive(self, ctx, channel=None):
@@ -999,15 +1065,63 @@ class Management(commands.Cog):
             if not files:
                 await ctx.send("No images in the folder yet. Use `,image upload` with an attachment.", delete_after=15)
                 return
-            await ctx.send(f"🖼️  **{len(files)} image(s):**", delete_after=120)
-            for f in files:
-                path = os.path.join(folder, f)
-                desc = get_picture_description(f)
-                caption = f"`{f}`" + (f"\n> {desc}" if desc else "\n> *(no description yet)*")
+
+            total = len(files)
+            current = 0
+
+            def build_image_page(index: int):
+                fname = files[index]
+                fpath = os.path.join(folder, fname)
+                desc = get_picture_description(fname)
+                cap = f"\U0001f5bc `{fname}` \u2014 {index + 1}/{total}" + (f"\n> {desc}" if desc else "\n> *(no description yet)*")
+                return cap, fpath
+
+            caption, fpath = build_image_page(current)
+            try:
+                msg = await ctx.send(caption, file=discord.File(fpath), delete_after=180)
+            except Exception as e:
+                await ctx.send(f"Could not send image: {e}", delete_after=15)
+                return
+
+            if total == 1:
+                return
+
+            await msg.add_reaction("\u25c0")
+            await msg.add_reaction("\u25b6")
+
+            def check(reaction, user):
+                return (
+                    user.id == self.bot.owner_id
+                    and str(reaction.emoji) in ("\u25c0", "\u25b6")
+                    and reaction.message.id == msg.id
+                )
+
+            while True:
                 try:
-                    await ctx.send(caption, file=discord.File(path), delete_after=120)
-                except Exception as e:
-                    await ctx.send(f"`{f}` (could not send: {e})", delete_after=60)
+                    reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
+                except asyncio.TimeoutError:
+                    try:
+                        await msg.clear_reactions()
+                    except Exception:
+                        pass
+                    break
+
+                if str(reaction.emoji) == "\u25b6" and current < total - 1:
+                    current += 1
+                elif str(reaction.emoji) == "\u25c0" and current > 0:
+                    current -= 1
+
+                caption, fpath = build_image_page(current)
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+                try:
+                    msg = await ctx.send(caption, file=discord.File(fpath), delete_after=180)
+                    await msg.add_reaction("\u25c0")
+                    await msg.add_reaction("\u25b6")
+                except Exception:
+                    break
 
         elif action == "upload":
             if not ctx.message.attachments:
