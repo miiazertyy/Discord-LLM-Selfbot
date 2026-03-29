@@ -34,6 +34,15 @@ def init_db():
 
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS pictures (
+            filename    TEXT PRIMARY KEY,
+            description TEXT NOT NULL DEFAULT ''
+        )
+    """
+    )
+
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS unresponded_messages (
             user_id     INTEGER NOT NULL,
             channel_id  INTEGER NOT NULL,
@@ -188,3 +197,69 @@ def get_paused_users():
     users = [row[0] for row in cursor.fetchall()]
     conn.close()
     return users
+
+
+# ---------------------------------------------------------------------------
+# Pictures — description cache
+# ---------------------------------------------------------------------------
+
+def add_picture_description(filename: str, description: str):
+    """Store (or update) the AI description for a picture file."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO pictures (filename, description) VALUES (?, ?)",
+        (filename, description),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_picture_description(filename: str) -> str | None:
+    """Return the stored description for a filename, or None if not found."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute("SELECT description FROM pictures WHERE filename = ?", (filename,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def delete_picture_db(filename: str):
+    """Remove a picture's DB entry when the file is deleted."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM pictures WHERE filename = ?", (filename,))
+    conn.commit()
+    conn.close()
+
+
+def rename_picture_db(old_filename: str, new_filename: str):
+    """Update the filename key when images are renumbered after a deletion."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE pictures SET filename = ? WHERE filename = ?",
+        (new_filename, old_filename),
+    )
+    conn.commit()
+    conn.close()
+
+
+def clear_all_pictures_db():
+    """Wipe all picture descriptions — called when ,image delete all is used."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM pictures")
+    conn.commit()
+    conn.close()
+
+
+def get_all_picture_descriptions() -> dict[str, str]:
+    """Return a {filename: description} dict for every stored picture."""
+    conn = sqlite3.connect(resource_path(db_path))
+    cursor = conn.cursor()
+    cursor.execute("SELECT filename, description FROM pictures")
+    rows = cursor.fetchall()
+    conn.close()
+    return {r[0]: r[1] for r in rows}
