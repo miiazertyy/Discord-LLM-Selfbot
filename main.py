@@ -509,6 +509,35 @@ async def setup_hook():
 
 bot.setup_hook = setup_hook
 
+# Raw message_reference cache: message_id -> referenced_message_id
+# Discord.py-self sometimes drops message.reference for server channels;
+# we catch it here from the raw gateway payload before it's stripped.
+_raw_reply_cache: dict[int, int] = {}
+_RAW_REPLY_CACHE_MAX = 500
+
+@bot.event
+async def on_socket_raw_receive(data):
+    import json
+    try:
+        if isinstance(data, bytes):
+            return  # compressed, skip
+        payload = json.loads(data)
+        if payload.get("t") != "MESSAGE_CREATE":
+            return
+        d = payload.get("d", {})
+        ref = d.get("message_reference")
+        if ref and d.get("id"):
+            msg_id = int(d["id"])
+            ref_id = int(ref.get("message_id", 0))
+            if ref_id:
+                _raw_reply_cache[msg_id] = ref_id
+                # Trim cache
+                if len(_raw_reply_cache) > _RAW_REPLY_CACHE_MAX:
+                    oldest = next(iter(_raw_reply_cache))
+                    del _raw_reply_cache[oldest]
+    except Exception:
+        pass
+
 
 def should_ignore_message(message):
     return (
@@ -529,20 +558,20 @@ async def is_trigger_message(message):
     if message.reference:
         ref_msg = message.reference.resolved
         if ref_msg is None or isinstance(ref_msg, discord.DeletedReferencedMessage):
-            # Try the internal message cache before making an API call
             ref_msg = bot._connection._get_message(message.reference.message_id)
         if ref_msg and ref_msg.author.id == bot.user.id:
             replied_to = True
-        elif ref_msg is None:
-            # Last resort — only fetch if we truly can't find it
-            try:
-                ref_msg = await message.channel.fetch_message(message.reference.message_id)
-                if ref_msg.author.id == bot.user.id:
-                    replied_to = True
-            except Exception as e:
-                log_system(f"[reply-debug] fetch_message failed: {e}")
         if isinstance(message.channel, discord.TextChannel):
             log_system(f"[reply-debug] ref author={getattr(ref_msg, 'author', None) and ref_msg.author.id} bot={bot.user.id} replied_to={replied_to}")
+    elif message.id in _raw_reply_cache:
+        ref_id = _raw_reply_cache[message.id]
+        ref_msg = bot._connection._get_message(ref_id)
+        if ref_msg and ref_msg.author.id == bot.user.id:
+            replied_to = True
+            log_system(f"[reply-debug] caught via raw cache from {message.author.name}: replied_to=True")
+    else:
+        if isinstance(message.channel, discord.TextChannel):
+            log_system(f"[reply-debug] server msg from {message.author.name} — no reference, mentioned={mentioned}")
     is_dm = isinstance(message.channel, discord.DMChannel) and bot.allow_dm
     is_group_dm = isinstance(message.channel, discord.GroupChannel) and bot.allow_gc
 
