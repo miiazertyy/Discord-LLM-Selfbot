@@ -15,9 +15,15 @@ from utils.db import (
     remove_ignored_user,
     remove_channel,
     add_channel,
+    get_pending_nudges,
+    mark_responded,
+    add_picture_description,
+    get_picture_description,
+    delete_picture_db,
+    rename_picture_db,
+    clear_all_pictures_db,
 )
 from utils.memory import set_persona, clear_persona, get_persona
-from utils.db import get_pending_nudges, mark_responded
 
 
 class Management(commands.Cog):
@@ -996,8 +1002,10 @@ class Management(commands.Cog):
             await ctx.send(f"🖼️  **{len(files)} image(s):**", delete_after=120)
             for f in files:
                 path = os.path.join(folder, f)
+                desc = get_picture_description(f)
+                caption = f"`{f}`" + (f"\n> {desc}" if desc else "\n> *(no description yet)*")
                 try:
-                    await ctx.send(f"`{f}`", file=discord.File(path), delete_after=120)
+                    await ctx.send(caption, file=discord.File(path), delete_after=120)
                 except Exception as e:
                     await ctx.send(f"`{f}` (could not send: {e})", delete_after=60)
 
@@ -1007,7 +1015,7 @@ class Management(commands.Cog):
                 return
 
             saved = []
-            status_msg = await ctx.send("⏳ Saving image(s)...", delete_after=30)
+            status_msg = await ctx.send("⏳ Saving & analysing image(s)...", delete_after=60)
 
             existing = [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts]
             # Find the next unused index to avoid duplicates after deletions
@@ -1020,6 +1028,16 @@ class Management(commands.Cog):
             while next_index in used_indices:
                 next_index += 1
 
+            from utils.ai import _create_image_completion
+            from utils.helpers import load_config as _load_cfg
+            import base64
+
+            _cfg = _load_cfg()
+            _image_model = _cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
+            mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                        ".gif": "image/gif", ".webp": "image/webp"}
+
+            results = []
             for att in ctx.message.attachments:
                 ext = os.path.splitext(att.filename)[1].lower()
                 if ext not in exts:
@@ -1029,7 +1047,38 @@ class Management(commands.Cog):
                 dest = os.path.join(folder, new_name)
                 with open(dest, "wb") as f:
                     f.write(data)
+
+                # Run vision on the saved file immediately
+                description = ""
+                try:
+                    mime = mime_map.get(ext, "image/jpeg")
+                    b64 = base64.b64encode(data).decode()
+                    data_url = f"data:{mime};base64,{b64}"
+                    vision_resp = await _create_image_completion(
+                        _image_model,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": (
+                                            "Describe this image in full detail exactly as you see it. "
+                                            "Include all visible text, objects, people, colors, layout, and context."
+                                        ),
+                                    },
+                                    {"type": "image_url", "image_url": {"url": data_url}},
+                                ],
+                            }
+                        ],
+                    )
+                    description = vision_resp.choices[0].message.content.strip()
+                    add_picture_description(new_name, description)
+                except Exception as ve:
+                    log_error("Vision on Upload", str(ve))
+
                 saved.append(new_name)
+                results.append((new_name, description))
                 next_index += 1
 
             await status_msg.delete()
@@ -1038,8 +1087,10 @@ class Management(commands.Cog):
                 await ctx.send("No valid image attachments found.", delete_after=10)
                 return
 
-            names = ", ".join(f"`{f}`" for f in saved)
-            await ctx.send(f"Saved {len(saved)} image(s): {names}", delete_after=30)
+            lines = []
+            for name, desc in results:
+                lines.append(f"`{name}` — {desc[:120] + '…' if len(desc) > 120 else desc or '*(vision failed)*'}")
+            await ctx.send("Saved & analysed:\n" + "\n".join(lines), delete_after=60)
 
         elif action == "download":
             if not name:
@@ -1087,11 +1138,13 @@ class Management(commands.Cog):
                     return
                 for f in files:
                     os.remove(os.path.join(folder, f))
+                clear_all_pictures_db()
                 await ctx.send(f"Deleted all {len(files)} image(s).", delete_after=10)
                 return
             path = os.path.join(folder, name)
             if os.path.exists(path):
                 os.remove(path)
+                delete_picture_db(name)
                 # Renumber remaining IMG_N files to fill the gap
                 remaining = sorted(
                     [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts],
@@ -1100,97 +1153,18 @@ class Management(commands.Cog):
                 for i, fname in enumerate(remaining, start=1):
                     stem, ext = os.path.splitext(fname)
                     if stem.startswith("IMG_") and stem[4:].isdigit() and int(stem[4:]) != i:
-                        os.rename(os.path.join(folder, fname), os.path.join(folder, f"IMG_{i}{ext}"))
+                        new_fname = f"IMG_{i}{ext}"
+                        os.rename(os.path.join(folder, fname), os.path.join(folder, new_fname))
+                        rename_picture_db(fname, new_fname)
                 await ctx.send(f"Deleted `{name}`.", delete_after=10)
             else:
                 await ctx.send(f"Image `{name}` not found.", delete_after=10)
 
         elif action == "vision":
-            # Show what the image model sees for a stored picture
-            # Usage: ,image vision        -> picks a random stored image
-            #        ,image vision 2      -> inspects IMG_2
-            #        ,image vision IMG_2.jpg -> inspects by filename
-            from utils.ai import _prepare_image_url, load_config as _load_cfg
-            from utils.ai import _create_image_completion
-            import base64
-
-            files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
-            if not files:
-                await ctx.send("❌ No images stored yet. Use `,image upload` first.", delete_after=15)
-                return
-
-            # Resolve which file to inspect
-            target_file = None
-            if not name:
-                import random as _random
-                target_file = _random.choice(files)
-            elif name.isdigit():
-                index = int(name)
-                matches = [f for f in files if os.path.splitext(f)[0] == f"IMG_{index}"]
-                if not matches:
-                    await ctx.send(f"❌ No image with number `{index}`. Use `,image ls` to see images.", delete_after=10)
-                    return
-                target_file = matches[0]
-            else:
-                if name in files:
-                    target_file = name
-                else:
-                    matches = [f for f in files if name.lower() in f.lower()]
-                    if len(matches) == 1:
-                        target_file = matches[0]
-                    elif len(matches) > 1:
-                        await ctx.send(f"Multiple matches: {', '.join(matches)}. Be more specific.", delete_after=15)
-                        return
-                    else:
-                        await ctx.send(f"❌ Image `{name}` not found.", delete_after=10)
-                        return
-
-            path = os.path.join(folder, target_file)
-            status = await ctx.send(f"🔍 Analysing `{target_file}`...", delete_after=30)
-            try:
-                _cfg = _load_cfg()
-                _image_model = _cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
-
-                # Read the file and encode as base64 so the model can see it directly
-                ext = os.path.splitext(target_file)[1].lower()
-                mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-                            ".gif": "image/gif", ".webp": "image/webp"}
-                mime = mime_map.get(ext, "image/jpeg")
-                with open(path, "rb") as _f:
-                    b64 = base64.b64encode(_f.read()).decode()
-                data_url = f"data:{mime};base64,{b64}"
-
-                response = await _create_image_completion(
-                    _image_model,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": (
-                                        "Describe this image in full detail exactly as you see it. "
-                                        "Include all visible text, objects, people, colors, layout, and context."
-                                    ),
-                                },
-                                {"type": "image_url", "image_url": {"url": data_url}},
-                            ],
-                        }
-                    ],
-                )
-                await status.delete()
-                description = response.choices[0].message.content.strip()
-                header = f"**🔍 `{target_file}` \u2014 what `{_image_model}` sees:**\n"
-                if len(header) + len(description) <= 1900:
-                    await ctx.send(header + description, delete_after=120)
-                else:
-                    chunks = [description[i:i+1900] for i in range(0, len(description), 1900)]
-                    for i, chunk in enumerate(chunks):
-                        await ctx.send((header if i == 0 else "") + chunk, delete_after=120)
-            except Exception as e:
-                await status.delete()
-                log_error("Vision Command", str(e))
-                await ctx.send(f"❌ Vision failed: `{e}`", delete_after=20)
+            await ctx.send(
+                "💡 Descriptions are now generated automatically on upload and shown in `,image ls`.",
+                delete_after=15,
+            )
 
         else:
             await ctx.send("Usage: `,image ls` | `,image upload` | `,image download <n>` | `,image delete <n>` | `,image vision [n]`", delete_after=15)
