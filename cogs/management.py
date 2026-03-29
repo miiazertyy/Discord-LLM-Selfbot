@@ -1092,6 +1092,15 @@ class Management(commands.Cog):
             path = os.path.join(folder, name)
             if os.path.exists(path):
                 os.remove(path)
+                # Renumber remaining IMG_N files to fill the gap
+                remaining = sorted(
+                    [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts],
+                    key=lambda f: int(os.path.splitext(f)[0][4:]) if os.path.splitext(f)[0].startswith("IMG_") and os.path.splitext(f)[0][4:].isdigit() else 99999
+                )
+                for i, fname in enumerate(remaining, start=1):
+                    stem, ext = os.path.splitext(fname)
+                    if stem.startswith("IMG_") and stem[4:].isdigit() and int(stem[4:]) != i:
+                        os.rename(os.path.join(folder, fname), os.path.join(folder, f"IMG_{i}{ext}"))
                 await ctx.send(f"Deleted `{name}`.", delete_after=10)
             else:
                 await ctx.send(f"Image `{name}` not found.", delete_after=10)
