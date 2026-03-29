@@ -192,7 +192,11 @@ GROQ_IMAGE_SIZE_LIMIT = 20 * 1024 * 1024  # 20MB
 
 
 async def _prepare_image_url(image_url: str) -> str:
-    """Fetch the image, compress if over Groq's 20MB limit, return a usable URL or base64 data URL."""
+    """Fetch the image, encode as base64 (and compress if over Groq's 20MB limit).
+
+    Always returns a base64 data URL — never the raw URL — because Discord CDN
+    links are authenticated/expiring and cannot be fetched by Groq's servers.
+    """
     import aiohttp
     import io
     import base64
@@ -202,10 +206,13 @@ async def _prepare_image_url(image_url: str) -> str:
             async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
                     return image_url
+                content_type = resp.content_type or "image/jpeg"
                 data = await resp.read()
 
         if len(data) <= GROQ_IMAGE_SIZE_LIMIT:
-            return image_url  # Fine as-is, use original URL
+            # Always encode as base64 — raw Discord URLs are inaccessible from Groq
+            b64 = base64.b64encode(data).decode()
+            return f"data:{content_type};base64,{b64}"
 
         # Need to compress — use Pillow
         try:
