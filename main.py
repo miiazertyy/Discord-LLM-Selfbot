@@ -993,9 +993,11 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                         reply_to=reply_msg,
                         mention_author=config["bot"]["reply_ping"],
                     )
+            else:
+                log_error("TTS", "generate_voice_message returned None — check Groq TTS API key and model")
             return spoken_response
         except Exception as e:
-            print(f"[TTS] Failed: {e}")
+            log_error("TTS Failed", str(e))
 
     if len(response) > 80:
         try:
