@@ -788,12 +788,19 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             "Show genuine feelings, be warmer and more expressive than you would in a public server.]"
         )
 
-    # Detect the user's language using the LLM, looking at recent history to
-    # catch gradual language drift rather than only the current message.
-    try:
-        _lang_tag = await detect_language(history, prompt)
-    except Exception:
-        _lang_tag = "en"
+    # Detect the user's language — cached per user, re-checked every 5 messages
+    # to catch language drift without firing a Groq call on every single message.
+    if not hasattr(bot, "_lang_cache"):
+        bot._lang_cache = {}  # uid -> {"tag": str, "count": int}
+    _lang_entry = bot._lang_cache.get(uid, {"tag": "en", "count": 0})
+    _lang_entry["count"] += 1
+    if _lang_entry["count"] == 1 or _lang_entry["count"] % 5 == 0:
+        try:
+            _lang_entry["tag"] = await detect_language(history, prompt)
+        except Exception:
+            pass
+    bot._lang_cache[uid] = _lang_entry
+    _lang_tag = _lang_entry["tag"]
 
     _LANG_NAMES = {
         "fr": "French", "en": "English", "es": "Spanish", "de": "German",
