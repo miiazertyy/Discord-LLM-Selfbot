@@ -1164,8 +1164,8 @@ async def process_message_queue(channel_id):
                     if not priority:
                         await asyncio.sleep(wait_time)
 
-                    # Keep collecting messages until the user stops sending for 3s
-                    BATCH_TAIL_WAIT = 3.0
+                    # Keep collecting messages until the user stops sending for 2.5-4.5s
+                    BATCH_TAIL_WAIT = random.uniform(2.5, 4.5)
                     BATCH_POLL_INTERVAL = 0.3
                     last_received = time.time()
                     while True:
