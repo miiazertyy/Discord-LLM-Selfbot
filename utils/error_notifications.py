@@ -4,29 +4,29 @@ from datetime import datetime
 from curl_cffi.requests import AsyncSession
 from utils.helpers import load_config
 
-config = load_config()
-
 
 def print_error(error_type, error):
     print(f"{datetime.now().strftime('[%H:%M:%S]')} {error_type}: {error}")
 
 
-async def webhook_log(ctx, error):
+async def webhook_log(ctx, error, is_ratelimit=False):
+    config = load_config()  # Always reload so webhook URL changes are picked up live
     webhook_url = config["notifications"]["error_webhook"]
 
-    if webhook_url == "":
+    if not webhook_url:
         return
 
-    if ctx is None:
-        if config["notifications"]["ratelimit_notifications"]:
-            embed = discord.Embed(
-                title="AI Selfbot Ratelimited",
-                description=f"{error}",
-                color=discord.Color.red(),
-                timestamp=datetime.now(),
-            )
-        else:
-            return
+    # Rate limit notifications can be silenced separately
+    if is_ratelimit and not config["notifications"]["ratelimit_notifications"]:
+        return
+
+    if is_ratelimit:
+        embed = discord.Embed(
+            title="AI Selfbot Ratelimited",
+            description=f"{error}",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(),
+        )
     elif isinstance(ctx, discord.Message):
         embed = discord.Embed(
             title="AI Selfbot Error",
