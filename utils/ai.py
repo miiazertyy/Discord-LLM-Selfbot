@@ -80,6 +80,12 @@ def _fallback_client():
     return True
 
 
+def reset_client_index():
+    """Reset key rotation back to the first key — called after a timed wait."""
+    global _client_index
+    _client_index = 0
+
+
 def fallback_model():
     """Rotate to next model and reset key index."""
     global model, current_model_index, _client_index
