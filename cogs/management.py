@@ -513,7 +513,7 @@ class Management(commands.Cog):
         if response:
             self.bot.message_history[key].append({"role": "assistant", "content": response})
             return True, "ok"
-        return False, "failed to generate response"
+        return False, "couldn't send the message (user may have DMs closed)"
 
     async def _run_respond(self, ctx, args):
         """Shared logic for ,respond and ,reply."""
@@ -572,7 +572,7 @@ class Management(commands.Cog):
             if success:
                 await ctx.send(f"Responded to {users[0].name}.", delete_after=5)
             else:
-                await ctx.send(f"Failed to respond to {users[0].name}: {reason}.", delete_after=10)
+                await ctx.send(f"Couldn't respond to {users[0].name}: {reason}.", delete_after=10)
         else:
             status = await ctx.send(f"Responding to {len(users)} users...", delete_after=60)
             results = []
@@ -689,7 +689,7 @@ class Management(commands.Cog):
                 f"  error_webhook         {'set' if notif.get('error_webhook') else 'not set'}",
                 f"  ratelimit_notifications  {notif.get('ratelimit_notifications')}",
                 "```",
-                f"Use `,config <key> <value>` to edit. Examples: `,config tts.voice diana`  |  `,config error_webhook <url>`",
+                f"Use `,config <key> <value>` to edit. Example: `,config tts.voice diana`",
             ]
             await ctx.send("\n".join(lines), delete_after=60)
             return
@@ -710,35 +710,17 @@ class Management(commands.Cog):
                 return [item.strip() for item in v.split(",") if item.strip()]
             return v
 
-        def _resolve_node(root, path_keys):
-            """Walk `root` along `path_keys[:-1]`, return (node, final_key) or None."""
-            node = root
-            for k in path_keys[:-1]:
-                if not isinstance(node, dict) or k not in node:
-                    return None
-                node = node[k]
-            final_key = path_keys[-1]
-            if not isinstance(node, dict) or final_key not in node:
-                return None
-            return node, final_key
-
         try:
-            # 1. Try bot.* first (most keys live here).
-            result = _resolve_node(config["bot"], keys)
-            # 2. Try from the config root (e.g. notifications.error_webhook).
-            if result is None:
-                result = _resolve_node(config, keys)
-            # 3. Bare key with no dots — search every top-level section so that
-            #    e.g. `error_webhook` works the same as `notifications.error_webhook`.
-            if result is None and len(keys) == 1:
-                for section in config.values():
-                    if isinstance(section, dict) and keys[0] in section:
-                        result = (section, keys[0])
-                        break
-            if result is None:
+            node = config["bot"]
+            for k in keys[:-1]:
+                if k not in node:
+                    await ctx.send(f"Key `{key}` not found.", delete_after=10)
+                    return
+                node = node[k]
+            final_key = keys[-1]
+            if final_key not in node:
                 await ctx.send(f"Key `{key}` not found.", delete_after=10)
                 return
-            node, final_key = result
             old_val = node[final_key]
             node[final_key] = coerce(value, old_val)
             self.save_config(config)
