@@ -119,6 +119,21 @@ REFUSAL_PHRASES = [
     "i cannot generate",
     "i can't generate",
     "i can't help with that",
+    "sorry, i can't do that",
+    "sorry, but i can't do that",
+    "i can't do that",
+    "i cannot do that",
+    "i'm not able to do that",
+    "i won't do that",
+    "i will not do that",
+    "that's not something i'm able",
+    "i'm afraid i can't",
+    "i afraid i cannot",
+    "unfortunately, i can't",
+    "unfortunately i can't",
+    "unfortunately, i cannot",
+    "i need to decline",
+    "i'm going to have to decline",
 ]
 
 
