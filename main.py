@@ -619,6 +619,39 @@ async def _get_user_profile_block(user) -> str:
     return "\n[About this person: " + ", ".join(parts) + "]"
 
 
+def _extract_image_url_from_message(message) -> str | None:
+    """Extract an image URL from message embeds or raw image URLs in content."""
+    # 1. Check Discord embeds (already parsed by discord.py)
+    for embed in message.embeds:
+        if embed.image and embed.image.url:
+            return embed.image.url
+        if embed.thumbnail and embed.thumbnail.url:
+            if embed.thumbnail.width and embed.thumbnail.width < 100:
+                continue
+            return embed.thumbnail.url
+        if embed.video and embed.thumbnail and embed.thumbnail.url:
+            return embed.thumbnail.url
+
+    # 2. Scan raw URLs in message content
+    urls = re.findall(r'https?://\S+', message.content)
+    image_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')
+    known_image_hosts = (
+        'imgur.com/', 'i.imgur.com/',
+        'tenor.com/view/', 'media.tenor.com/',
+        'giphy.com/gifs/', 'media.giphy.com/',
+        'cdn.discordapp.com/', 'media.discordapp.net/',
+        'pbs.twimg.com/', 'i.redd.it/',
+    )
+    for url in urls:
+        clean = url.rstrip(')')
+        if any(clean.lower().endswith(ext) for ext in image_exts):
+            return clean
+        if any(host in clean for host in known_image_hosts):
+            return clean
+
+    return None
+
+
 def _is_picture_request(text: str) -> bool:
     """Detect if the user is asking for a picture/selfie of the bot."""
     patterns = [
@@ -1117,6 +1150,8 @@ async def process_message_queue(channel_id):
                         att = message.attachments[0]
                         if not (message.flags.value & (1 << 13)):
                             first_image_url = att.url
+                    if not first_image_url:
+                        first_image_url = _extract_image_url_from_message(message)
                     bot.user_message_batches[batch_key] = {
                         "messages": [message],
                         "last_time": current_time,
@@ -1165,7 +1200,7 @@ async def process_message_queue(channel_id):
             else:
                 combined_content = message.content
                 message_to_reply_to = message
-                image_url = message.attachments[0].url if (message.attachments and not (message.flags.value & (1 << 13))) else None
+                image_url = message.attachments[0].url if (message.attachments and not (message.flags.value & (1 << 13))) else _extract_image_url_from_message(message)
                 wait_time = 0
 
             key = f"{message_to_reply_to.author.id}-{message_to_reply_to.channel.id}"
