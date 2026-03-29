@@ -114,7 +114,7 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 
 ---
 
-## 🚀 Setup
+## ❔ Setup
 
 ### Step 1 — Clone the repository
 ```bash
