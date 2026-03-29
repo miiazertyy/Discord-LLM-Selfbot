@@ -604,15 +604,16 @@ async def is_trigger_message(message):
         conv_key in bot.active_conversations
         and time.time() - bot.active_conversations[conv_key] < CONVERSATION_TIMEOUT
         and bot.hold_conversation
-        and not isinstance(message.channel, discord.TextChannel)
+        and not isinstance(message.channel, (discord.TextChannel, discord.Thread, discord.ForumChannel, discord.StageChannel))
     )
 
-    is_server = isinstance(message.channel, discord.TextChannel)
+    is_server = isinstance(message.channel, (discord.TextChannel, discord.Thread, discord.ForumChannel, discord.StageChannel))
 
     if is_server and not getattr(bot, "allow_server", True):
         mentioned = False
         replied_to = False
 
+    # Trigger word only works in DMs and group chats, never in any server channel type
     content_has_trigger = (
         not is_server and any(
             re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
@@ -1188,7 +1189,7 @@ async def on_message(message):
     user_id = message.author.id
     current_time = time.time()
     batch_key = f"{user_id}-{channel_id}"
-    is_server_channel = isinstance(message.channel, discord.TextChannel)
+    is_server_channel = isinstance(message.channel, (discord.TextChannel, discord.Thread, discord.ForumChannel, discord.StageChannel))
     is_followup = batch_key in bot.user_message_batches and not is_server_channel
     is_trigger = await is_trigger_message(message)
 
