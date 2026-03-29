@@ -87,6 +87,7 @@ class General(commands.Cog):
             f"  {p}update                   update to latest release",
             f"  {p}update main              update to latest commit",
             f"  {p}getdb                    download memory database",
+            f"  {p}leaderboard              show top users by message count",
             f"  {p}ping                     show latency",
             "```",
         ]
