@@ -86,7 +86,7 @@ class General(commands.Cog):
         temp = await ctx.send(f"Analysing {user.name}'s message history...")
 
         message_history = []
-        async for message in ctx.channel.history(limit=1500):
+        async for message in ctx.channel.history(limit=200):
             if message.author == user:
                 message_history.append(message.content)
 
