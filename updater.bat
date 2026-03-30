@@ -60,4 +60,4 @@ if %errorlevel% neq 0 (
 )
 
 echo Update complete. Relaunching...
-call run.bat
+start "AI Selfbot" cmd /k "call run.bat"
