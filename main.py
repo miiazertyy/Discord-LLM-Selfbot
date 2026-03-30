@@ -164,6 +164,7 @@ def create_bot() -> commands.Bot:
     b._memory_cache = {}
     b._memory_call_counter = {}
     b.paused_users = set()
+    b.removed_friends = set()  # user IDs that were previously friends (for instant re-add)
     # Global send lock: ensures only one message is being sent at a time across ALL users.
     # This prevents two concurrent generate_response_and_reply calls from racing each other
     # and causing messages to arrive out-of-order or simultaneously.
@@ -1148,6 +1149,17 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
 
 @bot.event
+async def on_relationship_remove(relationship):
+    """Track users who unfriend/remove the bot so we can re-add them instantly if they send a new request."""
+    try:
+        if relationship.type == discord.RelationshipType.friend:
+            bot.removed_friends.add(relationship.user.id)
+            log_system(f"{relationship.user.name} removed the bot as a friend — will re-add instantly if they send a request")
+    except Exception as e:
+        log_error("Relationship Remove", str(e))
+
+
+@bot.event
 async def on_relationship_add(relationship):
     try:
         if relationship.type != discord.RelationshipType.incoming_request:
@@ -1155,11 +1167,20 @@ async def on_relationship_add(relationship):
         fr_cfg = config["bot"].get("friend_requests") or {}
         if not fr_cfg.get("enabled", False):
             return
-        delay = fr_cfg.get("accept_delay", 300)
         user = relationship.user
-        log_system(f"Friend request from {user.name} — accepting in {delay}s")
-        await asyncio.sleep(delay)
-        token = bot._connection.http.token
+
+        # If this person previously removed the bot, re-add them immediately (no delay)
+        if user.id in bot.removed_friends:
+            bot.removed_friends.discard(user.id)
+            log_system(f"Friend request from {user.name} (was previously a friend) — accepting instantly")
+            delay = 0
+        else:
+            delay = fr_cfg.get("accept_delay", 300)
+            log_system(f"Friend request from {user.name} — accepting in {delay}s")
+
+        if delay > 0:
+            await asyncio.sleep(delay)
+
         token = bot._connection.http.token
         async with AsyncSession(impersonate="chrome") as session:
             resp = await session.put(
@@ -1418,6 +1439,7 @@ if __name__ == "__main__":
             b.event(on_ready)
             b.event(on_message)
             b.event(on_relationship_add)
+            b.event(on_relationship_remove)
             b.generate_response_and_reply = generate_response_and_reply
         await b.start(token)
 
