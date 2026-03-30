@@ -661,40 +661,78 @@ class Management(commands.Cog):
             return True, "ok"
         return False, "couldn't send the message (user may have DMs closed)"
 
+    async def _get_unreplied_users(self):
+        """Return list of (user, snippet, msg_count) for all unreplied conversations."""
+        results = []
+        seen_user_ids = set()
+        for key, history in self.bot.message_history.items():
+            if not history:
+                continue
+            if history[-1].get("role") != "user":
+                continue
+            try:
+                user_id = int(key.split("-")[0])
+                if user_id in seen_user_ids:
+                    continue
+                seen_user_ids.add(user_id)
+                user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                pending_msgs = []
+                for entry in reversed(history):
+                    if entry["role"] == "user":
+                        pending_msgs.insert(0, entry["content"])
+                    else:
+                        break
+                last_msg = pending_msgs[-1] if pending_msgs else ""
+                snippet = (last_msg[:60] + "\u2026") if len(last_msg) > 60 else last_msg
+                results.append((user, snippet, len(pending_msgs)))
+            except Exception:
+                pass
+        return results
+
     async def _run_respond(self, ctx, args):
         """Shared logic for ,respond and ,reply."""
         if not args:
-            await ctx.send("Usage: `,respond <id>` or `,respond <id1, id2, ...>` or `,respond check`", delete_after=15)
+            await ctx.send(
+                "Usage: `,respond <id>` \u00b7 `,respond <id1, id2>` \u00b7 `,respond check` \u00b7 `,respond all`",
+                delete_after=15,
+            )
             return
 
-        if args.strip().lower() == "check":
-            unreplied = []
-            now = __import__("time").time()
-            for key, history in self.bot.message_history.items():
-                if not history:
-                    continue
-                if history[-1].get("role") == "user":
-                    try:
-                        user_id = int(key.split("-")[0])
-                        user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
-                        # Collect all trailing unread user messages
-                        pending_msgs = []
-                        for entry in reversed(history):
-                            if entry["role"] == "user":
-                                pending_msgs.insert(0, entry["content"])
-                            else:
-                                break
-                        last_msg = pending_msgs[-1] if pending_msgs else ""
-                        snippet = (last_msg[:60] + "…") if len(last_msg) > 60 else last_msg
-                        msg_count = len(pending_msgs)
-                        count_label = f" ({msg_count} msg{'s' if msg_count > 1 else ''})" if msg_count > 1 else ""
-                        unreplied.append(f"• **{user.name}**{count_label} — `{snippet}`")
-                    except Exception:
-                        unreplied.append(f"• Unknown (`{key.split('-')[0]}`)")
+        keyword = args.strip().lower()
+
+        if keyword == "check":
+            unreplied = await self._get_unreplied_users()
             if not unreplied:
                 await ctx.send("No unreplied conversations.", delete_after=20)
             else:
-                await ctx.send("**Unreplied conversations:**\n" + "\n".join(unreplied), delete_after=60)
+                lines_out = []
+                for user, snippet, msg_count in unreplied:
+                    count_label = f" ({msg_count} msg{'s' if msg_count > 1 else ''})" if msg_count > 1 else ""
+                    lines_out.append(f"\u2022 **{user.name}**{count_label} \u2014 `{snippet}`")
+                await ctx.send("**Unreplied conversations:**\n" + "\n".join(lines_out), delete_after=60)
+            return
+
+        if keyword == "all":
+            unreplied = await self._get_unreplied_users()
+            if not unreplied:
+                await ctx.send("No unreplied conversations.", delete_after=15)
+                return
+            users = [u for u, _, _ in unreplied]
+            try:
+                await ctx.message.delete()
+            except Exception:
+                pass
+            status = await ctx.send(f"Responding to {len(users)} user(s)...", delete_after=60)
+            results_out = []
+            for user in users:
+                success, reason = await self._respond_to_user(ctx, user)
+                icon = "\u2705" if success else "\u274c"
+                results_out.append(f"{icon} **{user.name}**{'' if success else f' \u2014 {reason}'}")
+            try:
+                await status.delete()
+            except Exception:
+                pass
+            await ctx.send("\n".join(results_out), delete_after=30)
             return
 
         raw_ids = [x.strip().strip("<@!>") for x in re.split(r"[,\s]+", args) if x.strip()]
