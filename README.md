@@ -41,7 +41,7 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 
 > Prefix: `,` by default (configurable)
 
-### 🤖 AI
+### 🌙 AI
 | Command | Description |
 |---|---|
 | `,pause` | Pause / unpause AI responses |
