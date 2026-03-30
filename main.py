@@ -78,7 +78,7 @@ TRIGGER = config["bot"]["trigger"].lower().split(",")
 DISABLE_MENTIONS = config["bot"]["disable_mentions"]
 PRIORITY_PREFIX = config["bot"]["priority_prefix"]
 
-SPAM_MESSAGE_THRESHOLD = 15
+SPAM_MESSAGE_THRESHOLD = 5
 SPAM_TIME_WINDOW = 10.0
 COOLDOWN_DURATION = 60.0
 MAX_HISTORY = 15
@@ -920,7 +920,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     response = await generate_response(prompt, enriched_instructions, history)
 
             if response and is_refusal(response):
-                log_error("AI Refusal", "Model refused to respond, retrying...")
+                log_error("AI Refusal", "Model refused to respond, trying next model...")
+                # Rotate to the next model before retrying — different models refuse differently
+                fallback_model()
                 response = None
 
             if response:
@@ -985,6 +987,10 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 response = await generate_response(prompt, enriched_instructions, history)
         except Exception:
             pass
+        # If the last-ditch retry is still a refusal, don't send it
+        if response and is_refusal(response):
+            log_error("AI Refusal", "Final retry still a refusal, dropping response.")
+            return None
 
     if not response:
         return None
