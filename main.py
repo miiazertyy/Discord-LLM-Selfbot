@@ -169,6 +169,7 @@ def create_bot() -> commands.Bot:
     # This prevents two concurrent generate_response_and_reply calls from racing each other
     # and causing messages to arrive out-of-order or simultaneously.
     b.global_send_lock = Lock()
+    b.last_global_send = 0.0  # timestamp of last sent message across all users
     return b
 
 
@@ -1077,6 +1078,13 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     if len(chunks) > 3:
         chunks = chunks[:3]
 
+    # Inter-user cooldown: if another user was just replied to, wait a human-like gap
+    # before sending to avoid two different conversations getting replies seconds apart.
+    _time_since_last = time.time() - bot.last_global_send
+    _inter_user_gap = random.uniform(45, 120)
+    if _time_since_last < _inter_user_gap:
+        await asyncio.sleep(_inter_user_gap - _time_since_last)
+
     async with bot.global_send_lock:
         pics_cfg = config["bot"].get("pictures") or {}
         if pics_cfg.get("enabled", True) and _is_picture_request(prompt):
@@ -1138,6 +1146,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     await message.channel.send(chunk)
                 else:
                     await message.reply(chunk, mention_author=config["bot"]["reply_ping"])
+                bot.last_global_send = time.time()
 
             except discord.Forbidden:
                 log_error("Reply Error", f"403 Forbidden — cannot send to {message.author.name}")
