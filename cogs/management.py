@@ -662,9 +662,22 @@ class Management(commands.Cog):
         return False, "couldn't send the message (user may have DMs closed)"
 
     async def _get_unreplied_users(self):
-        """Return list of (user, snippet, msg_count) for all unreplied conversations."""
+        """Return list of (user, snippet, msg_count) for all unreplied conversations.
+
+        Two-pass approach so it works even after a restart (when message_history is empty):
+
+        Pass 1 — in-memory history (fast, works mid-session).
+            Any conversation whose last history entry is a user message counts as unreplied.
+
+        Pass 2 — live DM channel scan (catches post-restart gaps).
+            Walks bot.private_channels and fetches the last few messages of each DM.
+            If the most recent message is from the other person (not the bot) and they
+            are not already covered by pass 1, they get added to the results.
+        """
         results = []
         seen_user_ids = set()
+
+        # --- Pass 1: in-memory message_history ---
         for key, history in self.bot.message_history.items():
             if not history:
                 continue
@@ -687,6 +700,62 @@ class Management(commands.Cog):
                 results.append((user, snippet, len(pending_msgs)))
             except Exception:
                 pass
+
+        # --- Pass 2: live DM scan (catches anything missed after restart) ---
+        # Strategy: use Discord's cached last_message_id to pre-filter channels
+        # with zero API calls, then only fetch history for the ones that look
+        # unreplied. This keeps the total request count very low even with many DMs.
+        try:
+            selfbot_id = getattr(self.bot, "selfbot_id", None) or self.bot.user.id
+            for channel in self.bot.private_channels:
+                if not isinstance(channel, discord.DMChannel):
+                    continue
+                other = channel.recipient
+                if other is None:
+                    continue
+                if other.id in seen_user_ids:
+                    continue
+
+                # --- Zero-API pre-filter using the internal message cache ---
+                # discord.py-self keeps recently seen messages in _state._messages.
+                # If the cached last message for this channel is from the bot,
+                # we can skip it entirely without hitting the API.
+                cached_last = None
+                if channel.last_message_id:
+                    cached_last = channel._state._get_message(channel.last_message_id)
+                if cached_last is not None:
+                    if cached_last.author.id == selfbot_id:
+                        continue  # Bot already replied — skip, no API call needed
+
+                # --- API fetch (only reached if cache says unreplied or is cold) ---
+                try:
+                    last_msgs = [m async for m in channel.history(limit=10)]
+                    if not last_msgs:
+                        continue
+                    last_from_other = next(
+                        (m for m in last_msgs if m.author.id != selfbot_id), None
+                    )
+                    last_from_bot = next(
+                        (m for m in last_msgs if m.author.id == selfbot_id), None
+                    )
+                    if last_from_other is None:
+                        continue
+                    if last_from_bot and last_from_bot.created_at > last_from_other.created_at:
+                        continue
+                    pending_count = sum(
+                        1 for m in last_msgs
+                        if m.author.id != selfbot_id
+                        and (last_from_bot is None or m.created_at > last_from_bot.created_at)
+                    )
+                    snippet_text = last_from_other.content or "[attachment]"
+                    snippet = (snippet_text[:60] + "\u2026") if len(snippet_text) > 60 else snippet_text
+                    seen_user_ids.add(other.id)
+                    results.append((other, snippet, max(pending_count, 1)))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
         return results
 
     async def _run_respond(self, ctx, args):
