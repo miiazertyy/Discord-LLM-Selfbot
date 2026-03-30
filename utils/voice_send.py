@@ -3,7 +3,7 @@ import struct
 import base64
 import asyncio
 
-from utils.session import build_session
+from curl_cffi.requests import AsyncSession
 
 
 def _wav_to_ogg_opus(wav_bytes: bytes) -> tuple:
@@ -127,7 +127,9 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
     token = channel._state.http.token
     channel_id = channel.id
 
-    async with build_session(token) as session:
+    async with AsyncSession(impersonate="chrome") as session:
+        _auth = {"Authorization": token, "Content-Type": "application/json"}
+
         # Step 1: request upload slot
         upload_resp = await session.post(
             f"https://discord.com/api/v9/channels/{channel_id}/attachments",
@@ -137,7 +139,8 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
                     "file_size": len(ogg_bytes),
                     "id": "0",
                 }]
-            }
+            },
+            headers=_auth,
         )
         upload_data = upload_resp.json()
 
@@ -186,6 +189,7 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
         msg_resp = await session.post(
             f"https://discord.com/api/v9/channels/{channel_id}/messages",
             json=body,
+            headers=_auth,
         )
         result = msg_resp.json()
 
