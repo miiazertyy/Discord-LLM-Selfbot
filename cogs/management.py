@@ -240,7 +240,13 @@ class Management(commands.Cog):
 
             if new_page != current_page:
                 current_page = new_page
-                await msg.edit(content=build_page(current_page))
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+                msg = await ctx.send(build_page(current_page), delete_after=120)
+                await msg.add_reaction("◀")
+                await msg.add_reaction("▶")
 
     @commands.command(name="toggleactive", description="Toggle active channels")
     async def toggleactive(self, ctx, channel=None):
