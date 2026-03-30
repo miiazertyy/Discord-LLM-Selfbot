@@ -353,7 +353,6 @@ class Management(commands.Cog):
 
         if source == "main":
             msg = await ctx.send("Pulling latest commit from main... brb")
-            version_str = "main"
         else:
             latest = None
             try:
@@ -371,21 +370,38 @@ class Management(commands.Cog):
 
         self._save_pending_messages()
 
+        repo_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        log_path = os.path.join(repo_dir, "updater.log")
+
         try:
-            await msg.edit(content=f"Updating to {version_str}... launching updater, brb in a sec")
+            await msg.edit(content="Launching updater — check `updater.log` in the bot folder if it doesn't come back")
         except Exception:
             pass
 
         if sys.platform == "win32":
-            updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.bat")
-            subprocess.Popen(f'cmd /c start "" "{updater_path}" {source}', shell=True)
+            updater_path = os.path.join(repo_dir, "updater.bat")
+            with open(log_path, "w") as log_f:
+                subprocess.Popen(
+                    f'cmd /c "{updater_path}" {source}',
+                    shell=True,
+                    stdout=log_f,
+                    stderr=log_f,
+                    cwd=repo_dir,
+                )
         else:
-            updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.sh")
+            updater_path = os.path.join(repo_dir, "updater.sh")
             try:
                 os.chmod(updater_path, 0o755)
             except Exception:
                 pass
-            subprocess.Popen(["bash", updater_path, source], start_new_session=True)
+            with open(log_path, "w") as log_f:
+                subprocess.Popen(
+                    ["bash", updater_path, source],
+                    start_new_session=True,
+                    stdout=log_f,
+                    stderr=log_f,
+                    cwd=repo_dir,
+                )
 
         # Give the subprocess time to actually start before we vanish
         await asyncio.sleep(2)
