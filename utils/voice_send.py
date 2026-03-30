@@ -4,6 +4,7 @@ import base64
 import asyncio
 
 from curl_cffi.requests import AsyncSession
+from utils.session import build_session
 
 
 def _wav_to_ogg_opus(wav_bytes: bytes) -> tuple:
@@ -127,8 +128,8 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
     token = channel._state.http.token
     channel_id = channel.id
 
-    async with AsyncSession(impersonate="chrome") as session:
-        _auth = {"Authorization": token, "Content-Type": "application/json"}
+    async with build_session(token) as session:
+        _auth = {"Content-Type": "application/json"}  # Authorization injected by build_session
 
         # Step 1: request upload slot
         upload_resp = await session.post(
