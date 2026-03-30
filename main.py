@@ -416,50 +416,50 @@ async def _reply_pending_messages():
 async def _friend_request_loop():
     """On startup, accept any pending friend requests using the raw HTTP API."""
     await bot.wait_until_ready()
+    # Give discord.py-self time to fully populate the relationship cache
+    # after the READY payload — it's available slightly after wait_until_ready()
+    await asyncio.sleep(5)
     fr_cfg = config["bot"].get("friend_requests") or {}
     if not fr_cfg.get("enabled", False):
         return
     delay = fr_cfg.get("accept_delay", 300)
 
     try:
-        for i, relationship in enumerate(list(bot.relationships)):
-            if relationship.type == discord.RelationshipType.incoming_request:
-                user = relationship.user
-                # Spread each pending request across a random window so they
-                # don't all land at the exact same second after startup.
-                # Each one gets: base delay + a random per-request offset so
-                # even two requests accepted "at the same time" are minutes apart.
-                spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
-                actual_delay = delay + spread
-                log_system(f"Pending friend request from {user.name} — accepting in {actual_delay}s")
+        pending = [r for r in bot.relationships if r.type == discord.RelationshipType.incoming_request]
+        log_system(f"Friend requests: found {len(pending)} pending on startup")
+        for i, relationship in enumerate(pending):
+            user = relationship.user
+            # Spread each pending request across a random window so they
+            # don't all land at the exact same second after startup.
+            spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
+            actual_delay = delay + spread
+            log_system(f"Pending friend request from {user.name} — accepting in {actual_delay}s")
 
-                async def _accept(u=user, d=actual_delay):
-                    await asyncio.sleep(d)
-                    try:
-                        token = bot._connection.http.token
-                        async with AsyncSession(impersonate="chrome") as session:
-                            resp = await session.put(
-                                f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
-                                headers={
-                                    "Authorization": token,
-                                    "Content-Type": "application/json",
-                                    # Optional: add a matching User-Agent if you want extra consistency
-                                    # "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-                                },
-                                json={"type": 1},
-                            )
-                            if resp.status_code in (200, 204):
-                                log_system(f"Accepted friend request from {u.name}")
-                            else:
-                                try:
-                                    data = resp.json()
-                                    log_error("Friend Request Error", f"{resp.status_code}: {data}")
-                                except:
-                                    log_error("Friend Request Error", f"{resp.status_code}: {resp.text}")
-                    except Exception as e:
-                        log_error("Friend Request Loop", str(e))
+            async def _accept(u=user, d=actual_delay):
+                await asyncio.sleep(d)
+                try:
+                    token = bot._connection.http.token
+                    async with AsyncSession(impersonate="chrome") as session:
+                        resp = await session.put(
+                            f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
+                            headers={
+                                "Authorization": token,
+                                "Content-Type": "application/json",
+                            },
+                            json={"type": 1},
+                        )
+                        if resp.status_code in (200, 204):
+                            log_system(f"Accepted friend request from {u.name}")
+                        else:
+                            try:
+                                data = resp.json()
+                                log_error("Friend Request Error", f"{resp.status_code}: {data}")
+                            except Exception:
+                                log_error("Friend Request Error", f"{resp.status_code}: {resp.text}")
+                except Exception as e:
+                    log_error("Friend Request Loop", str(e))
 
-                asyncio.create_task(_accept())
+            asyncio.create_task(_accept())
     except Exception as e:
         log_error("Friend Request Loop", str(e))
 
@@ -976,7 +976,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     bot._memory_call_counter[uid] = bot._memory_call_counter.get(uid, 0) + 1
 
                     current_mem = bot._memory_cache.get(uid, {})
-                    if current_mem and len(prompt) >= 20:
+                    if current_mem:
                         keys_to_delete = await detect_memory_deletion(prompt, current_mem)
                         for key in keys_to_delete:
                             if key in current_mem:
@@ -984,7 +984,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                                 bot._memory_cache.get(uid, {}).pop(key, None)
                                 log_system(f"Memory deleted for {message.author.name}: {key}")
 
-                    if bot._memory_call_counter[uid] >= 8 and len(prompt) >= 15:
+                    if bot._memory_call_counter[uid] >= 4 and len(prompt) >= 15:
                         bot._memory_call_counter[uid] = 0
                         current_mem_snapshot = dict(bot._memory_cache.get(uid, {}))
                         facts = await extract_memory(prompt, response, existing_memory=current_mem_snapshot)
@@ -1082,7 +1082,27 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         except Exception as e:
             log_error("TTS Failed", str(e))
 
-    chunks = split_response(response)
+    if len(response) > 80:
+        try:
+            split_instructions = (
+                "You are a message splitter. Split into 1-3 messages. Return ONLY a JSON array of strings."
+            )
+            split_resp = await generate_response(
+                "Split this: " + response,
+                split_instructions,
+                history=None,
+            )
+            import json as _json
+            split_resp = split_resp.strip()
+            if split_resp.startswith("["):
+                parsed = _json.loads(split_resp)
+                chunks = [s.strip() for s in parsed if s.strip()]
+            else:
+                chunks = split_response(response)
+        except Exception:
+            chunks = split_response(response)
+    else:
+        chunks = split_response(response)
 
     if len(chunks) > 3:
         chunks = chunks[:3]
