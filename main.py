@@ -164,6 +164,10 @@ def create_bot() -> commands.Bot:
     b._memory_cache = {}
     b._memory_call_counter = {}
     b.paused_users = set()
+    # Global send lock: ensures only one message is being sent at a time across ALL users.
+    # This prevents two concurrent generate_response_and_reply calls from racing each other
+    # and causing messages to arrive out-of-order or simultaneously.
+    b.global_send_lock = Lock()
     return b
 
 
@@ -871,6 +875,15 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     late_opener = ""
     if _LATE_CFG.get("enabled", True) and wait_time >= _LATE_CFG.get("threshold", 300):
         late_opener = get_late_opener(prompt)
+        # Inject the opener as a system instruction so the AI weaves it in naturally
+        # rather than prepending it raw (which caused punctuation clashes and double apologies).
+        # The AI will open its reply with something like this phrase — we do NOT prepend anymore.
+        enriched_instructions += (
+            f"\n\n[LATE REPLY: You took a while to respond. Open your reply naturally "
+            f"with something like: \"{late_opener.strip()}\" — weave it in as the very "
+            f"first words of your message, then continue normally. Do NOT add 'sorry' again "
+            f"later in the message and do NOT start with a comma or dash.]"
+        )
 
     if len(history) > 20:
         try:
@@ -954,7 +967,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     log_error("Memory Error", str(mem_err))
 
                 if late_opener:
-                    response = late_opener + response
+                    # Opener is already handled via system instruction injection above —
+                    # no raw prepend needed. Just log that a late-reply opener was requested.
+                    log_system(f"Late reply opener injected for {message.author.name}")
 
                 break
 
@@ -1055,72 +1070,73 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     if len(chunks) > 3:
         chunks = chunks[:3]
 
-    pics_cfg = config["bot"].get("pictures") or {}
-    if pics_cfg.get("enabled", True) and _is_picture_request(prompt):
-        all_pics = _get_random_picture()
-        if all_pics:
-            uid = message.author.id
-            sent = bot.sent_pictures.get(uid, set())
-            available = [p for p in all_pics if p[1] not in sent]
-            if not available:
-                bot.sent_pictures[uid] = set()
-                available = all_pics
-            pic_type, pic_value, _pic_desc = random.choice(available)
-            bot.sent_pictures.setdefault(uid, set()).add(pic_value)
+    async with bot.global_send_lock:
+        pics_cfg = config["bot"].get("pictures") or {}
+        if pics_cfg.get("enabled", True) and _is_picture_request(prompt):
+            all_pics = _get_random_picture()
+            if all_pics:
+                uid = message.author.id
+                sent = bot.sent_pictures.get(uid, set())
+                available = [p for p in all_pics if p[1] not in sent]
+                if not available:
+                    bot.sent_pictures[uid] = set()
+                    available = all_pics
+                pic_type, pic_value, _pic_desc = random.choice(available)
+                bot.sent_pictures.setdefault(uid, set()).add(pic_value)
+                try:
+                    if bot.realistic_typing:
+                        await asyncio.sleep(random.uniform(1, 3))
+                    if pic_type == "file":
+                        f = discord.File(pic_value)
+                        if isinstance(message.channel, discord.DMChannel):
+                            await message.channel.send(file=f)
+                        else:
+                            await message.reply(file=f, mention_author=config["bot"]["reply_ping"])
+                    else:
+                        if isinstance(message.channel, discord.DMChannel):
+                            await message.channel.send(pic_value)
+                        else:
+                            await message.reply(pic_value, mention_author=config["bot"]["reply_ping"])
+                except Exception as _pe:
+                    log_error("Picture Send", str(_pe))
+
+        for i, chunk in enumerate(chunks):
+            if DISABLE_MENTIONS:
+                chunk = chunk.replace("@", "@\u200b")
+
+            if bot.anti_age_ban:
+                chunk = re.sub(
+                    r"(?<!\d)([0-9]|1[0-2])(?!\d)|\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
+                    "\u200b", chunk, flags=re.IGNORECASE
+                )
+
+            chunk = add_typo(chunk)
+            channel_name, guild_name = get_channel_context(message)
+            log_incoming(message.author.name, channel_name, guild_name, prompt)
+            log_response(message.author.name, chunk)
+            separator()
+
             try:
                 if bot.realistic_typing:
-                    await asyncio.sleep(random.uniform(1, 3))
-                if pic_type == "file":
-                    f = discord.File(pic_value)
-                    if isinstance(message.channel, discord.DMChannel):
-                        await message.channel.send(file=f)
-                    else:
-                        await message.reply(file=f, mention_author=config["bot"]["reply_ping"])
+                    pre_delay = random.uniform(2, 8) if i == 0 else random.uniform(12, 18)
+                    await asyncio.sleep(pre_delay)
+                    async with message.channel.typing():
+                        cps = random.uniform(7, 18)
+                        await asyncio.sleep(len(chunk) / cps)
                 else:
-                    if isinstance(message.channel, discord.DMChannel):
-                        await message.channel.send(pic_value)
-                    else:
-                        await message.reply(pic_value, mention_author=config["bot"]["reply_ping"])
-            except Exception as _pe:
-                log_error("Picture Send", str(_pe))
+                    if i > 0:
+                        await asyncio.sleep(random.uniform(12, 18))
 
-    for i, chunk in enumerate(chunks):
-        if DISABLE_MENTIONS:
-            chunk = chunk.replace("@", "@\u200b")
+                if isinstance(message.channel, discord.DMChannel):
+                    await message.channel.send(chunk)
+                else:
+                    await message.reply(chunk, mention_author=config["bot"]["reply_ping"])
 
-        if bot.anti_age_ban:
-            chunk = re.sub(
-                r"(?<!\d)([0-9]|1[0-2])(?!\d)|\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
-                "\u200b", chunk, flags=re.IGNORECASE
-            )
-
-        chunk = add_typo(chunk)
-        channel_name, guild_name = get_channel_context(message)
-        log_incoming(message.author.name, channel_name, guild_name, prompt)
-        log_response(message.author.name, chunk)
-        separator()
-
-        try:
-            if bot.realistic_typing:
-                pre_delay = random.uniform(2, 8) if i == 0 else random.uniform(12, 18)
-                await asyncio.sleep(pre_delay)
-                async with message.channel.typing():
-                    cps = random.uniform(7, 18)
-                    await asyncio.sleep(len(chunk) / cps)
-            else:
-                if i > 0:
-                    await asyncio.sleep(random.uniform(12, 18))
-
-            if isinstance(message.channel, discord.DMChannel):
-                await message.channel.send(chunk)
-            else:
-                await message.reply(chunk, mention_author=config["bot"]["reply_ping"])
-
-        except discord.Forbidden:
-            log_error("Reply Error", f"403 Forbidden — cannot send to {message.author.name}")
-            return None
-        except Exception as e:
-            log_error("Reply Error", str(e))
+            except discord.Forbidden:
+                log_error("Reply Error", f"403 Forbidden — cannot send to {message.author.name}")
+                return None
+            except Exception as e:
+                log_error("Reply Error", str(e))
 
     return response
 
