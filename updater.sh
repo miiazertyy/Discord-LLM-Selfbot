@@ -1,5 +1,4 @@
 #!/bin/bash
-set -euo pipefail
 
 export GIT_EDITOR=true
 export GIT_TERMINAL_PROMPT=0
@@ -7,12 +6,12 @@ export GIT_TERMINAL_PROMPT=0
 cd "$(dirname "$0")"
 
 echo "Waiting for bot to shut down..."
-sleep 3
+sleep 4
 
 echo "Pulling latest changes from GitHub..."
-git stash --include-untracked
+git stash --include-untracked 2>/dev/null || true
 git pull origin main
-git stash pop
+git stash pop 2>/dev/null || true
 
 echo "Deleting bot-env..."
 rm -rf bot-env
