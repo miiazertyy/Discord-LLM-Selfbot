@@ -170,7 +170,15 @@ def create_bot() -> commands.Bot:
 bot = create_bot()
 
 def is_refusal(text: str) -> bool:
-    lowered = text.lower()
+    # Normalize smart/curly apostrophes and quotes to plain ASCII so phrases match
+    # regardless of which apostrophe variant the model outputs
+    lowered = (
+        text.lower()
+        .replace("\u2019", "'")   # right single quotation mark '
+        .replace("\u2018", "'")   # left single quotation mark '
+        .replace("\u201c", '"')   # left double quotation mark "
+        .replace("\u201d", '"')   # right double quotation mark "
+    )
     return any(phrase in lowered for phrase in REFUSAL_PHRASES)
 
 def get_channel_context(message):
