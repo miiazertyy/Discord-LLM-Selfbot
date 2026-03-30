@@ -44,6 +44,7 @@ class General(commands.Cog):
             "  💬  Replies",
             f"  {p}reply <user>             manually reply to a user's last message",
             f"  {p}reply check              show users with unread messages",
+            f"  {p}reply all                respond to all users with unread messages",
             f"  = [hint]                  priority reply (send in any channel)",
             "─────────────────────────────",
             "  ⚙️   Instructions & Config",
@@ -81,7 +82,7 @@ class General(commands.Cog):
             f"  {p}update                   update to latest release",
             f"  {p}update main              update to latest commit",
             f"  {p}getdb                    download memory database",
-            f"  {p}leaderboard              show top users by message count",
+            f"  {p}leaderboard [filter]     show top users (e.g. {p}leaderboard 3d / 1w)",
             f"  {p}ping                     show latency",
             "```",
         ]
