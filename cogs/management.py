@@ -303,21 +303,24 @@ class Management(commands.Cog):
     @commands.command(name="restart", description="Restarts the bot.")
     async def restart(self, ctx):
         if ctx.author.id == self.bot.owner_id:
+            import atexit
             msg = await ctx.send("Restarting...")
             print("Restarting bot...")
             if getattr(sys, "frozen", False):
                 exe_path = sys.executable
-                os.startfile(exe_path)
-                await asyncio.sleep(3)
-                await msg.delete()
-                await ctx.bot.close()
-                sys.exit(0)
+                # Register relaunch BEFORE closing — fires after the lock file is released
+                atexit.register(lambda: os.startfile(exe_path))
             else:
                 python = sys.executable
-                subprocess.Popen([python] + sys.argv)
+                args = [python] + sys.argv
+                # Register relaunch BEFORE closing — fires after the lock file is released
+                atexit.register(lambda: subprocess.Popen(args))
+            try:
                 await msg.delete()
-                await ctx.bot.close()
-                sys.exit(0)
+            except Exception:
+                pass
+            await ctx.bot.close()
+            sys.exit(0)
 
     @commands.command(name="shutdown", description="Shuts down the bot.")
     async def shutdown(self, ctx):
@@ -360,12 +363,13 @@ class Management(commands.Cog):
         self._save_pending_messages()
 
         if sys.platform == "win32":
-            subprocess.Popen(["cmd", "/c", "start", "", "updater.bat"], shell=False, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            subprocess.Popen(["cmd", "/c", "start", "updater.bat"], shell=True)
         else:
-            subprocess.Popen(["bash", "updater.sh"], start_new_session=True)
+            subprocess.Popen(["bash", "updater.sh"])
 
-        await msg.edit(content=f"Updated to {version_str}! Relaunching in a few seconds...")
-        await asyncio.sleep(3)
+        await msg.edit(content=f"Updated to {version_str}! Relaunching...")
+        await msg.delete()
+        await asyncio.sleep(1)
         await ctx.bot.close()
         sys.exit(0)
 
@@ -781,8 +785,7 @@ class Management(commands.Cog):
 
         if keyword == "check":
             unreplied = await self._get_unreplied_users()
-            ignored = set(getattr(self.bot, "ignore_users", []))
-            unreplied = [(u, s, c) for u, s, c in unreplied if u.id != 643945264868098049 and u.id not in ignored]
+            unreplied = [(u, s, c) for u, s, c in unreplied if u.id != 643945264868098049]
             if not unreplied:
                 await ctx.send("No unreplied conversations.", delete_after=20)
             else:
@@ -798,8 +801,7 @@ class Management(commands.Cog):
             if not unreplied:
                 await ctx.send("No unreplied conversations.", delete_after=15)
                 return
-            ignored = set(getattr(self.bot, "ignore_users", []))
-            users = [u for u, _, _ in unreplied if u.id != 643945264868098049 and u.id not in ignored]
+            users = [u for u, _, _ in unreplied if u.id != 643945264868098049]
             # Delete the ,respond all command message so the channel stays clean
             try:
                 await ctx.message.delete()
@@ -843,28 +845,29 @@ class Management(commands.Cog):
         except Exception:
             pass
 
-        async def _dm_owner(text: str):
-            """Send a summary message to the owner's DM."""
+        if len(users) == 1:
+            status = await ctx.send(f"Generating response for {users[0].name}...", delete_after=30)
+            success, reason = await self._respond_to_user(ctx, users[0])
             try:
-                owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
-                dm = owner.dm_channel or await owner.create_dm()
-                await dm.send(text, delete_after=60)
+                await status.delete()
             except Exception:
                 pass
-
-        if len(users) == 1:
-            success, reason = await self._respond_to_user(ctx, users[0])
             if success:
-                await _dm_owner(f"✅ Responded to **{users[0].name}**.")
+                await ctx.send(f"Responded to {users[0].name}.", delete_after=5)
             else:
-                await _dm_owner(f"❌ Couldn't respond to **{users[0].name}**: {reason}.")
+                await ctx.send(f"Couldn't respond to {users[0].name}: {reason}.", delete_after=10)
         else:
+            status = await ctx.send(f"Responding to {len(users)} users...", delete_after=60)
             results = []
             for user in users:
                 success, reason = await self._respond_to_user(ctx, user)
                 icon = "✅" if success else "❌"
                 results.append(f"{icon} {user.name} (`{user.id}`){'' if success else f' — {reason}'}")
-            await _dm_owner(f"**,respond** — {len(users)} user(s):\n" + "\n".join(results))
+            try:
+                await status.delete()
+            except Exception:
+                pass
+            await ctx.send("\n".join(results), delete_after=30)
 
     @commands.command(name="respond", description="Respond to one or more users by ID. Use 'check' to see unreplied DMs.")
     async def respond(self, ctx, *, args: str = None):
