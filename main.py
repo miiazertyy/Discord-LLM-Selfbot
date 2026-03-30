@@ -823,7 +823,7 @@ def _get_random_picture() -> list | None:
     return files if files else None
 
 
-async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0, bypass_cooldown=False):
+async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0, bypass_cooldown=False, bypass_typing=False):
     uid = message.author.id
     if uid not in bot._memory_cache:
         bot._memory_cache[uid] = get_memory(uid)
@@ -946,7 +946,8 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     # Simulate Discord "seen" receipt: the bot has opened the DM and is reading
     # before it starts typing. Only applies to DMs where read receipts are visible.
-    if isinstance(message.channel, discord.DMChannel) and bot.realistic_typing:
+    # Skipped when bypass_typing=True (e.g. ,respond owner commands).
+    if isinstance(message.channel, discord.DMChannel) and bot.realistic_typing and not bypass_typing:
         _read_delay = random.uniform(2.5, 8.0)
         await asyncio.sleep(_read_delay)
 
@@ -1163,14 +1164,14 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             separator()
 
             try:
-                if bot.realistic_typing:
+                if bot.realistic_typing and not bypass_typing:
                     pre_delay = random.uniform(2, 8) if i == 0 else random.uniform(12, 18)
                     await asyncio.sleep(pre_delay)
                     async with message.channel.typing():
                         cps = random.uniform(7, 18)
                         await asyncio.sleep(len(chunk) / cps)
                 else:
-                    if i > 0:
+                    if i > 0 and not bypass_typing:
                         await asyncio.sleep(random.uniform(12, 18))
 
                 if isinstance(message.channel, discord.DMChannel):
