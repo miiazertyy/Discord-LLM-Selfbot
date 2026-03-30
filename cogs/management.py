@@ -378,8 +378,8 @@ class Management(commands.Cog):
 
         await asyncio.sleep(1)
 
-        # Resolve updater path relative to this file so it works regardless of cwd
-        _base = os.path.dirname(os.path.abspath(__file__))
+        # management.py lives in cogs/, so go up one level to reach the project root
+        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if sys.platform == "win32":
             updater_path = os.path.join(_base, "updater.bat")
             subprocess.Popen(
@@ -687,6 +687,7 @@ class Management(commands.Cog):
 
         recent_msgs = list(reversed(recent_msgs))
         combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
+        last_msg = recent_msgs[-1]
 
         key = f"{user.id}-{target_channel.id}"
         history = self.bot.message_history.get(key, [])
@@ -694,51 +695,29 @@ class Management(commands.Cog):
             history.append({"role": "user", "content": combined_content})
             self.bot.message_history[key] = history
 
-        # Call the AI directly and send via target_channel.send() so we never
-        # depend on a stale message.channel from a fetched historical message object.
-        from utils.ai import generate_response as _gen
-        from utils.split_response import split_response as _split
-        from utils.memory import format_memory_for_prompt, get_memory, get_persona
-        from utils.mood import get_mood_prompt
-        import random as _random
+        # Build a lightweight mock message so generate_response_and_reply gets a live
+        # channel (.send, .typing work) while all other attributes come from the real objects.
+        import types as _types
+        mock_msg = _types.SimpleNamespace(
+            author=user,
+            channel=target_channel,
+            content=combined_content,
+            attachments=[],
+            embeds=[],
+            reference=None,
+            flags=last_msg.flags,
+            guild=getattr(target_channel, 'guild', None),
+            id=last_msg.id,
+        )
 
-        uid = user.id
-        if uid not in self.bot._memory_cache:
-            self.bot._memory_cache[uid] = get_memory(uid)
-        memory_block = format_memory_for_prompt(self.bot._memory_cache[uid])
-        _mood_cfg = load_config()["bot"]["mood"]
-        mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if _mood_cfg.get("enabled", True) else ""
-        enriched = self.bot.instructions + mood_block + memory_block
-        _persona = get_persona(uid)
-        if _persona:
-            enriched += f"\n\n[PERSONA OVERRIDE FOR THIS USER: {_persona} Maintain this persona for the entirety of this conversation.]"
-
-        try:
-            response = await _gen(combined_content, enriched, history)
-        except Exception as e:
-            log_error("Respond AI", str(e))
-            return False, f"AI error: {e}"
-
-        if not response:
-            return False, "AI returned no response"
-
-        chunks = _split(response)
-        if len(chunks) > 3:
-            chunks = chunks[:3]
-
-        try:
-            for i, chunk in enumerate(chunks):
-                if i > 0:
-                    await asyncio.sleep(_random.uniform(1.5, 3.0))
-                await target_channel.send(chunk)
-        except discord.Forbidden:
-            return False, "403 Forbidden — DMs closed"
-        except Exception as e:
-            log_error("Respond Send", str(e))
-            return False, str(e)
-
-        self.bot.message_history[key].append({"role": "assistant", "content": response})
-        return True, "ok"
+        response = await self.bot.generate_response_and_reply(
+            mock_msg, combined_content, history,
+            bypass_cooldown=True, bypass_typing=True,
+        )
+        if response:
+            self.bot.message_history[key].append({"role": "assistant", "content": response})
+            return True, "ok"
+        return False, "couldn't generate a response"
 
     async def _get_unreplied_users(self):
         """Return list of (user, snippet, msg_count) for all unreplied conversations.
