@@ -976,7 +976,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                     bot._memory_call_counter[uid] = bot._memory_call_counter.get(uid, 0) + 1
 
                     current_mem = bot._memory_cache.get(uid, {})
-                    if current_mem:
+                    if current_mem and len(prompt) >= 20:
                         keys_to_delete = await detect_memory_deletion(prompt, current_mem)
                         for key in keys_to_delete:
                             if key in current_mem:
@@ -984,7 +984,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                                 bot._memory_cache.get(uid, {}).pop(key, None)
                                 log_system(f"Memory deleted for {message.author.name}: {key}")
 
-                    if bot._memory_call_counter[uid] >= 4 and len(prompt) >= 15:
+                    if bot._memory_call_counter[uid] >= 8 and len(prompt) >= 15:
                         bot._memory_call_counter[uid] = 0
                         current_mem_snapshot = dict(bot._memory_cache.get(uid, {}))
                         facts = await extract_memory(prompt, response, existing_memory=current_mem_snapshot)
@@ -1082,27 +1082,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         except Exception as e:
             log_error("TTS Failed", str(e))
 
-    if len(response) > 80:
-        try:
-            split_instructions = (
-                "You are a message splitter. Split into 1-3 messages. Return ONLY a JSON array of strings."
-            )
-            split_resp = await generate_response(
-                "Split this: " + response,
-                split_instructions,
-                history=None,
-            )
-            import json as _json
-            split_resp = split_resp.strip()
-            if split_resp.startswith("["):
-                parsed = _json.loads(split_resp)
-                chunks = [s.strip() for s in parsed if s.strip()]
-            else:
-                chunks = split_response(response)
-        except Exception:
-            chunks = split_response(response)
-    else:
-        chunks = split_response(response)
+    chunks = split_response(response)
 
     if len(chunks) > 3:
         chunks = chunks[:3]
