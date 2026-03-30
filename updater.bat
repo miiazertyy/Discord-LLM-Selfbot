@@ -17,5 +17,19 @@ call .\bot-env\Scripts\activate.bat
 pip install --upgrade pip
 pip install -r requirements.txt
 
+echo Checking for ffmpeg...
+where ffmpeg >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ffmpeg not found, installing via winget...
+    winget install --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements
+    if %errorlevel% neq 0 (
+        echo WARNING: ffmpeg install failed. Please install manually: https://ffmpeg.org/download.html
+    ) else (
+        echo ffmpeg installed successfully.
+    )
+) else (
+    echo ffmpeg already installed, skipping.
+)
+
 echo Update complete. Relaunching...
 call run.bat
