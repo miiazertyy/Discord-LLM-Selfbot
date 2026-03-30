@@ -5,12 +5,29 @@ export GIT_TERMINAL_PROMPT=0
 
 cd "$(dirname "$0")"
 
+SOURCE="${1:-main}"
+
 echo "Waiting for bot to shut down..."
 sleep 4
 
 echo "Pulling latest changes from GitHub..."
 git stash --include-untracked 2>/dev/null || true
-git pull origin main
+
+if [ "$SOURCE" = "release" ]; then
+    echo "Fetching latest release tag..."
+    git fetch --tags origin
+    LATEST_TAG=$(git tag --sort=-version:refname | head -n1)
+    if [ -n "$LATEST_TAG" ]; then
+        echo "Checking out release $LATEST_TAG..."
+        git checkout "$LATEST_TAG"
+    else
+        echo "No tags found, falling back to main..."
+        git pull origin main
+    fi
+else
+    git pull origin main
+fi
+
 git stash pop 2>/dev/null || true
 
 echo "Deleting bot-env..."
