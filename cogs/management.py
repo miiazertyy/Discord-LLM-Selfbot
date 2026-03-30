@@ -189,19 +189,24 @@ class Management(commands.Cog):
             return
 
         PER_PAGE = 5
-        medals = ["🥇", "🥈", "🥉"]
         total_pages = (len(rows) + PER_PAGE - 1) // PER_PAGE
 
         def build_page(page: int) -> str:
             start = page * PER_PAGE
             chunk = rows[start:start + PER_PAGE]
-            lines = [f"**📊 Top conversations** — {filter_label} — page {page + 1}/{total_pages}\n"]
+            medal_emojis = ["🥇", "🥈", "🥉"]
+
+            header = f"**📊 conversations** ・ {filter_label}\n**page {page + 1} / {total_pages}**\n─────────────────────"
+            entry_lines = []
             for i, row in enumerate(chunk):
                 rank_n = start + i
-                rank = medals[rank_n] if rank_n < 3 else f"`#{rank_n + 1}`"
+                rank_prefix = medal_emojis[rank_n] if rank_n < 3 else f"`#{rank_n + 1}`"
                 first_seen = datetime.fromtimestamp(row["first_seen"]).strftime("%d %b %Y")
-                lines.append(f"{rank} **{row['username']}** — {row['message_count']} msgs · since {first_seen}")
-            return "\n".join(lines)
+                msg_count = row["message_count"]
+                msg_label = f"{msg_count} msg{'s' if msg_count != 1 else ''}"
+                entry_lines.append(f"{rank_prefix} **{row['username']}**\n⠀⠀⠀`{msg_label}` · since {first_seen}")
+            footer = "─────────────────────"
+            return header + "\n" + "\n\n".join(entry_lines) + "\n" + footer
 
         current_page = 0
         msg = await ctx.send(build_page(current_page), delete_after=120)
