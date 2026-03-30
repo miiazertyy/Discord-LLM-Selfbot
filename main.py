@@ -946,7 +946,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     # Simulate Discord "seen" receipt: the bot has opened the DM and is reading
     # before it starts typing. Only applies to DMs where read receipts are visible.
-    # Skipped when bypass_typing=True (e.g. ,respond owner commands).
     if isinstance(message.channel, discord.DMChannel) and bot.realistic_typing and not bypass_typing:
         _read_delay = random.uniform(2.5, 8.0)
         await asyncio.sleep(_read_delay)
