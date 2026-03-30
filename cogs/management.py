@@ -32,8 +32,12 @@ class Management(commands.Cog):
         self.bot = bot
 
     async def cog_before_invoke(self, ctx):
-        import random
-        await __import__("asyncio").sleep(random.uniform(0.8, 2.5))
+        # Only add the human-like delay for non-owner users.
+        # All management commands are owner-only anyway, so this is a no-op guard
+        # to avoid making the owner wait on every command.
+        if ctx.author.id != self.bot.owner_id:
+            import random
+            await __import__("asyncio").sleep(random.uniform(0.8, 2.5))
 
     def save_config(self, new_config):
         config_path = resource_path("config/config.yaml")
@@ -289,7 +293,12 @@ class Management(commands.Cog):
     @commands.command(name="reload", description="Reloads all cogs and the bot instructions.")
     async def reload(self, ctx):
         if ctx.author.id == self.bot.owner_id:
-            for filename in os.listdir("./cogs"):
+            import sys as _sys
+            cogs_dir = os.path.join(getattr(_sys, "_MEIPASS", os.path.abspath(".")), "cogs")
+            if not os.path.exists(cogs_dir):
+                await ctx.send("No cogs directory found.", delete_after=10)
+                return
+            for filename in os.listdir(cogs_dir):
                 if filename.endswith(".py"):
                     try:
                         await self.bot.unload_extension(f"cogs.{filename[:-3]}")
@@ -362,14 +371,25 @@ class Management(commands.Cog):
 
         self._save_pending_messages()
 
-        if sys.platform == "win32":
-            subprocess.Popen(["cmd", "/c", "start", "updater.bat"], shell=True)
-        else:
-            subprocess.Popen(["bash", "updater.sh"])
+        try:
+            await msg.edit(content=f"Updating to {version_str}... launching updater, brb in a sec")
+        except Exception:
+            pass
 
-        await msg.edit(content=f"Updated to {version_str}! Relaunching...")
-        await msg.delete()
         await asyncio.sleep(1)
+
+        if sys.platform == "win32":
+            updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.bat")
+            subprocess.Popen(["cmd", "/c", "start", "", updater_path, source], shell=False)
+        else:
+            updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.sh")
+            subprocess.Popen(["bash", updater_path, source])
+
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
         await ctx.bot.close()
         sys.exit(0)
 
@@ -886,6 +906,11 @@ class Management(commands.Cog):
             return
 
         config = load_config()
+
+        # Sync live bot state into the loaded config so we don't overwrite in-memory toggles
+        config["bot"]["allow_dm"] = self.bot.allow_dm
+        config["bot"]["allow_gc"] = self.bot.allow_gc
+        config["bot"]["allow_server"] = getattr(self.bot, "allow_server", True)
 
         if key is None:
             bot_cfg = config["bot"]
