@@ -156,16 +156,37 @@ class Management(commands.Cog):
             await ctx.send(f"Error: {e}")
 
     @commands.command(name="leaderboard", aliases=["lb", "top"], description="Show the users who've talked to the bot the most.")
-    async def leaderboard(self, ctx):
+    async def leaderboard(self, ctx, *, filter_arg: str = None):
         if ctx.author.id != self.bot.owner_id:
             return
 
-        rows = get_leaderboard(limit=50)
-        if not rows:
-            await ctx.send("No conversations recorded yet.", delete_after=15)
-            return
-
+        # --- Parse optional time filter: 1h, 6h, 24h, 1d, 3d, 7d, 1w, 30d, 1m ---
+        import re as _re
+        import time as _time
         from datetime import datetime
+
+        since_ts = None
+        filter_label = "all time"
+        if filter_arg:
+            m = _re.fullmatch(r"(\d+(?:\.\d+)?)\s*([hdwm])", filter_arg.strip().lower())
+            if m:
+                amount, unit = float(m.group(1)), m.group(2)
+                seconds_map = {"h": 3600, "d": 86400, "w": 604800, "m": 2592000}
+                since_ts = _time.time() - amount * seconds_map[unit]
+                unit_names = {"h": "hour", "d": "day", "w": "week", "m": "month"}
+                n = int(amount) if amount == int(amount) else amount
+                filter_label = f"last {n} {unit_names[unit]}{'s' if n != 1 else ''}"
+            else:
+                await ctx.send(
+                    "Invalid filter. Examples: `,leaderboard 24h` · `,leaderboard 3d` · `,leaderboard 1w`",
+                    delete_after=15,
+                )
+                return
+
+        rows = get_leaderboard(limit=50, since=since_ts)
+        if not rows:
+            await ctx.send(f"No conversations recorded ({filter_label}).", delete_after=15)
+            return
 
         PER_PAGE = 5
         medals = ["🥇", "🥈", "🥉"]
@@ -174,7 +195,7 @@ class Management(commands.Cog):
         def build_page(page: int) -> str:
             start = page * PER_PAGE
             chunk = rows[start:start + PER_PAGE]
-            lines = [f"**📊 Top conversations** — page {page + 1}/{total_pages}\n"]
+            lines = [f"**📊 Top conversations** — {filter_label} — page {page + 1}/{total_pages}\n"]
             for i, row in enumerate(chunk):
                 rank_n = start + i
                 rank = medals[rank_n] if rank_n < 3 else f"`#{rank_n + 1}`"
@@ -648,6 +669,7 @@ class Management(commands.Cog):
 
         if args.strip().lower() == "check":
             unreplied = []
+            now = __import__("time").time()
             for key, history in self.bot.message_history.items():
                 if not history:
                     continue
@@ -655,7 +677,18 @@ class Management(commands.Cog):
                     try:
                         user_id = int(key.split("-")[0])
                         user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
-                        unreplied.append(f"• {user.name} (`{user_id}`)")
+                        # Collect all trailing unread user messages
+                        pending_msgs = []
+                        for entry in reversed(history):
+                            if entry["role"] == "user":
+                                pending_msgs.insert(0, entry["content"])
+                            else:
+                                break
+                        last_msg = pending_msgs[-1] if pending_msgs else ""
+                        snippet = (last_msg[:60] + "…") if len(last_msg) > 60 else last_msg
+                        msg_count = len(pending_msgs)
+                        count_label = f" ({msg_count} msg{'s' if msg_count > 1 else ''})" if msg_count > 1 else ""
+                        unreplied.append(f"• **{user.name}**{count_label} — `{snippet}`")
                     except Exception:
                         unreplied.append(f"• Unknown (`{key.split('-')[0]}`)")
             if not unreplied:
