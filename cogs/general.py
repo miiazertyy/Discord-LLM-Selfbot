@@ -101,7 +101,7 @@ class General(commands.Cog):
     )
     @commands.cooldown(1, 300, commands.BucketType.user)
     async def analyse(self, ctx, user: discord.User):
-        temp = await ctx.send(f"Analysing {user.name}'s message history...")
+        temp = await ctx.send(f"Analysing {user.name}'s message history...", delete_after=60)
 
         message_history = []
         async for message in ctx.channel.history(limit=200):
@@ -125,20 +125,20 @@ class General(commands.Cog):
         async def generate_response_in_thread(prompt):
             try:
                 if not message_history:
-                    await temp.edit(content=f"No messages found for {user.name} in this channel.")
+                    await temp.edit(content=f"No messages found for {user.name} in this channel.", delete_after=15)
                     return
 
                 response = await generate_response(prompt, instructions, history=None)
                 if not response:
-                    await temp.edit(content="Couldn't generate a response.")
+                    await temp.edit(content="Couldn't generate a response.", delete_after=15)
                     return
                 chunks = split_response(response)
                 await temp.delete()
                 for chunk in chunks:
-                    await ctx.reply(chunk)
+                    await ctx.reply(chunk, delete_after=120)
             except Exception as e:
                 try:
-                    await temp.edit(content="Something went wrong.")
+                    await temp.edit(content="Something went wrong.", delete_after=15)
                 except Exception:
                     pass
                 await webhook_log(ctx.message, e)
