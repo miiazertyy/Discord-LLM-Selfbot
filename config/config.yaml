@@ -133,12 +133,6 @@ bot:
       - "mdrr"
       - "ptdr"
 
-
-  # --- Friend request auto-accept ---
-  friend_requests:
-    enabled: true
-    accept_delay: 300  # 5 minutes
-
   nudge:
     enabled: false          # flip to true to activate
     threshold_days: 2       # how long before a nudge fires
