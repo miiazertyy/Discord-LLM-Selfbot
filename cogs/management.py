@@ -804,34 +804,48 @@ class Management(commands.Cog):
         keyword = args.strip().lower()
 
         if keyword == "check":
+            status_msg = await ctx.send("🔍 Checking for unreplied conversations...", delete_after=60)
             unreplied = await self._get_unreplied_users()
             unreplied = [(u, s, c) for u, s, c in unreplied if u.id != 643945264868098049]
             if not unreplied:
-                await ctx.send("No unreplied conversations.", delete_after=20)
+                try:
+                    await status_msg.edit(content="No unreplied conversations.")
+                except Exception:
+                    await ctx.send("No unreplied conversations.", delete_after=20)
             else:
                 lines_out = []
                 for user, snippet, msg_count in unreplied:
                     count_label = f" ({msg_count} msg{'s' if msg_count > 1 else ''})" if msg_count > 1 else ""
                     lines_out.append(f"\u2022 **{user.name}**{count_label} \u2014 `{snippet}`")
-                await ctx.send("**Unreplied conversations:**\n" + "\n".join(lines_out), delete_after=60)
+                result_text = "**Unreplied conversations:**\n" + "\n".join(lines_out)
+                try:
+                    await status_msg.edit(content=result_text)
+                except Exception:
+                    await ctx.send(result_text, delete_after=60)
             return
 
         if keyword == "all":
+            status_msg = await ctx.send("🔍 Checking for unreplied conversations...", delete_after=120)
             unreplied = await self._get_unreplied_users()
             if not unreplied:
-                await ctx.send("No unreplied conversations.", delete_after=15)
+                try:
+                    await status_msg.edit(content="No unreplied conversations.")
+                except Exception:
+                    pass
                 return
             ignored = set(getattr(self.bot, "ignore_users", []))
             users = [u for u, _, _ in unreplied if u.id != 643945264868098049 and u.id not in ignored]
             if not users:
-                await ctx.send("No unreplied conversations.", delete_after=15)
+                try:
+                    await status_msg.edit(content="No unreplied conversations.")
+                except Exception:
+                    pass
                 return
             try:
                 await ctx.message.delete()
             except Exception:
                 pass
 
-            # Send an immediate acknowledgement so the owner knows it started
             async def _dm_owner_status(text: str):
                 try:
                     owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
@@ -840,10 +854,17 @@ class Management(commands.Cog):
                 except Exception:
                     pass
 
-            await _dm_owner_status(f"⏳ **,respond all** — replying to {len(users)} user(s)...")
+            try:
+                await status_msg.edit(content=f"⏳ Replying to {len(users)} user(s)... (0/{len(users)})")
+            except Exception:
+                pass
 
             results_out = []
-            for user in users:
+            for i, user in enumerate(users, 1):
+                try:
+                    await status_msg.edit(content=f"⏳ Replying to {len(users)} user(s)... ({i}/{len(users)}) — **{user.name}**")
+                except Exception:
+                    pass
                 try:
                     success, reason = await self._respond_to_user(ctx, user)
                     icon = "✅" if success else "❌"
@@ -851,24 +872,29 @@ class Management(commands.Cog):
                 except Exception as e:
                     results_out.append(f"❌ **{user.name}** — error: {e}")
 
-            summary = f"**,respond all** — {len(users)} user(s):\n" + "\n".join(results_out)
-            # Discord message limit: split if too long
-            if len(summary) > 1900:
-                chunks = []
-                lines = summary.split("\n")
-                current = ""
-                for line in lines:
-                    if len(current) + len(line) + 1 > 1900:
+            final_text = f"✅ Done — {len(users)} user(s):\n" + "\n".join(results_out)
+            try:
+                if len(final_text) <= 1900:
+                    await status_msg.edit(content=final_text)
+                else:
+                    try:
+                        await status_msg.delete()
+                    except Exception:
+                        pass
+                    chunks = []
+                    current = f"✅ Done — {len(users)} user(s):"
+                    for line in results_out:
+                        if len(current) + len(line) + 1 > 1900:
+                            chunks.append(current)
+                            current = line
+                        else:
+                            current += "\n" + line
+                    if current:
                         chunks.append(current)
-                        current = line
-                    else:
-                        current += ("\n" if current else "") + line
-                if current:
-                    chunks.append(current)
-                for chunk in chunks:
-                    await _dm_owner_status(chunk)
-            else:
-                await _dm_owner_status(summary)
+                    for chunk in chunks:
+                        await _dm_owner_status(chunk)
+            except Exception:
+                await _dm_owner_status(final_text)
             return
 
         raw_ids = [x.strip().strip("<@!>") for x in re.split(r"[,\s]+", args) if x.strip()]
@@ -903,18 +929,32 @@ class Management(commands.Cog):
                 pass
 
         if len(users) == 1:
+            status_msg = await ctx.send(f"⏳ Replying to **{users[0].name}**...", delete_after=60)
             success, reason = await self._respond_to_user(ctx, users[0])
-            if success:
-                await _dm_owner(f"✅ Responded to **{users[0].name}**.")
-            else:
-                await _dm_owner(f"❌ Couldn't respond to **{users[0].name}**: {reason}.")
+            result_text = f"✅ Replied to **{users[0].name}**." if success else f"❌ Couldn't reply to **{users[0].name}**: {reason}."
+            try:
+                await status_msg.edit(content=result_text)
+            except Exception:
+                await _dm_owner(result_text)
         else:
+            names = ", ".join(f"**{u.name}**" for u in users)
+            status_msg = await ctx.send(f"⏳ Replying to {len(users)} users... (0/{len(users)})", delete_after=120)
             results = []
-            for user in users:
+            for i, user in enumerate(users, 1):
+                try:
+                    await status_msg.edit(content=f"⏳ Replying to {len(users)} users... ({i}/{len(users)}) — **{user.name}**")
+                except Exception:
+                    pass
                 success, reason = await self._respond_to_user(ctx, user)
                 icon = "✅" if success else "❌"
                 results.append(f"{icon} {user.name} (`{user.id}`){'' if success else f' — {reason}'}")
-            await _dm_owner(f"**,respond** — {len(users)} user(s):\n" + "\n".join(results))
+            final_text = f"✅ Done — {len(users)} user(s):\n" + "\n".join(results)
+            try:
+                await status_msg.edit(content=final_text if len(final_text) <= 1900 else f"✅ Done — {len(users)} user(s). See DM for details.")
+            except Exception:
+                pass
+            if len(final_text) > 1900:
+                await _dm_owner(final_text)
 
     @commands.command(name="respond", description="Respond to one or more users by ID. Use 'check' to see unreplied DMs.")
     async def respond(self, ctx, *, args: str = None):
