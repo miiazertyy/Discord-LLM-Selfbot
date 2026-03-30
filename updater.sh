@@ -37,5 +37,22 @@ source bot-env/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
+echo "Checking for ffmpeg..."
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "ffmpeg not found, installing..."
+    if command -v apt-get >/dev/null; then
+        apt-get update && apt-get install -y ffmpeg
+    elif command -v dnf >/dev/null; then
+        dnf install -y ffmpeg
+    elif command -v brew >/dev/null; then
+        brew install ffmpeg
+    else
+        echo "WARNING: No supported package manager found. Please install ffmpeg manually: https://ffmpeg.org/download.html"
+    fi
+    echo "ffmpeg installed successfully."
+else
+    echo "ffmpeg already installed, skipping."
+fi
+
 echo "Update complete. Relaunching..."
 bash run.sh
