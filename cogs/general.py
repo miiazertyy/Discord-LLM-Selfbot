@@ -83,6 +83,7 @@ class General(commands.Cog):
             f"  {p}mood [name]              view or set current mood",
             "─────────────────────────────",
             "  🛠️   System",
+            f"  {p}addfriend <user_id>       send a friend request by user ID",
             f"  {p}reload                   reload all cogs + instructions",
             f"  {p}restart                  restart the bot",
             f"  {p}shutdown                 shut down the bot",
