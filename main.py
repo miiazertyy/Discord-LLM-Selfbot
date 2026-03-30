@@ -55,7 +55,7 @@ def get_batch_wait_time():
 
 config = load_config()
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history, detect_language, generate_nudge, reset_client_index
+from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history, detect_language, generate_nudge, reset_client_index, fallback_model
 from dotenv import load_dotenv
 from discord.ext import commands
 from utils.split_response import split_response
@@ -170,6 +170,7 @@ def create_bot() -> commands.Bot:
     # and causing messages to arrive out-of-order or simultaneously.
     b.global_send_lock = Lock()
     b.last_global_send = 0.0  # timestamp of last sent message across all users
+    b._lang_cache = {}  # uid -> {"tag": str, "count": int}
     return b
 
 
@@ -230,7 +231,36 @@ def add_typo(text):
     return " ".join(words)
 
 
-async def random_status_loop():
+async def _cleanup_loop():
+    """Periodically prune unbounded in-memory dicts to prevent slow memory leaks."""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        await asyncio.sleep(3600)  # run every hour
+        now = time.time()
+        # Prune spam counters for users quiet for > 5 minutes
+        stale_counts = [uid for uid, times in bot.user_message_counts.items()
+                        if not times or now - max(times) > 300]
+        for uid in stale_counts:
+            bot.user_message_counts.pop(uid, None)
+        # Prune expired cooldowns
+        expired_cd = [uid for uid, end in bot.user_cooldowns.items() if now > end]
+        for uid in expired_cd:
+            bot.user_cooldowns.pop(uid, None)
+        # Prune stale active_conversations (already expired by CONVERSATION_TIMEOUT, just clean up)
+        stale_conv = [k for k, t in bot.active_conversations.items()
+                      if now - t > CONVERSATION_TIMEOUT * 2]
+        for k in stale_conv:
+            bot.active_conversations.pop(k, None)
+        # Prune lang cache for users not seen in 24h (count resets naturally but entries accumulate)
+        if len(bot._lang_cache) > 500:
+            bot._lang_cache.clear()
+        # Prune per-user picture sent sets — reset after 100 unique users to avoid unbounded growth
+        if len(bot.sent_pictures) > 100:
+            bot.sent_pictures.clear()
+        log_system(f"Cleanup: pruned {len(stale_counts)} count(s), {len(expired_cd)} cooldown(s), {len(stale_conv)} conversation(s)")
+
+
+
     await bot.wait_until_ready()
     status_map = {
         "online": discord.Status.online,
@@ -535,6 +565,7 @@ async def on_ready():
         asyncio.create_task(random_status_loop())
 
     asyncio.create_task(_reply_pending_messages())
+    asyncio.create_task(_cleanup_loop())
 
     nudge_cfg = config["bot"].get("nudge") or {}
     if nudge_cfg.get("enabled", False):
@@ -668,13 +699,6 @@ async def is_trigger_message(message):
     )
 
 
-def update_message_history(author_id, message_content):
-    if author_id not in bot.message_history:
-        bot.message_history[author_id] = []
-    bot.message_history[author_id].append(message_content)
-    bot.message_history[author_id] = bot.message_history[author_id][-MAX_HISTORY:]
-
-
 _profile_cache: dict = {}  # user_id -> bio string, in-memory layer on top of DB
 
 async def _get_user_profile_block(user) -> str:
@@ -758,28 +782,29 @@ def _extract_image_url_from_message(message) -> str | None:
     return None
 
 
+_PICTURE_REQUEST_PATTERNS = [re.compile(p, re.IGNORECASE) for p in [
+    r"\b(send|show|post|drop|share).{0,20}(photo|pic|picture|selfie|image|face|look)\b",
+    r"\b(photo|pic|picture|selfie|image).{0,15}(of you|of u|yourself|ur face|your face)\b",
+    r"\b(let me|can i|may i|wanna|want to|id like to).{0,15}(see|look at).{0,10}(you|ur face|your face|what you look)\b",
+    r"\bwhat (do you|does she|u) look like\b",
+    r"\bshow me (you|ur|your)\b",
+    r"\blet me see you\b",
+    r"\bcan i see (you|ur|your|what you)\b",
+    r"\bi wanna see (you|ur|your)\b",
+    r"\bsend (me )?(a )?(pic|photo|selfie|image)\b",
+    r"(envoie|montre|montre.moi|partage).{0,20}(photo|pic|selfie|image|tete|t[eê]te|gueule|visage|face)",
+    r"(voir|see).{0,15}(ta |ton |te |t').{0,10}(tete|t[eê]te|gueule|visage|face|photo|pic|selfie)",
+    r"(je peux|je pourrais|puis.je|peux.tu).{0,20}(voir|see).{0,20}(toi|tete|t[eê]te|gueule|visage|photo|face)",
+    r"t.as.{0,10}(photo|pic|selfie|image)",
+    r"(a quoi|[àa] quoi).{0,15}ressemble",
+    r"ta (tete|t[eê]te|gueule|visage|face)",
+    r"\b(face|look).{0,10}(like|at).{0,10}(you|u)\b",
+]]
+
+
 def _is_picture_request(text: str) -> bool:
     """Detect if the user is asking for a picture/selfie of the bot."""
-    patterns = [
-        r"\b(send|show|post|drop|share).{0,20}(photo|pic|picture|selfie|image|face|look)\b",
-        r"\b(photo|pic|picture|selfie|image).{0,15}(of you|of u|yourself|ur face|your face)\b",
-        r"\b(let me|can i|may i|wanna|want to|id like to).{0,15}(see|look at).{0,10}(you|ur face|your face|what you look)\b",
-        r"\bwhat (do you|does she|u) look like\b",
-        r"\bshow me (you|ur|your)\b",
-        r"\blet me see you\b",
-        r"\bcan i see (you|ur|your|what you)\b",
-        r"\bi wanna see (you|ur|your)\b",
-        r"\bsend (me )?(a )?(pic|photo|selfie|image)\b",
-        r"(envoie|montre|montre.moi|partage).{0,20}(photo|pic|selfie|image|tete|t[eê]te|gueule|visage|face)",
-        r"(voir|see).{0,15}(ta |ton |te |t').{0,10}(tete|t[eê]te|gueule|visage|face|photo|pic|selfie)",
-        r"(je peux|je pourrais|puis.je|peux.tu).{0,20}(voir|see).{0,20}(toi|tete|t[eê]te|gueule|visage|photo|face)",
-        r"t.as.{0,10}(photo|pic|selfie|image)",
-        r"(a quoi|[àa] quoi).{0,15}ressemble",
-        r"ta (tete|t[eê]te|gueule|visage|face)",
-        r"\b(face|look).{0,10}(like|at).{0,10}(you|u)\b",
-    ]
-    compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
-    return any(p.search(text) for p in compiled)
+    return any(p.search(text) for p in _PICTURE_REQUEST_PATTERNS)
 
 
 def _get_random_picture() -> list | None:
@@ -843,8 +868,6 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     # Detect the user's language — cached per user, re-checked every 5 messages
     # to catch language drift without firing a Groq call on every single message.
-    if not hasattr(bot, "_lang_cache"):
-        bot._lang_cache = {}  # uid -> {"tag": str, "count": int}
     _lang_entry = bot._lang_cache.get(uid, {"tag": "en", "count": 0})
     _lang_entry["count"] += 1
     if _lang_entry["count"] == 1 or _lang_entry["count"] % 5 == 0:
@@ -868,10 +891,10 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     )
 
     pics_cfg = config["bot"].get("pictures") or {}
-    if pics_cfg.get("enabled", True) and _is_picture_request(prompt) and _get_random_picture():
-        # Peek at one picture's description to give the AI context about what it's "sending"
-        _peek_pics = _get_random_picture()
-        _peek_desc = _peek_pics[0][2] if _peek_pics else ""
+    _available_pics = _get_random_picture() if pics_cfg.get("enabled", True) and _is_picture_request(prompt) else None
+    if _available_pics:
+        _peek_desc = _available_pics[0][2] if _available_pics else ""
+    if _available_pics:
         enriched_instructions += (
             "\n\n[IMPORTANT: You are sending the user a photo of yourself right now as part of this reply. "
             + (f"The photo shows: {_peek_desc} " if _peek_desc else "")
@@ -919,6 +942,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     max_retries = 3
     response = None
+    _was_rate_limited = False
 
     # Simulate Discord "seen" receipt: the bot has opened the DM and is reading
     # before it starts typing. Only applies to DMs where read receipts are visible.
@@ -984,6 +1008,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         except Exception as e:
             error_msg = str(e)
             if "Rate limit reached" in error_msg or "rate_limit_exceeded" in error_msg:
+                _was_rate_limited = True
                 time_match = re.search(r"try again in (?:(\d+)m\s*)?(?:(\d+(?:\.\d+)?)s)?", error_msg)
                 if time_match:
                     minutes = int(time_match.group(1)) if time_match.group(1) else 0
@@ -1001,7 +1026,11 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             await asyncio.sleep(2)
 
     if not response:
-        log_error("AI Error", "Retrying one last time after wait...")
+        # Only do the long 120s wait if we actually hit a rate limit — for other
+        # failures (network errors, bad response) there's no point waiting that long.
+        if not _was_rate_limited:
+            return None
+        log_error("AI Error", "Retrying one last time after rate limit wait...")
         await asyncio.sleep(120)
         try:
             if image_url:
@@ -1089,34 +1118,34 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     async with bot.global_send_lock:
         pics_cfg = config["bot"].get("pictures") or {}
-        if pics_cfg.get("enabled", True) and _is_picture_request(prompt):
-            all_pics = _get_random_picture()
-            if all_pics:
-                uid = message.author.id
-                sent = bot.sent_pictures.get(uid, set())
-                available = [p for p in all_pics if p[1] not in sent]
-                if not available:
-                    bot.sent_pictures[uid] = set()
-                    available = all_pics
-                pic_type, pic_value, _pic_desc = random.choice(available)
-                bot.sent_pictures.setdefault(uid, set()).add(pic_value)
-                try:
-                    if bot.realistic_typing:
-                        await asyncio.sleep(random.uniform(1, 3))
-                    if pic_type == "file":
-                        f = discord.File(pic_value)
-                        if isinstance(message.channel, discord.DMChannel):
-                            await message.channel.send(file=f)
-                        else:
-                            await message.reply(file=f, mention_author=config["bot"]["reply_ping"])
+        if _available_pics and pics_cfg.get("enabled", True):
+            all_pics = _available_pics
+            uid = message.author.id
+            sent = bot.sent_pictures.get(uid, set())
+            available = [p for p in all_pics if p[1] not in sent]
+            if not available:
+                bot.sent_pictures[uid] = set()
+                available = all_pics
+            pic_type, pic_value, _pic_desc = random.choice(available)
+            bot.sent_pictures.setdefault(uid, set()).add(pic_value)
+            try:
+                if bot.realistic_typing:
+                    await asyncio.sleep(random.uniform(1, 3))
+                if pic_type == "file":
+                    f = discord.File(pic_value)
+                    if isinstance(message.channel, discord.DMChannel):
+                        await message.channel.send(file=f)
                     else:
-                        if isinstance(message.channel, discord.DMChannel):
-                            await message.channel.send(pic_value)
-                        else:
-                            await message.reply(pic_value, mention_author=config["bot"]["reply_ping"])
-                except Exception as _pe:
-                    log_error("Picture Send", str(_pe))
+                        await message.reply(file=f, mention_author=config["bot"]["reply_ping"])
+                else:
+                    if isinstance(message.channel, discord.DMChannel):
+                        await message.channel.send(pic_value)
+                    else:
+                        await message.reply(pic_value, mention_author=config["bot"]["reply_ping"])
+            except Exception as _pe:
+                log_error("Picture Send", str(_pe))
 
+        channel_name, guild_name = get_channel_context(message)
         for i, chunk in enumerate(chunks):
             if DISABLE_MENTIONS:
                 chunk = chunk.replace("@", "@\u200b")
@@ -1128,8 +1157,8 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 )
 
             chunk = add_typo(chunk)
-            channel_name, guild_name = get_channel_context(message)
-            log_incoming(message.author.name, channel_name, guild_name, prompt)
+            if i == 0:
+                log_incoming(message.author.name, channel_name, guild_name, prompt)
             log_response(message.author.name, chunk)
             separator()
 
@@ -1219,61 +1248,57 @@ async def on_message(message):
     if message.author.id == bot.selfbot_id:
         if message.content.startswith(PREFIX):
             await bot.process_commands(message)
-            return
+        return
 
-        # Owner priority trigger: owner sends a message starting with =
-        if message.author.id == OWNER_ID and message.content.startswith(PRIORITY_PREFIX):
-            hint = message.content[len(PRIORITY_PREFIX):].lstrip()
-            target_msg = None
+    # Owner priority trigger: owner sends a message (from their own account) starting with PRIORITY_PREFIX.
+    # This MUST be outside the selfbot guard — it fires on messages FROM the owner's account, not the bot.
+    if message.author.id == OWNER_ID and message.content.startswith(PRIORITY_PREFIX):
+        hint = message.content[len(PRIORITY_PREFIX):].lstrip()
+        target_msg = None
 
-            # If the owner replied to someone, use that message
-            if message.reference and message.reference.resolved:
-                ref = message.reference.resolved
-                if isinstance(ref, discord.Message):
-                    target_msg = ref
+        # If the owner replied to someone, use that message
+        if message.reference and message.reference.resolved:
+            ref = message.reference.resolved
+            if isinstance(ref, discord.Message):
+                target_msg = ref
 
-            # Otherwise find the last non-bot/non-owner message id from the raw cache,
-            # then fetch it directly — avoids a full history scan.
-            if target_msg is None:
-                try:
-                    # Walk the raw cache in reverse insertion order to find a candidate
-                    for msg_id, ref_id in reversed(list(_raw_reply_cache.items())):
-                        cached = bot._connection._get_message(msg_id)
-                        if cached and cached.channel.id == message.channel.id and cached.author.id != bot.selfbot_id and cached.author.id != OWNER_ID and cached.type == discord.MessageType.default:
-                            target_msg = cached
+        # Otherwise find the last non-bot/non-owner message in this channel
+        if target_msg is None:
+            try:
+                for msg_id, ref_id in reversed(list(_raw_reply_cache.items())):
+                    cached = bot._connection._get_message(msg_id)
+                    if cached and cached.channel.id == message.channel.id and cached.author.id != bot.selfbot_id and cached.author.id != OWNER_ID and cached.type == discord.MessageType.default:
+                        target_msg = cached
+                        break
+                if target_msg is None:
+                    async for msg in message.channel.history(limit=10):
+                        if msg.author.id != bot.selfbot_id and msg.author.id != OWNER_ID and msg.type == discord.MessageType.default:
+                            target_msg = msg
                             break
-                    # If not in internal cache, fall back to a short history scan
-                    if target_msg is None:
-                        async for msg in message.channel.history(limit=10):
-                            if msg.author.id != bot.selfbot_id and msg.author.id != OWNER_ID and msg.type == discord.MessageType.default:
-                                target_msg = msg
-                                break
-                except Exception as e:
-                    log_error("Priority Trigger", str(e))
+            except Exception as e:
+                log_error("Priority Trigger", str(e))
 
-            if target_msg is None:
-                return
-
-            channel_id = target_msg.channel.id
-            user_id = target_msg.author.id
-            key = f"{user_id}-{channel_id}"
-
-            if key not in bot.message_history:
-                bot.message_history[key] = []
-
-            combined = hint if hint else target_msg.content
-
-            bot.message_history[key].append({"role": "user", "content": target_msg.content})
-            if len(bot.message_history[key]) > MAX_HISTORY * 2:
-                bot.message_history[key] = bot.message_history[key][-(MAX_HISTORY * 2):]
-
-            history = bot.message_history[key]
-            log_system(f"Priority trigger by owner → responding to {target_msg.author.name} in #{getattr(target_msg.channel, 'name', 'DM')}")
-            response = await generate_response_and_reply(target_msg, combined, history, wait_time=0)
-            if response:
-                bot.message_history[key].append({"role": "assistant", "content": response})
+        if target_msg is None:
             return
 
+        channel_id = target_msg.channel.id
+        user_id = target_msg.author.id
+        key = f"{user_id}-{channel_id}"
+
+        if key not in bot.message_history:
+            bot.message_history[key] = []
+
+        combined = hint if hint else target_msg.content
+
+        bot.message_history[key].append({"role": "user", "content": target_msg.content})
+        if len(bot.message_history[key]) > MAX_HISTORY * 2:
+            bot.message_history[key] = bot.message_history[key][-(MAX_HISTORY * 2):]
+
+        history = bot.message_history[key]
+        log_system(f"Priority trigger by owner → responding to {target_msg.author.name} in #{getattr(target_msg.channel, 'name', 'DM')}")
+        response = await generate_response_and_reply(target_msg, combined, history, wait_time=0)
+        if response:
+            bot.message_history[key].append({"role": "assistant", "content": response})
         return
 
     if should_ignore_message(message):
