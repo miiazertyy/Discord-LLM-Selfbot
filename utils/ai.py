@@ -270,22 +270,30 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
             ],
         )
 
-        prompt_with_image = f"{prompt} [Image of {image_response.choices[0].message.content}]"
+        image_description = image_response.choices[0].message.content
 
+        # Inject the image description into the system prompt only — never into the
+        # user message or history. This prevents the model from echoing bracket text
+        # like "[Image sent]" or "[Image of ...]" back into its reply.
+        instructions_with_image = (
+            instructions
+            + f"\n\n[The user just sent you an image. Here is what it shows: {image_description} "
+            "React naturally to it as part of your reply. Do NOT mention or repeat this description, "
+            "do NOT use bracket notation like [Image of ...] in your response.]"
+        )
+
+        # Store the original clean prompt in history — no bracket leakage
         if history:
-            history.append({"role": "user", "content": prompt_with_image})
+            history.append({"role": "user", "content": prompt})
             messages = [
-                {
-                    "role": "system",
-                    "content": instructions + " Images will be described to you, with the description wrapped in [|description|], so understand that you are to respond to the description as if it were an image you can see.",
-                },
+                {"role": "system", "content": instructions_with_image},
                 *history,
             ]
         else:
-            history = [{"role": "user", "content": prompt_with_image}]
+            history = [{"role": "user", "content": prompt}]
             messages = [
-                {"role": "system", "content": instructions},
-                {"role": "user", "content": prompt_with_image},
+                {"role": "system", "content": instructions_with_image},
+                {"role": "user", "content": prompt},
             ]
 
         response = await _create_completion(messages)
