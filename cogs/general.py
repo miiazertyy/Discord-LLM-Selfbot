@@ -34,7 +34,7 @@ class General(commands.Cog):
             "```",
             "📋  Commands",
             "─────────────────────────────",
-            "  🤖  AI",
+            "  🌙  AI",
             f"  {p}pause                   pause / unpause AI responses",
             f"  {p}pauseuser <user>         stop responding to a user",
             f"  {p}unpauseuser <user>       resume responding to a user",
