@@ -22,7 +22,7 @@ bot:
   
   # TTS voice settings
   tts:
-    enabled: true
+    enabled: false
     voice: "diana"        # autumn / diana / hannah / austin / daniel / troy
     tones:
       - "[casual]"
