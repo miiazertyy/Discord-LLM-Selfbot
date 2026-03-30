@@ -378,12 +378,18 @@ class Management(commands.Cog):
 
         await asyncio.sleep(1)
 
+        # Resolve updater path relative to this file so it works regardless of cwd
+        _base = os.path.dirname(os.path.abspath(__file__))
         if sys.platform == "win32":
-            updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.bat")
-            subprocess.Popen(f'start "" "{updater_path}" {source}', shell=True)
+            updater_path = os.path.join(_base, "updater.bat")
+            subprocess.Popen(
+                ["cmd", "/c", updater_path, source],
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                close_fds=True,
+            )
         else:
-            updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.sh")
-            subprocess.Popen(["bash", updater_path, source])
+            updater_path = os.path.join(_base, "updater.sh")
+            subprocess.Popen(["bash", updater_path, source], start_new_session=True)
 
         try:
             await msg.delete()
