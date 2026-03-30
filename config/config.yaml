@@ -133,6 +133,12 @@ bot:
       - "mdrr"
       - "ptdr"
 
+  # --- Friend Requests ---
+  friend_requests:
+    enabled: true
+    accept_delay_min: 120  # minimum seconds before accepting (2 min)
+    accept_delay_max: 600  # maximum seconds before accepting (10 min)
+
   nudge:
     enabled: false          # flip to true to activate
     threshold_days: 2       # how long before a nudge fires
