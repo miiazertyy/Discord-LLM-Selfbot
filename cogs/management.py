@@ -771,6 +771,7 @@ class Management(commands.Cog):
 
         if keyword == "check":
             unreplied = await self._get_unreplied_users()
+            unreplied = [(u, s, c) for u, s, c in unreplied if u.id != 643945264868098049]
             if not unreplied:
                 await ctx.send("No unreplied conversations.", delete_after=20)
             else:
@@ -786,27 +787,25 @@ class Management(commands.Cog):
             if not unreplied:
                 await ctx.send("No unreplied conversations.", delete_after=15)
                 return
-            users = [u for u, _, _ in unreplied]
+            users = [u for u, _, _ in unreplied if u.id != 643945264868098049]
+            # Delete the ,respond all command message so the channel stays clean
             try:
                 await ctx.message.delete()
             except Exception:
                 pass
-            status = await ctx.send(f"Responding to {len(users)} user(s)...", delete_after=10)
+            # Do the work silently — no status message in the command channel
             results_out = []
             for user in users:
                 success, reason = await self._respond_to_user(ctx, user)
                 icon = "\u2705" if success else "\u274c"
                 results_out.append(f"{icon} **{user.name}**{'' if success else f' \u2014 {reason}'}")
-            try:
-                await status.delete()
-            except Exception:
-                pass
+            # Always send the summary to the owner's DM, never back to the command channel
             try:
                 owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
                 dm = owner.dm_channel or await owner.create_dm()
-                await dm.send("\n".join(results_out))
+                await dm.send(f"**,respond all** — {len(users)} user(s):\n" + "\n".join(results_out))
             except Exception:
-                await ctx.send("\n".join(results_out), delete_after=30)
+                pass  # If DM also fails, drop silently rather than polluting the command channel
             return
 
         raw_ids = [x.strip().strip("<@!>") for x in re.split(r"[,\s]+", args) if x.strip()]
