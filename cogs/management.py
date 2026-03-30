@@ -376,14 +376,19 @@ class Management(commands.Cog):
         except Exception:
             pass
 
-        await asyncio.sleep(1)
-
         if sys.platform == "win32":
             updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.bat")
             subprocess.Popen(f'cmd /c start "" "{updater_path}" {source}', shell=True)
         else:
             updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.sh")
-            subprocess.Popen(["bash", updater_path, source])
+            try:
+                os.chmod(updater_path, 0o755)
+            except Exception:
+                pass
+            subprocess.Popen(["bash", updater_path, source], start_new_session=True)
+
+        # Give the subprocess time to actually start before we vanish
+        await asyncio.sleep(2)
 
         try:
             await msg.delete()
@@ -391,6 +396,8 @@ class Management(commands.Cog):
             pass
 
         await ctx.bot.close()
+        # Small pause to let close() finish cleanly before the process exits
+        await asyncio.sleep(1)
         sys.exit(0)
 
     @commands.command(name="instructions", description="Attach a .txt file to update the bot instructions.", aliases=["setinstructions"])
