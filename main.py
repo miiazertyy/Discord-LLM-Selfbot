@@ -390,13 +390,19 @@ async def _friend_request_loop():
     delay = fr_cfg.get("accept_delay", 300)
 
     try:
-        for relationship in list(bot.relationships):
+        for i, relationship in enumerate(list(bot.relationships)):
             if relationship.type == discord.RelationshipType.incoming_request:
                 user = relationship.user
-                log_system(f"Pending friend request from {user.name} — accepting in {delay}s")
+                # Spread each pending request across a random window so they
+                # don't all land at the exact same second after startup.
+                # Each one gets: base delay + a random per-request offset so
+                # even two requests accepted "at the same time" are minutes apart.
+                spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
+                actual_delay = delay + spread
+                log_system(f"Pending friend request from {user.name} — accepting in {actual_delay}s")
 
-                async def _accept(u=user):
-                    await asyncio.sleep(delay)
+                async def _accept(u=user, d=actual_delay):
+                    await asyncio.sleep(d)
                     try:
                         token = bot._connection.http.token
                         async with AsyncSession(impersonate="chrome") as session:
