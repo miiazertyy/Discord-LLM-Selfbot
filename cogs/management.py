@@ -380,14 +380,12 @@ class Management(commands.Cog):
 
         if sys.platform == "win32":
             updater_path = os.path.join(repo_dir, "updater.bat")
-            with open(log_path, "w") as log_f:
-                subprocess.Popen(
-                    f'cmd /c "{updater_path}" {source}',
-                    shell=True,
-                    stdout=log_f,
-                    stderr=log_f,
-                    cwd=repo_dir,
-                )
+            # Run in a new visible window so run.bat can properly relaunch the bot.
+            subprocess.Popen(
+                f'cmd /c start "Updating AI Selfbot..." cmd /c ""{updater_path}" {source} > "{log_path}" 2>&1"',
+                shell=True,
+                cwd=repo_dir,
+            )
         else:
             updater_path = os.path.join(repo_dir, "updater.sh")
             try:
