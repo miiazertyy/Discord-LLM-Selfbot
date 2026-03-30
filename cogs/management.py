@@ -791,7 +791,7 @@ class Management(commands.Cog):
                 await ctx.message.delete()
             except Exception:
                 pass
-            status = await ctx.send(f"Responding to {len(users)} user(s)...", delete_after=60)
+            status = await ctx.send(f"Responding to {len(users)} user(s)...", delete_after=10)
             results_out = []
             for user in users:
                 success, reason = await self._respond_to_user(ctx, user)
@@ -801,7 +801,12 @@ class Management(commands.Cog):
                 await status.delete()
             except Exception:
                 pass
-            await ctx.send("\n".join(results_out), delete_after=30)
+            try:
+                owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
+                dm = owner.dm_channel or await owner.create_dm()
+                await dm.send("\n".join(results_out))
+            except Exception:
+                await ctx.send("\n".join(results_out), delete_after=30)
             return
 
         raw_ids = [x.strip().strip("<@!>") for x in re.split(r"[,\s]+", args) if x.strip()]
