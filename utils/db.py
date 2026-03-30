@@ -67,6 +67,21 @@ def init_db():
     """
     )
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS message_log (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id  INTEGER NOT NULL,
+            username TEXT    NOT NULL,
+            ts       REAL    NOT NULL
+        )
+    """
+    )
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_message_log_user_ts ON message_log (user_id, ts)"
+    )
+
     conn.commit()
     conn.close()
 
@@ -248,10 +263,12 @@ def clear_all_pictures_db():
 # ---------------------------------------------------------------------------
 
 def record_user_message(user_id: int, username: str):
-    """Increment message count for a user, inserting them if first time."""
+    """Increment message count for a user and append a timestamped log row."""
     import time as _time
+    now = _time.time()
     conn = sqlite3.connect(resource_path(db_path))
     cursor = conn.cursor()
+    # Update the fast running-count summary table (used for all-time leaderboard)
     cursor.execute(
         """
         INSERT INTO user_stats (user_id, username, message_count, first_seen)
@@ -260,7 +277,12 @@ def record_user_message(user_id: int, username: str):
             message_count = message_count + 1,
             username = excluded.username
         """,
-        (user_id, username, _time.time()),
+        (user_id, username, now),
+    )
+    # Append a timestamped row so time-filtered leaderboard queries work
+    cursor.execute(
+        "INSERT INTO message_log (user_id, username, ts) VALUES (?, ?, ?)",
+        (user_id, username, now),
     )
     conn.commit()
     conn.close()
@@ -296,19 +318,46 @@ def set_cached_profile(user_id: int, bio: str | None):
     conn.close()
 
 
-def get_leaderboard(limit: int = 50) -> list[dict]:
-    """Return top users sorted by message count descending."""
+def get_leaderboard(limit: int = 50, since: float | None = None) -> list[dict]:
+    """Return top users sorted by message count descending.
+
+    Args:
+        limit: Max rows to return.
+        since: Optional unix timestamp. When given, counts only messages logged
+               after this time (uses message_log). When None, uses the fast
+               running-count in user_stats (all-time).
+    """
     conn = sqlite3.connect(resource_path(db_path))
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT user_id, username, message_count, first_seen
-        FROM user_stats
-        ORDER BY message_count DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
+    if since is None:
+        # Fast path — pre-aggregated summary table
+        cursor.execute(
+            """
+            SELECT user_id, username, message_count, first_seen
+            FROM user_stats
+            ORDER BY message_count DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    else:
+        # Time-filtered — aggregate from per-message log
+        cursor.execute(
+            """
+            SELECT
+                ml.user_id,
+                ml.username,
+                COUNT(*)                            AS message_count,
+                COALESCE(us.first_seen, MIN(ml.ts)) AS first_seen
+            FROM message_log ml
+            LEFT JOIN user_stats us ON us.user_id = ml.user_id
+            WHERE ml.ts >= ?
+            GROUP BY ml.user_id
+            ORDER BY message_count DESC
+            LIMIT ?
+            """,
+            (since, limit),
+        )
     rows = cursor.fetchall()
     conn.close()
     return [
