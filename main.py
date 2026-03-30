@@ -170,15 +170,7 @@ def create_bot() -> commands.Bot:
 bot = create_bot()
 
 def is_refusal(text: str) -> bool:
-    # Normalize smart/curly apostrophes and quotes to plain ASCII so phrases match
-    # regardless of which apostrophe variant the model outputs
-    lowered = (
-        text.lower()
-        .replace("\u2019", "'")   # right single quotation mark '
-        .replace("\u2018", "'")   # left single quotation mark '
-        .replace("\u201c", '"')   # left double quotation mark "
-        .replace("\u201d", '"')   # right double quotation mark "
-    )
+    lowered = text.lower()
     return any(phrase in lowered for phrase in REFUSAL_PHRASES)
 
 def get_channel_context(message):
@@ -1270,27 +1262,27 @@ async def on_message(message):
             bot.user_cooldowns[user_id] = current_time + COOLDOWN_DURATION
             return
 
-        if channel_id not in bot.message_queues:
-            bot.message_queues[channel_id] = deque()
-            bot.processing_locks[channel_id] = Lock()
+        if batch_key not in bot.message_queues:
+            bot.message_queues[batch_key] = deque()
+            bot.processing_locks[batch_key] = Lock()
 
-        bot.message_queues[channel_id].append(message)
+        bot.message_queues[batch_key].append(message)
         # Track DM messages for the nudge system — will be cleared once we reply
         if isinstance(message.channel, discord.DMChannel):
             nudge_cfg = config["bot"].get("nudge") or {}
             if nudge_cfg.get("enabled", False):
                 add_unresponded(user_id, channel_id, message.content, time.time())
-        if not bot.processing_locks[channel_id].locked():
-            asyncio.create_task(process_message_queue(channel_id))
+        if not bot.processing_locks[batch_key].locked():
+            asyncio.create_task(process_message_queue(batch_key))
 
 
-async def process_message_queue(channel_id):
-    async with bot.processing_locks[channel_id]:
-        while bot.message_queues[channel_id]:
-            message = bot.message_queues[channel_id].popleft()
-            batch_key = f"{message.author.id}-{channel_id}"
+async def process_message_queue(batch_key):
+    async with bot.processing_locks[batch_key]:
+        while bot.message_queues[batch_key]:
+            message = bot.message_queues[batch_key].popleft()
             current_time = time.time()
             message_age = current_time - message.created_at.timestamp()
+            channel_id = message.channel.id
 
             if bot.batch_messages:
                 if batch_key not in bot.user_message_batches:
@@ -1319,10 +1311,10 @@ async def process_message_queue(channel_id):
                     last_received = time.time()
                     while True:
                         collected_any = False
-                        while bot.message_queues[channel_id]:
-                            next_message = bot.message_queues[channel_id][0]
-                            if next_message.author.id == message.author.id and not next_message.content.startswith(PREFIX):
-                                next_message = bot.message_queues[channel_id].popleft()
+                        while bot.message_queues[batch_key]:
+                            next_message = bot.message_queues[batch_key][0]
+                            if not next_message.content.startswith(PREFIX):
+                                next_message = bot.message_queues[batch_key].popleft()
                                 bot.user_message_batches[batch_key]["messages"].append(next_message)
                                 if not bot.user_message_batches[batch_key]["image_url"] and next_message.attachments:
                                     bot.user_message_batches[batch_key]["image_url"] = next_message.attachments[0].url
