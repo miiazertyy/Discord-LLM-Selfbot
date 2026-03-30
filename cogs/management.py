@@ -669,7 +669,7 @@ class Management(commands.Cog):
             history.append({"role": "user", "content": combined_content})
             self.bot.message_history[key] = history
 
-        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history)
+        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history, bypass_cooldown=True)
         if response:
             self.bot.message_history[key].append({"role": "assistant", "content": response})
             return True, "ok"
@@ -801,25 +801,26 @@ class Management(commands.Cog):
             if not unreplied:
                 await ctx.send("No unreplied conversations.", delete_after=15)
                 return
-            users = [u for u, _, _ in unreplied if u.id != 643945264868098049]
-            # Delete the ,respond all command message so the channel stays clean
+            ignored = set(getattr(self.bot, "ignore_users", []))
+            users = [u for u, _, _ in unreplied if u.id != 643945264868098049 and u.id not in ignored]
+            if not users:
+                await ctx.send("No unreplied conversations.", delete_after=15)
+                return
             try:
                 await ctx.message.delete()
             except Exception:
                 pass
-            # Do the work silently — no status message in the command channel
             results_out = []
             for user in users:
                 success, reason = await self._respond_to_user(ctx, user)
                 icon = "\u2705" if success else "\u274c"
                 results_out.append(f"{icon} **{user.name}**{'' if success else f' \u2014 {reason}'}")
-            # Always send the summary to the owner's DM, never back to the command channel
             try:
                 owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
                 dm = owner.dm_channel or await owner.create_dm()
                 await dm.send(f"**,respond all** — {len(users)} user(s):\n" + "\n".join(results_out))
             except Exception:
-                pass  # If DM also fails, drop silently rather than polluting the command channel
+                pass
             return
 
         raw_ids = [x.strip().strip("<@!>") for x in re.split(r"[,\s]+", args) if x.strip()]
@@ -845,29 +846,27 @@ class Management(commands.Cog):
         except Exception:
             pass
 
-        if len(users) == 1:
-            status = await ctx.send(f"Generating response for {users[0].name}...", delete_after=30)
-            success, reason = await self._respond_to_user(ctx, users[0])
+        async def _dm_owner(text: str):
             try:
-                await status.delete()
+                owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
+                dm = owner.dm_channel or await owner.create_dm()
+                await dm.send(text, delete_after=60)
             except Exception:
                 pass
+
+        if len(users) == 1:
+            success, reason = await self._respond_to_user(ctx, users[0])
             if success:
-                await ctx.send(f"Responded to {users[0].name}.", delete_after=5)
+                await _dm_owner(f"✅ Responded to **{users[0].name}**.")
             else:
-                await ctx.send(f"Couldn't respond to {users[0].name}: {reason}.", delete_after=10)
+                await _dm_owner(f"❌ Couldn't respond to **{users[0].name}**: {reason}.")
         else:
-            status = await ctx.send(f"Responding to {len(users)} users...", delete_after=60)
             results = []
             for user in users:
                 success, reason = await self._respond_to_user(ctx, user)
                 icon = "✅" if success else "❌"
                 results.append(f"{icon} {user.name} (`{user.id}`){'' if success else f' — {reason}'}")
-            try:
-                await status.delete()
-            except Exception:
-                pass
-            await ctx.send("\n".join(results), delete_after=30)
+            await _dm_owner(f"**,respond** — {len(users)} user(s):\n" + "\n".join(results))
 
     @commands.command(name="respond", description="Respond to one or more users by ID. Use 'check' to see unreplied DMs.")
     async def respond(self, ctx, *, args: str = None):
