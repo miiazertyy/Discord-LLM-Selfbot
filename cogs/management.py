@@ -1110,30 +1110,80 @@ class Management(commands.Cog):
 
 
     async def _connect_and_keep_alive(self, target: discord.VoiceChannel):
-        """Connect to a voice channel muted/deafened and keep alive."""
+        """Connect to a voice channel muted/deafened and keep alive.
+
+        Requires discord.py-self >= 2.1.0 and the `davey` package for DAVE E2EE
+        support (Discord enforced DAVE on ~March 2, 2026 — clients without it are
+        kicked with close code 4017).
+
+        Install / upgrade with:
+            pip install -U discord.py-self davey
+        """
+        # Close any existing connection on this guild first
         existing = target.guild.voice_client
         if existing:
+            existing._keep_alive_guard = False
             await existing.disconnect(force=True)
 
         vc = await target.connect(self_mute=True, self_deaf=True)
 
-        # discord.py-self drops idle voice connections — keep alive by hooking the websocket
-        # The ws keep_alive loop handles heartbeats but we need to block disconnection
-        # by holding a reference and periodically checking/re-opening the connection
+        # --- DAVE / close-code constants ---
+        # 4017 = DAVE protocol not supported (enforced by Discord since Mar 2026)
+        # 4014 = disconnected by server, 4006 = session no longer valid
+        _FATAL_CLOSE_CODES = {4006, 4014, 4017}
+
         async def _guard(channel, voice_client):
-            # Flag to prevent the reconnect loop from firing on intentional ,leave
+            """Keep the voice connection alive, but bail on fatal close codes."""
             voice_client._keep_alive_guard = True
+            consecutive_failures = 0
+
             while getattr(voice_client, '_keep_alive_guard', False):
                 await asyncio.sleep(20)
+
                 vc_now = channel.guild.voice_client
-                if vc_now is None and getattr(voice_client, '_keep_alive_guard', False):
-                    try:
-                        new_vc = await channel.connect(self_mute=True, self_deaf=True)
-                        new_vc._keep_alive_guard = True
-                        voice_client = new_vc
-                        log_system(f"Rejoined voice channel: {channel.name}")
-                    except Exception as e:
-                        log_error("Voice Keep-Alive", str(e))
+                if vc_now is not None:
+                    # Still connected — reset failure counter and loop
+                    consecutive_failures = 0
+                    continue
+
+                # Connection dropped — check why before trying to reconnect
+                if not getattr(voice_client, '_keep_alive_guard', False):
+                    break  # intentional ,leave — stop silently
+
+                # Inspect close code if available
+                close_code = None
+                ws = getattr(voice_client, '_connection', None) or getattr(voice_client, 'ws', None)
+                if ws is not None:
+                    close_code = getattr(ws, '_close_code', None) or getattr(ws, 'close_code', None)
+
+                if close_code in _FATAL_CLOSE_CODES:
+                    if close_code == 4017:
+                        log_error(
+                            "Voice Keep-Alive",
+                            "Kicked with close code 4017 (DAVE E2EE not supported). "
+                            "Run: pip install -U discord.py-self davey"
+                        )
+                    else:
+                        log_error("Voice Keep-Alive", f"Fatal close code {close_code} — not reconnecting.")
+                    voice_client._keep_alive_guard = False
+                    break
+
+                # Non-fatal drop — attempt reconnect with backoff
+                consecutive_failures += 1
+                if consecutive_failures > 3:
+                    log_error("Voice Keep-Alive", "Too many consecutive failures — giving up.")
+                    voice_client._keep_alive_guard = False
+                    break
+
+                try:
+                    new_vc = await channel.connect(self_mute=True, self_deaf=True)
+                    new_vc._keep_alive_guard = True
+                    voice_client = new_vc
+                    consecutive_failures = 0
+                    log_system(f"Rejoined voice channel: {channel.name}")
+                except Exception as e:
+                    log_error("Voice Keep-Alive", str(e))
+                    await asyncio.sleep(10 * consecutive_failures)  # exponential-ish backoff
 
         asyncio.create_task(_guard(target, vc))
         return vc
@@ -1184,7 +1234,16 @@ class Management(commands.Cog):
             await status.delete()
             await ctx.send(f"Joined **{target.name}** in **{target.guild.name}** (muted & deafened).", delete_after=10)
         except Exception as e:
-            await ctx.send(f"Error joining voice channel: {e}", delete_after=10)
+            err_str = str(e)
+            if "4017" in err_str or "dave" in err_str.lower():
+                await ctx.send(
+                    "❌ **Discord kicked the bot (DAVE protocol not supported).**\n"
+                    "Fix: upgrade the library and install the DAVE crypto package:\n"
+                    "```\npip install -U discord.py-self davey\n```",
+                    delete_after=30,
+                )
+            else:
+                await ctx.send(f"Error joining voice channel: {e}", delete_after=10)
 
     @commands.command(name="autojoin", description="Set a voice channel to auto-join on startup. Usage: ,autojoin <channel_id/link> or ,autojoin off")
     async def autojoin(self, ctx, *, args: str = None):
