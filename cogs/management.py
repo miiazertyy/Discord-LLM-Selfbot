@@ -378,18 +378,12 @@ class Management(commands.Cog):
 
         await asyncio.sleep(1)
 
-        # management.py lives in cogs/, so go up one level to reach the project root
-        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if sys.platform == "win32":
-            updater_path = os.path.join(_base, "updater.bat")
-            subprocess.Popen(
-                ["cmd", "/c", updater_path, source],
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-                close_fds=True,
-            )
+            updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.bat")
+            subprocess.Popen(f'cmd /c start "" "{updater_path}" {source}', shell=True)
         else:
-            updater_path = os.path.join(_base, "updater.sh")
-            subprocess.Popen(["bash", updater_path, source], start_new_session=True)
+            updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.sh")
+            subprocess.Popen(["bash", updater_path, source])
 
         try:
             await msg.delete()
@@ -695,29 +689,11 @@ class Management(commands.Cog):
             history.append({"role": "user", "content": combined_content})
             self.bot.message_history[key] = history
 
-        # Build a lightweight mock message so generate_response_and_reply gets a live
-        # channel (.send, .typing work) while all other attributes come from the real objects.
-        import types as _types
-        mock_msg = _types.SimpleNamespace(
-            author=user,
-            channel=target_channel,
-            content=combined_content,
-            attachments=[],
-            embeds=[],
-            reference=None,
-            flags=last_msg.flags,
-            guild=getattr(target_channel, 'guild', None),
-            id=last_msg.id,
-        )
-
-        response = await self.bot.generate_response_and_reply(
-            mock_msg, combined_content, history,
-            bypass_cooldown=True, bypass_typing=True,
-        )
+        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history, bypass_cooldown=True, bypass_typing=True)
         if response:
             self.bot.message_history[key].append({"role": "assistant", "content": response})
             return True, "ok"
-        return False, "couldn't generate a response"
+        return False, "couldn't send the message (user may have DMs closed)"
 
     async def _get_unreplied_users(self):
         """Return list of (user, snippet, msg_count) for all unreplied conversations.
