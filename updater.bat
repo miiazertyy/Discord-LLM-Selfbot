@@ -1,12 +1,17 @@
 @echo off
 title Updating AI Selfbot...
 echo Waiting for bot to shut down...
-timeout /t 3 /nobreak > nul
+timeout /t 4 /nobreak > nul
 
 echo Pulling latest changes from GitHub...
-git stash --include-untracked
+git stash --include-untracked 2>nul
 git pull
-git stash pop
+if %errorlevel% neq 0 (
+    echo ERROR: git pull failed. Check your internet connection or git setup.
+    pause
+    exit /b 1
+)
+git stash pop 2>nul
 
 echo Deleting bot-env...
 rmdir /s /q bot-env
