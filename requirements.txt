@@ -10,3 +10,4 @@ groq
 openai
 PyNaCl
 Pillow
+ffmpeg
