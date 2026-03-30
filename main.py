@@ -1222,29 +1222,34 @@ async def on_relationship_add(relationship):
             delay = 0
         else:
             delay = fr_cfg.get("accept_delay", 300)
-            log_system(f"Friend request from {user.name} — accepting in {delay}s")
+            log_system(f"Friend request from {user.name} — will accept in {delay}s")
 
-        if delay > 0:
-            await asyncio.sleep(delay)
+        async def _accept(u, d):
+            try:
+                if d > 0:
+                    await asyncio.sleep(d)
+                token = bot._connection.http.token
+                async with AsyncSession(impersonate="chrome") as session:
+                    resp = await session.put(
+                        f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
+                        headers={
+                            "Authorization": token,
+                            "Content-Type": "application/json",
+                        },
+                        json={"type": 1},
+                    )
+                    if resp.status_code in (200, 204):
+                        log_system(f"Accepted friend request from {u.name}")
+                    else:
+                        try:
+                            data = resp.json()
+                            log_error("Friend Request Accept", f"{resp.status_code}: {data}")
+                        except Exception:
+                            log_error("Friend Request Accept", f"HTTP {resp.status_code}")
+            except Exception as e:
+                log_error("Friend Request Accept", str(e))
 
-        token = bot._connection.http.token
-        async with AsyncSession(impersonate="chrome") as session:
-            resp = await session.put(
-                f"https://discord.com/api/v9/users/@me/relationships/{user.id}",
-                headers={
-                    "Authorization": token,
-                    "Content-Type": "application/json",
-                },
-                json={"type": 1},
-            )
-            if resp.status_code in (200, 204):
-                log_system(f"Accepted friend request from {user.name}")
-            else:
-                try:
-                    data = resp.json()
-                    log_error("Friend Request Error", f"{resp.status_code}: {data}")
-                except:
-                    log_error("Friend Request Error", f"{resp.status_code}")
+        asyncio.create_task(_accept(user, delay))
     except Exception as e:
         log_error("Friend Request Error", str(e))
 
