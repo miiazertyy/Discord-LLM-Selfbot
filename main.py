@@ -946,8 +946,8 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     # Simulate Discord "seen" receipt: the bot has opened the DM and is reading
     # before it starts typing. Only applies to DMs where read receipts are visible.
-    if isinstance(message.channel, discord.DMChannel) and bot.realistic_typing and not bypass_typing:
-        _read_delay = random.uniform(2.5, 8.0)
+    if isinstance(message.channel, discord.DMChannel) and bot.realistic_typing:
+        _read_delay = random.uniform(1.0, 3.0) if bypass_typing else random.uniform(2.5, 8.0)
         await asyncio.sleep(_read_delay)
 
     for attempt in range(max_retries):
@@ -1163,15 +1163,21 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             separator()
 
             try:
-                if bot.realistic_typing and not bypass_typing:
-                    pre_delay = random.uniform(2, 8) if i == 0 else random.uniform(12, 18)
-                    await asyncio.sleep(pre_delay)
-                    async with message.channel.typing():
-                        cps = random.uniform(7, 18)
-                        await asyncio.sleep(len(chunk) / cps)
+                if bot.realistic_typing:
+                    if bypass_typing:
+                        if i > 0:
+                            await asyncio.sleep(random.uniform(1.0, 2.5))
+                        async with message.channel.typing():
+                            await asyncio.sleep(max(1.0, len(chunk) / random.uniform(14, 20)))
+                    else:
+                        pre_delay = random.uniform(2, 8) if i == 0 else random.uniform(12, 18)
+                        await asyncio.sleep(pre_delay)
+                        async with message.channel.typing():
+                            cps = random.uniform(7, 18)
+                            await asyncio.sleep(len(chunk) / cps)
                 else:
-                    if i > 0 and not bypass_typing:
-                        await asyncio.sleep(random.uniform(12, 18))
+                    if i > 0:
+                        await asyncio.sleep(random.uniform(12, 18) if not bypass_typing else random.uniform(1.0, 2.5))
 
                 if isinstance(message.channel, discord.DMChannel):
                     await message.channel.send(chunk)
