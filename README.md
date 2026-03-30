@@ -106,6 +106,7 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 ### 🛠️ System
 | Command | Description |
 |---|---|
+| `,addfriend <user_id>` | Send a friend request to a user by ID |
 | `,reload` | Reload all cogs and instructions |
 | `,restart` | Restart the bot |
 | `,shutdown` | Shut down the bot |
