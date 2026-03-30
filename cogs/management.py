@@ -380,7 +380,7 @@ class Management(commands.Cog):
 
         if sys.platform == "win32":
             updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.bat")
-            subprocess.Popen(["cmd", "/c", "start", '""', updater_path, source], shell=False)
+            subprocess.Popen(f'start "" "{updater_path}" {source}', shell=True)
         else:
             updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.sh")
             subprocess.Popen(["bash", updater_path, source])
