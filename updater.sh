@@ -52,7 +52,7 @@ echo "Installing dependencies..."
 source bot-env/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-pip install -U davey
+pip install -U davey curl_cffi
 
 echo "Checking for ffmpeg..."
 if ! command -v ffmpeg >/dev/null 2>&1; then
