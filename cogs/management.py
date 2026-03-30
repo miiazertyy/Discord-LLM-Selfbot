@@ -997,6 +997,7 @@ class Management(commands.Cog):
             mood = bot_cfg.get("mood") or {}
             late = bot_cfg.get("late_reply") or {}
             nudge = bot_cfg.get("nudge") or {}
+            fr = bot_cfg.get("friend_requests") or {}
 
             status = bot_cfg.get("status") or {}
             notif = config.get("notifications") or {}
@@ -1065,6 +1066,11 @@ class Management(commands.Cog):
                 f"  nudge.threshold_days       {nudge.get('threshold_days', 2)}",
                 f"  nudge.check_interval_hours {nudge.get('check_interval_hours', 6)}",
                 f"  nudge.send_during_hours    {nudge_hours[0]}:00 – {nudge_hours[1]}:00",
+                "─────────────────────────────",
+                "  👥  Friend Requests",
+                f"  friend_requests.enabled         {fr.get('enabled', True)}",
+                f"  friend_requests.accept_delay_min {fr.get('accept_delay_min', 120)}s",
+                f"  friend_requests.accept_delay_max {fr.get('accept_delay_max', 600)}s",
                 "─────────────────────────────",
                 "  🔔  Notifications",
                 f"  error_webhook         {'set' if notif.get('error_webhook') else 'not set'}",
@@ -1677,6 +1683,42 @@ class Management(commands.Cog):
 
         else:
             await ctx.send("Usage: `,image ls` | `,image upload` | `,image download <n>` | `,image delete <n>` | `,image vision [n]`", delete_after=15)
+
+
+    @commands.command(name="addfriend", description="Send a friend request to a user by ID.")
+    async def addfriend(self, ctx, user_id: int = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if not user_id:
+            await ctx.send("Usage: `,addfriend <user_id>`", delete_after=10)
+            return
+        try:
+            from curl_cffi.requests import AsyncSession
+            token = self.bot._connection.http.token
+            async with AsyncSession(impersonate="chrome") as session:
+                resp = await session.put(
+                    f"https://discord.com/api/v9/users/@me/relationships/{user_id}",
+                    headers={
+                        "Authorization": token,
+                        "Content-Type": "application/json",
+                    },
+                    json={"type": 1},
+                )
+                if resp.status_code in (200, 204):
+                    await ctx.send(f"✅ Friend request sent to `{user_id}`.", delete_after=10)
+                elif resp.status_code == 400:
+                    data = resp.json()
+                    # Already friends or request already pending
+                    msg = data.get("message", str(data))
+                    await ctx.send(f"⚠️ Discord says: `{msg}`", delete_after=15)
+                else:
+                    try:
+                        data = resp.json()
+                        await ctx.send(f"❌ Failed ({resp.status_code}): `{data}`", delete_after=15)
+                    except Exception:
+                        await ctx.send(f"❌ Failed with status `{resp.status_code}`.", delete_after=15)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
 
 
 async def setup(bot):
