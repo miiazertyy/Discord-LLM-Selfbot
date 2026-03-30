@@ -78,6 +78,14 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 | `,toggleserver` | Toggle server mention/reply responses |
 | `,ignore <user>` | Ignore / unignore a user |
 
+### 🎙️ Voice
+| Command | Description |
+|---|---|
+| `,join <channel_id / link>` | Join a voice channel (muted & deafened) |
+| `,leave` | Leave the current voice channel |
+| `,autojoin <channel_id / link>` | Auto-join a voice channel on startup |
+| `,autojoin off` | Disable auto-join |
+
 ### 🖼️ Images
 | Command | Description |
 |---|---|
