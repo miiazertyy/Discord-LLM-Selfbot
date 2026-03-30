@@ -994,7 +994,6 @@ class Management(commands.Cog):
         if key is None:
             bot_cfg = config["bot"]
             tts = bot_cfg.get("tts") or {}
-            fr = bot_cfg.get("friend_requests") or {}
             mood = bot_cfg.get("mood") or {}
             late = bot_cfg.get("late_reply") or {}
             nudge = bot_cfg.get("nudge") or {}
@@ -1060,10 +1059,6 @@ class Management(commands.Cog):
                 "  💬  Late Reply",
                 f"  late_reply.enabled    {late.get('enabled')}",
                 f"  late_reply.threshold  {late.get('threshold')}",
-                "─────────────────────────────",
-                "  👥  Friend Requests",
-                f"  friend_requests.enabled      {fr.get('enabled')}",
-                f"  friend_requests.accept_delay {fr.get('accept_delay')}",
                 "─────────────────────────────",
                 "  💤  Nudge",
                 f"  nudge.enabled              {nudge.get('enabled', False)}",
