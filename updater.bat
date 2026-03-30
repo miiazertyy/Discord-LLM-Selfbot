@@ -43,6 +43,7 @@ python -m venv bot-env
 call .\bot-env\Scripts\activate.bat
 pip install --upgrade pip
 pip install -r requirements.txt
+pip install -U davey
 
 echo Checking for ffmpeg...
 where ffmpeg >nul 2>&1
