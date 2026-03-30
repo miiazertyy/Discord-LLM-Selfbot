@@ -13,8 +13,9 @@ class General(commands.Cog):
         self.bot = bot
 
     async def cog_before_invoke(self, ctx):
-        import random
-        await __import__("asyncio").sleep(random.uniform(0.8, 2.5))
+        if ctx.author.id != self.bot.owner_id:
+            import random
+            await __import__("asyncio").sleep(random.uniform(0.8, 2.5))
 
     @commands.command(name="ping")
     @commands.cooldown(1, 30, commands.BucketType.user)
