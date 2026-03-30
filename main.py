@@ -260,7 +260,7 @@ async def _cleanup_loop():
         log_system(f"Cleanup: pruned {len(stale_counts)} count(s), {len(expired_cd)} cooldown(s), {len(stale_conv)} conversation(s)")
 
 
-
+async def random_status_loop():
     await bot.wait_until_ready()
     status_map = {
         "online": discord.Status.online,
@@ -416,50 +416,62 @@ async def _reply_pending_messages():
 async def _friend_request_loop():
     """On startup, accept any pending friend requests using the raw HTTP API."""
     await bot.wait_until_ready()
-    # Give discord.py-self time to fully populate the relationship cache
-    # after the READY payload — it's available slightly after wait_until_ready()
     await asyncio.sleep(5)
+    log_system("Friend request loop started")
+
     fr_cfg = config["bot"].get("friend_requests") or {}
     if not fr_cfg.get("enabled", False):
         return
     delay = fr_cfg.get("accept_delay", 300)
 
     try:
-        pending = [r for r in bot.relationships if r.type == discord.RelationshipType.incoming_request]
-        log_system(f"Friend requests: found {len(pending)} pending on startup")
-        for i, relationship in enumerate(pending):
-            user = relationship.user
-            # Spread each pending request across a random window so they
-            # don't all land at the exact same second after startup.
-            spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
-            actual_delay = delay + spread
-            log_system(f"Pending friend request from {user.name} — accepting in {actual_delay}s")
+        token = bot._connection.http.token
+        async with AsyncSession(impersonate="chrome") as session:
+            resp = await session.get(
+                "https://discord.com/api/v9/users/@me/relationships",
+                headers={"Authorization": token},
+            )
+            if resp.status_code != 200:
+                log_error("Friend Request Loop", f"Failed to fetch relationships: {resp.status_code}: {resp.text}")
+                return
 
-            async def _accept(u=user, d=actual_delay):
-                await asyncio.sleep(d)
-                try:
-                    token = bot._connection.http.token
-                    async with AsyncSession(impersonate="chrome") as session:
-                        resp = await session.put(
-                            f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
-                            headers={
-                                "Authorization": token,
-                                "Content-Type": "application/json",
-                            },
-                            json={"type": 1},
-                        )
-                        if resp.status_code in (200, 204):
-                            log_system(f"Accepted friend request from {u.name}")
-                        else:
-                            try:
-                                data = resp.json()
-                                log_error("Friend Request Error", f"{resp.status_code}: {data}")
-                            except Exception:
-                                log_error("Friend Request Error", f"{resp.status_code}: {resp.text}")
-                except Exception as e:
-                    log_error("Friend Request Loop", str(e))
+            relationships = resp.json()
+            # type 3 = incoming friend request in Discord's raw API
+            pending = [r for r in relationships if r.get("type") == 3]
+            log_system(f"Friend requests: found {len(pending)} pending on startup")
 
-            asyncio.create_task(_accept())
+            for i, rel in enumerate(pending):
+                user_id = int(rel["id"])
+                username = rel.get("user", {}).get("username", str(user_id))
+                spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
+                actual_delay = delay + spread
+                log_system(f"Pending friend request from {username} — accepting in {actual_delay}s")
+
+                async def _accept(uid=user_id, uname=username, d=actual_delay):
+                    await asyncio.sleep(d)
+                    try:
+                        async with AsyncSession(impersonate="chrome") as s:
+                            r = await s.put(
+                                f"https://discord.com/api/v9/users/@me/relationships/{uid}",
+                                headers={
+                                    "Authorization": bot._connection.http.token,
+                                    "Content-Type": "application/json",
+                                },
+                                json={"type": 1},
+                            )
+                            if r.status_code in (200, 204):
+                                log_system(f"Accepted friend request from {uname}")
+                            else:
+                                try:
+                                    data = r.json()
+                                    log_error("Friend Request Accept", f"{r.status_code}: {data}")
+                                except Exception:
+                                    log_error("Friend Request Accept", f"{r.status_code}: {r.text}")
+                    except Exception as e:
+                        log_error("Friend Request Loop", str(e))
+
+                asyncio.create_task(_accept())
+
     except Exception as e:
         log_error("Friend Request Loop", str(e))
 
