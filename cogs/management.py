@@ -873,6 +873,7 @@ class Management(commands.Cog):
         if key is None:
             bot_cfg = config["bot"]
             tts = bot_cfg.get("tts") or {}
+            fr = bot_cfg.get("friend_requests") or {}
             mood = bot_cfg.get("mood") or {}
             late = bot_cfg.get("late_reply") or {}
             nudge = bot_cfg.get("nudge") or {}
@@ -939,6 +940,10 @@ class Management(commands.Cog):
                 f"  late_reply.enabled    {late.get('enabled')}",
                 f"  late_reply.threshold  {late.get('threshold')}",
                 "─────────────────────────────",
+                "  👥  Friend Requests",
+                f"  friend_requests.enabled      {fr.get('enabled')}",
+                f"  friend_requests.accept_delay {fr.get('accept_delay')}",
+                "─────────────────────────────",
                 "  💤  Nudge",
                 f"  nudge.enabled              {nudge.get('enabled', False)}",
                 f"  nudge.threshold_days       {nudge.get('threshold_days', 2)}",
@@ -965,6 +970,15 @@ class Management(commands.Cog):
             except ValueError: pass
             try: return float(v)
             except ValueError: pass
+            # Special handling for batch_wait_times: parse "15s(30) 30s(35) ..." format
+            if keys[-1] == "batch_wait_times":
+                parsed = []
+                for token in v.split():
+                    m = re.fullmatch(r"(\d+)s\((\d+)\)", token.strip())
+                    if m:
+                        parsed.append({"time": int(m.group(1)), "weight": int(m.group(2))})
+                if parsed:
+                    return parsed
             # If the existing value is a list, parse comma-separated input back into a list
             if isinstance(existing, list) or (keys[-1] in LIST_KEYS):
                 return [item.strip() for item in v.split(",") if item.strip()]
