@@ -28,7 +28,8 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 - Responds to trigger words, mentions, and replies — server-aware
 - Holds conversations naturally in DMs and group chats
 - Auto-accepts friend requests with a configurable delay
-- Late reply openers when responding after a long pause
+- Late reply openers when responding after a long pause — woven in naturally by the AI, not bolted on
+- Global send lock prevents two responses from sending simultaneously
 - Anti-spam cooldown per user
 - Random status cycling on a configurable schedule
 - All credentials stored securely in `.env`
@@ -54,7 +55,8 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 | Command | Description |
 |---|---|
 | `,reply <user>` | Manually trigger a reply to a user's last message |
-| `,reply check` | Show users with unread messages |
+| `,reply check` | Show users with unread messages + last message snippet |
+| `,reply all` | Respond to every user listed in `,reply check` |
 | `= [hint]` | Priority reply — instantly respond in any channel |
 
 ### ⚙️ Instructions & Config
@@ -102,7 +104,7 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 | `,update` | Update to the latest stable release |
 | `,update main` | Update to the latest commit |
 | `,getdb` | Download the memory database |
-| `,leaderboard` | Show top users by message count |
+| `,leaderboard [filter]` | Show top users by message count (e.g. `,leaderboard 3d`, `,leaderboard 1w`) |
 | `,ping` | Show latency |
 
 ---
