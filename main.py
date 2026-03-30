@@ -798,7 +798,7 @@ def _get_random_picture() -> list | None:
     return files if files else None
 
 
-async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0):
+async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0, bypass_cooldown=False):
     uid = message.author.id
     if uid not in bot._memory_cache:
         bot._memory_cache[uid] = get_memory(uid)
@@ -1080,10 +1080,12 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     # Inter-user cooldown: if another user was just replied to, wait a human-like gap
     # before sending to avoid two different conversations getting replies seconds apart.
-    _time_since_last = time.time() - bot.last_global_send
-    _inter_user_gap = random.uniform(45, 120)
-    if _time_since_last < _inter_user_gap:
-        await asyncio.sleep(_inter_user_gap - _time_since_last)
+    # Skipped when bypass_cooldown=True (e.g. ,respond all bulk-send mode).
+    if not bypass_cooldown:
+        _time_since_last = time.time() - bot.last_global_send
+        _inter_user_gap = random.uniform(45, 120)
+        if _time_since_last < _inter_user_gap:
+            await asyncio.sleep(_inter_user_gap - _time_since_last)
 
     async with bot.global_send_lock:
         pics_cfg = config["bot"].get("pictures") or {}
