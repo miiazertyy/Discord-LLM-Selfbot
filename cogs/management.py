@@ -610,7 +610,6 @@ class Management(commands.Cog):
         recent_msgs = []
 
         # --- Fast path: check in-memory message history first ---
-        # Find any key matching this user across all channels
         matching_key = None
         for key in self.bot.message_history:
             if key.startswith(f"{user.id}-"):
@@ -622,11 +621,9 @@ class Management(commands.Cog):
             try:
                 channel = self.bot.get_channel(channel_id)
                 if channel is None:
-                    # Could be a DM — try to get it from private channels
                     channel = next((pc for pc in self.bot.private_channels if pc.id == channel_id), None)
                 if channel is None:
                     channel = await user.create_dm()
-                # Fetch just the last message from this user directly
                 async for msg in channel.history(limit=5):
                     if msg.author.id == user.id:
                         recent_msgs.append(msg)
@@ -640,10 +637,13 @@ class Management(commands.Cog):
         if not target_channel:
             try:
                 dm = user.dm_channel or await user.create_dm()
-                async for msg in dm.history(limit=10):
+                selfbot_id = getattr(self.bot, "selfbot_id", None) or self.bot.user.id
+                # Collect all consecutive user messages at the top of history (unread batch)
+                async for msg in dm.history(limit=15):
                     if msg.author.id == user.id:
                         recent_msgs.append(msg)
-                    elif recent_msgs:
+                    elif msg.author.id == selfbot_id:
+                        # Hit the bot's last reply — stop here, everything above is unread
                         break
                 if recent_msgs:
                     target_channel = dm
@@ -656,6 +656,7 @@ class Management(commands.Cog):
             for channel_id in self.bot.active_channels:
                 if checked >= 3:
                     break
+                checked += 1  # increment before the try so exceptions don't skip the count
                 try:
                     channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
                     msgs = []
@@ -668,7 +669,6 @@ class Management(commands.Cog):
                         recent_msgs = msgs
                         target_channel = channel
                         break
-                    checked += 1
                 except Exception as e:
                     print(f"[Respond] Channel error: {e}")
                     continue
@@ -830,17 +830,45 @@ class Management(commands.Cog):
                 await ctx.message.delete()
             except Exception:
                 pass
+
+            # Send an immediate acknowledgement so the owner knows it started
+            async def _dm_owner_status(text: str):
+                try:
+                    owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
+                    dm = owner.dm_channel or await owner.create_dm()
+                    await dm.send(text)
+                except Exception:
+                    pass
+
+            await _dm_owner_status(f"⏳ **,respond all** — replying to {len(users)} user(s)...")
+
             results_out = []
             for user in users:
-                success, reason = await self._respond_to_user(ctx, user)
-                icon = "\u2705" if success else "\u274c"
-                results_out.append(f"{icon} **{user.name}**{'' if success else f' \u2014 {reason}'}")
-            try:
-                owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
-                dm = owner.dm_channel or await owner.create_dm()
-                await dm.send(f"**,respond all** — {len(users)} user(s):\n" + "\n".join(results_out))
-            except Exception:
-                pass
+                try:
+                    success, reason = await self._respond_to_user(ctx, user)
+                    icon = "✅" if success else "❌"
+                    results_out.append(f"{icon} **{user.name}**{'' if success else f' — {reason}'}")
+                except Exception as e:
+                    results_out.append(f"❌ **{user.name}** — error: {e}")
+
+            summary = f"**,respond all** — {len(users)} user(s):\n" + "\n".join(results_out)
+            # Discord message limit: split if too long
+            if len(summary) > 1900:
+                chunks = []
+                lines = summary.split("\n")
+                current = ""
+                for line in lines:
+                    if len(current) + len(line) + 1 > 1900:
+                        chunks.append(current)
+                        current = line
+                    else:
+                        current += ("\n" if current else "") + line
+                if current:
+                    chunks.append(current)
+                for chunk in chunks:
+                    await _dm_owner_status(chunk)
+            else:
+                await _dm_owner_status(summary)
             return
 
         raw_ids = [x.strip().strip("<@!>") for x in re.split(r"[,\s]+", args) if x.strip()]
