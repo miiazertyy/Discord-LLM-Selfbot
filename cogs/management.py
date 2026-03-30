@@ -1374,10 +1374,43 @@ class Management(commands.Cog):
             else:
                 await ctx.send(f"Error joining voice channel: {e}", delete_after=10)
 
+    async def _autojoin_on_startup(self):
+        """Called after on_ready — reads autojoin_channel from config and joins if set."""
+        await self.bot.wait_until_ready()
+        config = load_config()
+        aj = config["bot"].get("autojoin_channel")
+        if not aj:
+            return
+        guild_id = aj.get("guild_id")
+        channel_id = aj.get("channel_id")
+        if not guild_id or not channel_id:
+            return
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            log_error("AutoJoin", f"Guild {guild_id} not found on startup.")
+            return
+        target = guild.get_channel(channel_id)
+        if not isinstance(target, discord.VoiceChannel):
+            log_error("AutoJoin", f"Channel {channel_id} not found or not a voice channel.")
+            return
+        try:
+            await self._connect_and_keep_alive(target)
+            log_system(f"Auto-joined voice channel: {target.name} in {guild.name}")
+        except Exception as e:
+            log_error("AutoJoin", str(e))
+
+    async def cog_load(self):
+        asyncio.create_task(self._autojoin_on_startup())
+
     @commands.command(name="autojoin", description="Set a voice channel to auto-join on startup. Usage: ,autojoin <channel_id/link> or ,autojoin off")
     async def autojoin(self, ctx, *, args: str = None):
         if ctx.author.id != self.bot.owner_id:
             return
+
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
 
         config = load_config()
 
@@ -1419,7 +1452,7 @@ class Management(commands.Cog):
 
         config["bot"]["autojoin_channel"] = {"guild_id": target.guild.id, "channel_id": target.id}
         self.save_config(config)
-        await ctx.send(f"Auto-join set to **{target.name}** in **{target.guild.name}**. Will join on next startup.", delete_after=15)
+        await ctx.send(f"Auto-join set to **{target.name}** in **{target.guild.name}**. Will join on next startup.", delete_after=10)
 
     @commands.command(name="leave", description="Leave a voice channel. Usage: ,leave or ,leave <guild_id>")
     async def leave(self, ctx, guild_id: int = None):
