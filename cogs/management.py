@@ -1099,16 +1099,26 @@ class Management(commands.Cog):
             return v
 
         try:
-            node = config["bot"]
-            for k in keys[:-1]:
-                if k not in node:
-                    await ctx.send(f"Key `{key}` not found.", delete_after=10)
-                    return
-                node = node[k]
-            final_key = keys[-1]
-            if final_key not in node:
+            # Try config["bot"] first, then config["notifications"] as fallback
+            _sections = ["bot", "notifications"]
+            node = None
+            for _section in _sections:
+                _candidate = config.get(_section, {})
+                _found = True
+                for k in keys[:-1]:
+                    if k not in _candidate:
+                        _found = False
+                        break
+                    _candidate = _candidate[k]
+                if _found and keys[-1] in _candidate:
+                    node = _candidate
+                    break
+
+            if node is None:
                 await ctx.send(f"Key `{key}` not found.", delete_after=10)
                 return
+
+            final_key = keys[-1]
             old_val = node[final_key]
             node[final_key] = coerce(value, old_val)
             self.save_config(config)
