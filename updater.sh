@@ -72,4 +72,12 @@ else
 fi
 
 echo "Update complete. Relaunching..."
-bash run.sh
+if command -v gnome-terminal >/dev/null 2>&1; then
+    gnome-terminal -- bash run.sh
+elif command -v xterm >/dev/null 2>&1; then
+    xterm -e bash run.sh &
+elif command -v konsole >/dev/null 2>&1; then
+    konsole -e bash run.sh &
+else
+    bash run.sh
+fi
