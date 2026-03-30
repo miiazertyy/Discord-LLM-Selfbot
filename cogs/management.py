@@ -380,7 +380,7 @@ class Management(commands.Cog):
 
         if sys.platform == "win32":
             updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.bat")
-            subprocess.Popen(["cmd", "/c", "start", "", updater_path, source], shell=False)
+            subprocess.Popen(["cmd", "/c", "start", '""', updater_path, source], shell=False)
         else:
             updater_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "updater.sh")
             subprocess.Popen(["bash", updater_path, source])
@@ -689,7 +689,7 @@ class Management(commands.Cog):
             history.append({"role": "user", "content": combined_content})
             self.bot.message_history[key] = history
 
-        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history, bypass_cooldown=True)
+        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history, bypass_cooldown=True, bypass_typing=True)
         if response:
             self.bot.message_history[key].append({"role": "assistant", "content": response})
             return True, "ok"
@@ -929,6 +929,10 @@ class Management(commands.Cog):
                 pass
 
         if len(users) == 1:
+            try:
+                await ctx.message.delete()
+            except Exception:
+                pass
             status_msg = await ctx.send(f"⏳ Replying to **{users[0].name}**...", delete_after=60)
             success, reason = await self._respond_to_user(ctx, users[0])
             result_text = f"✅ Replied to **{users[0].name}**." if success else f"❌ Couldn't reply to **{users[0].name}**: {reason}."
