@@ -875,7 +875,7 @@ class Management(commands.Cog):
             final_text = f"✅ Done — {len(users)} user(s):\n" + "\n".join(results_out)
             try:
                 if len(final_text) <= 1900:
-                    await status_msg.edit(content=final_text)
+                    await status_msg.edit(content=final_text, delete_after=60)
                 else:
                     try:
                         await status_msg.delete()
@@ -954,7 +954,7 @@ class Management(commands.Cog):
                 results.append(f"{icon} {user.name} (`{user.id}`){'' if success else f' — {reason}'}")
             final_text = f"✅ Done — {len(users)} user(s):\n" + "\n".join(results)
             try:
-                await status_msg.edit(content=final_text if len(final_text) <= 1900 else f"✅ Done — {len(users)} user(s). See DM for details.")
+                await status_msg.edit(content=final_text if len(final_text) <= 1900 else f"✅ Done — {len(users)} user(s). See DM for details.", delete_after=60)
             except Exception:
                 pass
             if len(final_text) > 1900:
