@@ -1297,12 +1297,18 @@ class Management(commands.Cog):
                     voice_client._keep_alive_guard = False
                     break
 
-                # Non-fatal drop — attempt reconnect with backoff
+                # Non-fatal drop — attempt reconnect with human-like backoff.
+                # Never reconnect instantly — a real user takes time to notice and rejoin.
                 consecutive_failures += 1
                 if consecutive_failures > 3:
                     log_error("Voice Keep-Alive", "Too many consecutive failures — giving up.")
                     voice_client._keep_alive_guard = False
                     break
+
+                # Wait at least 30–90s before rejoining, plus exponential backoff per failure
+                rejoin_wait = random.uniform(30, 90) + (30 * consecutive_failures)
+                log_system(f"Voice channel dropped — rejoining in {int(rejoin_wait)}s...")
+                await asyncio.sleep(rejoin_wait)
 
                 try:
                     new_vc = await channel.connect(self_mute=True, self_deaf=True)
@@ -1312,7 +1318,6 @@ class Management(commands.Cog):
                     log_system(f"Rejoined voice channel: {channel.name}")
                 except Exception as e:
                     log_error("Voice Keep-Alive", str(e))
-                    await asyncio.sleep(10 * consecutive_failures)  # exponential-ish backoff
 
         asyncio.create_task(_guard(target, vc))
         return vc
@@ -1377,6 +1382,10 @@ class Management(commands.Cog):
     async def _autojoin_on_startup(self):
         """Called after on_ready — reads autojoin_channel from config and joins if set."""
         await self.bot.wait_until_ready()
+        # Wait a human-like delay before joining VC — connecting 1 second after
+        # login is an obvious bot signal. A real user would open Discord, browse
+        # for a bit, then join a channel. Wait 2–5 minutes.
+        await asyncio.sleep(random.uniform(120, 300))
         config = load_config()
         aj = config["bot"].get("autojoin_channel")
         if not aj:
