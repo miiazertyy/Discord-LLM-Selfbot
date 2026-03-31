@@ -325,7 +325,10 @@ async def _reply_pending_messages():
 
     os.remove(path)
     log_system(f"Replying to {len(pending)} pending message(s) from before restart...")
-    await asyncio.sleep(3) 
+    # Wait a human-like amount of time before replying to pending messages.
+    # Firing responses 3 seconds after startup looks like a bot — a real person
+    # would open Discord, scroll around, then start replying. Wait 3–8 minutes.
+    await asyncio.sleep(random.uniform(180, 480))
 
     for key, data in pending.items():
         try:
@@ -440,23 +443,12 @@ async def _friend_request_loop():
             pending = [r for r in relationships if r.get("type") == 3]
             log_system(f"Friend requests: found {len(pending)} pending on startup")
 
-            # Cap: accept at most 5 per startup session to avoid triggering
-            # Discord's automation detection. The rest will be picked up on
-            # the next restart or via the live on_relationship_add handler.
-            MAX_PER_SESSION = fr_cfg.get("max_accepts_per_session", 5)
-            if len(pending) > MAX_PER_SESSION:
-                log_system(f"Capping to {MAX_PER_SESSION} accepts this session ({len(pending) - MAX_PER_SESSION} deferred to next restart)")
-                pending = pending[:MAX_PER_SESSION]
-
             for i, rel in enumerate(pending):
                 user_id = int(rel["id"])
                 username = rel.get("user", {}).get("username", str(user_id))
-                # Spread accepts across multiple hours — each request is at least
-                # 30-90 minutes apart to look completely human.
-                spread_min = i * random.randint(1800, 3600)
-                spread_jitter = random.randint(0, 1800)
-                actual_delay = delay + spread_min + spread_jitter
-                log_system(f"Pending friend request from {username} — accepting in {actual_delay}s (~{actual_delay // 60}m)")
+                spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
+                actual_delay = delay + spread
+                log_system(f"Pending friend request from {username} — accepting in {actual_delay}s")
 
                 async def _accept(uid=user_id, uname=username, d=actual_delay):
                     await asyncio.sleep(d)
@@ -472,9 +464,6 @@ async def _friend_request_loop():
                             )
                             if r.status_code in (200, 204):
                                 log_system(f"Accepted friend request from {uname}")
-                            elif r.status_code == 401:
-                                log_error("Friend Request Accept", "401 Unauthorized — token may be invalidated, shutting down.")
-                                await bot.close()
                             else:
                                 try:
                                     data = r.json()
@@ -559,6 +548,17 @@ async def _nudge_loop():
                     log_error("Nudge Loop", str(e))
 
         await asyncio.sleep(check_interval_hours * 3600)
+
+
+async def _shutdown_on_401():
+    """Cancel all pending tasks and close the bot cleanly on 401."""
+    log_error("Auth", "Detected 401 Unauthorized — Discord invalidated the token. Shutting down cleanly.")
+    # Cancel all running background tasks except the current one
+    current = asyncio.current_task()
+    for task in asyncio.all_tasks():
+        if task is not current and not task.done():
+            task.cancel()
+    await bot.close()
 
 
 @bot.event
@@ -1214,19 +1214,8 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             except discord.Forbidden:
                 log_error("Reply Error", f"403 Forbidden — cannot send to {message.author.name}")
                 return None
-            except discord.HTTPException as e:
-                if e.status == 401:
-                    log_error("Reply Error", "401 Unauthorized — token invalidated by Discord. Shutting down.")
-                    await bot.close()
-                    return None
-                log_error("Reply Error", str(e))
             except Exception as e:
-                err_str = str(e)
-                if "401" in err_str and "Unauthorized" in err_str:
-                    log_error("Reply Error", "401 Unauthorized — token invalidated by Discord. Shutting down.")
-                    await bot.close()
-                    return None
-                log_error("Reply Error", err_str)
+                log_error("Reply Error", str(e))
 
     return response
 
@@ -1252,14 +1241,19 @@ async def on_relationship_add(relationship):
             return
         user = relationship.user
 
-        # If this person previously removed the bot, re-add them immediately (no delay)
+        # Previously-removed friends get a shorter delay but never instant (0s = bot pattern).
         if user.id in bot.removed_friends:
             bot.removed_friends.discard(user.id)
-            log_system(f"Friend request from {user.name} (was previously a friend) — accepting instantly")
-            delay = 0
+            delay = random.randint(60, 180)
+            log_system(f"Friend request from {user.name} (was previously a friend) — accepting in {delay}s")
         else:
             delay = fr_cfg.get("accept_delay", 300)
             log_system(f"Friend request from {user.name} — will accept in {delay}s")
+
+        # Add per-user jitter so multiple rapid incoming requests don't all
+        # fire at exactly the same second (which is a bot-detection red flag).
+        jitter = random.randint(0, 120)
+        final_delay = delay + jitter
 
         async def _accept(u, d):
             try:
@@ -1278,8 +1272,7 @@ async def on_relationship_add(relationship):
                     if resp.status_code in (200, 204):
                         log_system(f"Accepted friend request from {u.name}")
                     elif resp.status_code == 401:
-                        log_error("Friend Request Accept", "401 Unauthorized — token invalidated by Discord. Shutting down.")
-                        await bot.close()
+                        asyncio.create_task(_shutdown_on_401())
                     else:
                         try:
                             data = resp.json()
@@ -1289,7 +1282,7 @@ async def on_relationship_add(relationship):
             except Exception as e:
                 log_error("Friend Request Accept", str(e))
 
-        asyncio.create_task(_accept(user, delay))
+        asyncio.create_task(_accept(user, final_delay))
     except Exception as e:
         log_error("Friend Request Error", str(e))
 
