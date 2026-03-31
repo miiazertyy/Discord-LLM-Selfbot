@@ -440,12 +440,23 @@ async def _friend_request_loop():
             pending = [r for r in relationships if r.get("type") == 3]
             log_system(f"Friend requests: found {len(pending)} pending on startup")
 
+            # Cap: accept at most 5 per startup session to avoid triggering
+            # Discord's automation detection. The rest will be picked up on
+            # the next restart or via the live on_relationship_add handler.
+            MAX_PER_SESSION = fr_cfg.get("max_accepts_per_session", 5)
+            if len(pending) > MAX_PER_SESSION:
+                log_system(f"Capping to {MAX_PER_SESSION} accepts this session ({len(pending) - MAX_PER_SESSION} deferred to next restart)")
+                pending = pending[:MAX_PER_SESSION]
+
             for i, rel in enumerate(pending):
                 user_id = int(rel["id"])
                 username = rel.get("user", {}).get("username", str(user_id))
-                spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
-                actual_delay = delay + spread
-                log_system(f"Pending friend request from {username} — accepting in {actual_delay}s")
+                # Spread accepts across multiple hours — each request is at least
+                # 30-90 minutes apart to look completely human.
+                spread_min = i * random.randint(1800, 3600)
+                spread_jitter = random.randint(0, 1800)
+                actual_delay = delay + spread_min + spread_jitter
+                log_system(f"Pending friend request from {username} — accepting in {actual_delay}s (~{actual_delay // 60}m)")
 
                 async def _accept(uid=user_id, uname=username, d=actual_delay):
                     await asyncio.sleep(d)
@@ -461,6 +472,9 @@ async def _friend_request_loop():
                             )
                             if r.status_code in (200, 204):
                                 log_system(f"Accepted friend request from {uname}")
+                            elif r.status_code == 401:
+                                log_error("Friend Request Accept", "401 Unauthorized — token may be invalidated, shutting down.")
+                                await bot.close()
                             else:
                                 try:
                                     data = r.json()
@@ -1200,8 +1214,19 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
             except discord.Forbidden:
                 log_error("Reply Error", f"403 Forbidden — cannot send to {message.author.name}")
                 return None
-            except Exception as e:
+            except discord.HTTPException as e:
+                if e.status == 401:
+                    log_error("Reply Error", "401 Unauthorized — token invalidated by Discord. Shutting down.")
+                    await bot.close()
+                    return None
                 log_error("Reply Error", str(e))
+            except Exception as e:
+                err_str = str(e)
+                if "401" in err_str and "Unauthorized" in err_str:
+                    log_error("Reply Error", "401 Unauthorized — token invalidated by Discord. Shutting down.")
+                    await bot.close()
+                    return None
+                log_error("Reply Error", err_str)
 
     return response
 
@@ -1252,6 +1277,9 @@ async def on_relationship_add(relationship):
                     )
                     if resp.status_code in (200, 204):
                         log_system(f"Accepted friend request from {u.name}")
+                    elif resp.status_code == 401:
+                        log_error("Friend Request Accept", "401 Unauthorized — token invalidated by Discord. Shutting down.")
+                        await bot.close()
                     else:
                         try:
                             data = resp.json()
