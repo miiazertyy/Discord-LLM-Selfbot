@@ -1339,7 +1339,7 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
     account_section = ""
     if NUM_ACCOUNTS > 1:
         account_section = (
-            f"\n*🔀 Accounts* — targeting account {account}/{NUM_ACCOUNTS}\n"
+            f"\n*🔀 Accounts* — targeting account {account}\\/{NUM_ACCOUNTS}\n"
             "/account — show current account\n"
             "/account \\<n\\> — switch to account n\n"
         )
@@ -1352,7 +1352,7 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 /pauseuser \\<id\\> — stop responding to user
 /unpauseuser \\<id\\> — resume responding to user
 /wipe — clear conversation history
-/persona \\<id\\> \\<text|off|show\\> — manage per\\-user persona
+/persona \\<id\\> \\<text\\|off\\|show\\> — manage per\\-user persona
 /analyse \\<id\\> — psychological profile of a user
 
 *💬 Replies*
@@ -1378,7 +1378,7 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 *🎭 Behaviour*
 /mood — view current mood \\(live\\)
 /mood \\<n\\> — set mood
-/ignore \\<id\\> — ignore/unignore user
+/ignore \\<id\\> — ignore\\/unignore user
 
 *🎙️ Profile & Status*
 /status — show bot status
@@ -1393,9 +1393,9 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 /toggleactive \\<id\\> — toggle channel as active
 
 *🎙️ Voice*
-/join \\<id/link\\> — join voice channel
+/join \\<id\\/link\\> — join voice channel
 /leave — leave voice channel
-/autojoin \\<id/link\\> — set auto\\-join channel
+/autojoin \\<id\\/link\\> — set auto\\-join channel
 /autojoin off — disable auto\\-join
 
 *🖼️ Images*
