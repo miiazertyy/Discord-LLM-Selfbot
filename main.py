@@ -568,12 +568,31 @@ async def _shutdown_on_401():
 
 
 async def _tg_ipc_loop():
-    """Poll for commands from the Telegram controller and execute them in-process."""
+    """Poll for commands from the Telegram controller and execute them in-process.
+
+    Each bot instance reads from its own per-account IPC file so that multiple
+    Discord tokens can be controlled independently from a single Telegram bot:
+      config/tg_commands_1.json / tg_results_1.json  (account 1)
+      config/tg_commands_2.json / tg_results_2.json  (account 2)
+      ...
+
+    The account index matches the position of DISCORD_TOKEN_N in .env.
+    TOKENS is already loaded as a list; this loop runs per-bot instance so
+    `bot` is the instance for TOKENS[_ACCOUNT_INDEX - 1].
+    """
     import json as _json
     from pathlib import Path as _Path
 
-    _CMD_FILE    = _Path(resource_path("config/tg_commands.json"))
-    _RESULT_FILE = _Path(resource_path("config/tg_results.json"))
+    # Determine which account index this bot instance is (1-based)
+    _my_token = bot._connection.http.token if bot._connection else None
+    _ACCOUNT_INDEX = 1
+    for _i, _t in enumerate(TOKENS, start=1):
+        if _t.get("token") == _my_token:
+            _ACCOUNT_INDEX = _i
+            break
+
+    _CMD_FILE    = _Path(resource_path(f"config/tg_commands_{_ACCOUNT_INDEX}.json"))
+    _RESULT_FILE = _Path(resource_path(f"config/tg_results_{_ACCOUNT_INDEX}.json"))
     _POLL_INTERVAL = 2.0
 
     def _write_result(cmd_id: str, data: dict):
@@ -791,6 +810,64 @@ async def _tg_ipc_loop():
                         import subprocess as _sp
                         _atexit.register(lambda: _sp.Popen([sys.executable] + sys.argv))
                     await bot.close(); sys.exit(0)
+
+                elif cmd == "get_status":
+                    import utils.mood as _mood_mod
+                    _write_result(cmd_id, {
+                        "paused": bot.paused,
+                        "mood": _mood_mod.current_mood,
+                        "active_channels": len(bot.active_channels),
+                        "ignored_users": len(bot.ignore_users),
+                    })
+
+                elif cmd == "mood_get":
+                    import utils.mood as _mood_mod
+                    _write_result(cmd_id, {"mood": _mood_mod.current_mood})
+
+                elif cmd == "ignore_toggle":
+                    uid = int(payload["user_id"])
+                    if uid in bot.ignore_users:
+                        bot.ignore_users.remove(uid)
+                        from utils.db import remove_ignored_user as _riu
+                        _riu(uid)
+                        _write_result(cmd_id, {"ok": True, "ignored": False})
+                    else:
+                        bot.ignore_users.append(uid)
+                        from utils.db import add_ignored_user as _aiu
+                        _aiu(uid)
+                        _write_result(cmd_id, {"ok": True, "ignored": True})
+
+                elif cmd == "persona_get":
+                    from utils.memory import get_persona as _gp
+                    uid = int(payload["user_id"])
+                    _write_result(cmd_id, {"persona": _gp(uid)})
+
+                elif cmd == "get_leaderboard":
+                    from utils.db import get_leaderboard as _glb
+                    from datetime import datetime as _dt
+                    import re as _re
+                    import time as _time_mod
+                    filter_str = payload.get("filter")
+                    since_ts = None
+                    filter_label = "all time"
+                    if filter_str:
+                        m = _re.fullmatch(r"(\d+(?:\.\d+)?)\s*([hdwm])", filter_str.strip().lower())
+                        if m:
+                            amount, unit = float(m.group(1)), m.group(2)
+                            seconds_map = {"h": 3600, "d": 86400, "w": 604800, "m": 2592000}
+                            since_ts = _time_mod.time() - amount * seconds_map[unit]
+                            unit_names = {"h": "hour", "d": "day", "w": "week", "m": "month"}
+                            n = int(amount) if amount == int(amount) else amount
+                            filter_label = f"last {n} {unit_names[unit]}{'s' if n != 1 else ''}"
+                    rows = _glb(limit=20, since=since_ts)
+                    serialized = []
+                    for row in rows:
+                        serialized.append({
+                            "username": row["username"],
+                            "message_count": row["message_count"],
+                            "first_seen_fmt": _dt.fromtimestamp(row["first_seen"]).strftime("%d %b %Y"),
+                        })
+                    _write_result(cmd_id, {"rows": serialized, "filter_label": filter_label})
 
                 elif cmd == "shutdown":
                     log_system("Shutdown requested via Telegram")
