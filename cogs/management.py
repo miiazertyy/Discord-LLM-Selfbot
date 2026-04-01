@@ -1529,10 +1529,29 @@ class Management(commands.Cog):
             await ctx.send("Not in a voice channel.", delete_after=10)
 
 
-    @commands.command(name="image", aliases=["img", "pic", "pictures"], description="Manage bot pictures. Subcommands: upload, ls, download [name]")
-    async def image(self, ctx, action: str = "ls", *, name: str = None):
+    @commands.command(name="image", aliases=["img", "pic", "pictures", "imagels", "imageupload", "imagedownload", "imagedelete"], description="Manage bot pictures. Subcommands: upload, ls, download [name]")
+    async def image(self, ctx, action: str = None, *, name: str = None):
         if ctx.author.id != self.bot.owner_id:
             return
+
+        # When called via alias like ,imagels / ,imagedownload / ,imageupload / ,imagedelete,
+        # extract the subcommand from the invoked alias.
+        invoked = ctx.invoked_with.lower()
+        if action is None:
+            if invoked in ("imagels",):
+                action = "ls"
+            elif invoked in ("imageupload",):
+                action = "upload"
+            elif invoked in ("imagedownload",):
+                action = "download"
+            elif invoked in ("imagedelete",):
+                action = "delete"
+            else:
+                action = "ls"
+        # If alias encodes subcommand and user also typed an arg, that arg is the name
+        elif invoked in ("imagedownload", "imagedelete") and name is None:
+            name = action
+            action = "download" if invoked == "imagedownload" else "delete"
 
         from utils.helpers import resource_path
         folder = resource_path("config/pictures")
@@ -1805,6 +1824,62 @@ class Management(commands.Cog):
                         await ctx.send(f"❌ Failed with status `{resp.status_code}`.", delete_after=15)
         except Exception as e:
             await ctx.send(f"Error: {e}", delete_after=10)
+
+
+    @commands.command(name="clear", description="Delete all recent messages in the current channel (up to 100).")
+    async def clear(self, ctx, limit: int = 100):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
+        deleted = 0
+        failed = 0
+        # Collect messages to delete — history() is an async generator
+        to_delete = []
+        async for msg in ctx.channel.history(limit=limit):
+            to_delete.append(msg)
+        for msg in to_delete:
+            try:
+                await msg.delete()
+                deleted += 1
+                await asyncio.sleep(0.35)  # avoid hitting Discord rate limits
+            except Exception:
+                failed += 1
+        # Send a confirmation that self-deletes
+        note = await ctx.send(
+            f"🧹 Cleared {deleted} message(s)." + (f" ({failed} couldn't be deleted)" if failed else ""),
+            delete_after=8,
+        )
+
+    @commands.command(name="togglecommands", aliases=["togglecmds"], description="Enable or disable Discord command responses. Usage: ,togglecommands [true|false]")
+    async def togglecommands(self, ctx, value: str = None):
+        """Toggle or explicitly set discord_commands_enabled in config.
+        Usage:
+            ,togglecommands          — toggle current value
+            ,togglecommands true     — enable
+            ,togglecommands false    — disable
+        """
+        if ctx.author.id != self.bot.owner_id:
+            return
+        config = load_config()
+        current = config["bot"].get("discord_commands_enabled", True)
+        if value is None:
+            new_val = not current
+        elif value.lower() in ("true", "1", "on", "yes"):
+            new_val = True
+        elif value.lower() in ("false", "0", "off", "no"):
+            new_val = False
+        else:
+            await ctx.send(f"Usage: `,togglecommands [true|false]`", delete_after=10)
+            return
+        config["bot"]["discord_commands_enabled"] = new_val
+        self.save_config(config)
+        await ctx.send(
+            f"Discord commands are now {'✅ enabled' if new_val else '❌ disabled'}.",
+            delete_after=15,
+        )
 
 
 async def setup(bot):
