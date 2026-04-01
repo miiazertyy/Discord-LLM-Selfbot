@@ -44,77 +44,78 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 ### 🌙 AI
 | Command | Description |
 |---|---|
-| `,pause` | Pause / unpause AI responses |
-| `,pauseuser <user>` | Stop responding to a specific user |
-| `,unpauseuser <user>` | Resume responding to a user |
-| `,persona <user> [text]` | Set, clear, or view a per-user persona |
-| `,wipe` | Clear conversation history |
-| `,analyse <user>` | Generate a psychological read of a user |
+| `/pause` | Pause / unpause AI responses |
+| `/pauseuser <user>` | Stop responding to a specific user |
+| `/unpauseuser <user>` | Resume responding to a user |
+| `/persona <user> [text]` | Set, clear, or view a per-user persona |
+| `/wipe` | Clear conversation history |
+| `/analyse <user>` | Generate a psychological read of a user |
 
 ### 💬 Replies
 | Command | Description |
 |---|---|
-| `,reply <user>` | Manually trigger a reply to a user's last message |
-| `,reply check` | Show users with unread messages + last message snippet |
-| `,reply all` | Respond to every user listed in `,reply check` |
+| `/reply <user>` | Manually trigger a reply to a user's last message |
+| `/reply check` | Show users with unread messages + last message snippet |
+| `/reply all` | Respond to every user listed in `,reply check` |
 | `= [hint]` | Priority reply — instantly respond in any channel |
 
 ### ⚙️ Instructions & Config
 | Command | Description |
 |---|---|
-| `,prompt [text]` | View, set, or clear instructions inline |
-| `,instructions` | Upload a new `instructions.txt` (attach file) |
-| `,getinstructions` | Download the current `instructions.txt` |
-| `,config` | View and edit config inline |
-| `,getconfig` | Download the current `config.yaml` |
-| `,setconfig` | Upload a new `config.yaml` (attach file) |
+| `/prompt [text]` | View, set, or clear instructions inline |
+| `/instructions` | Upload a new `instructions.txt` (attach file) |
+| `/getinstructions` | Download the current `instructions.txt` |
+| `/config` | View and edit config inline |
+| `/getconfig` | Download the current `config.yaml` |
+| `/setconfig` | Upload a new `config.yaml` (attach file) |
 
 ### 📡 Channels
 | Command | Description |
 |---|---|
-| `,toggleactive` | Toggle the current channel as active |
-| `,toggledm` | Toggle DM responses |
-| `,togglegc` | Toggle group chat responses |
-| `,toggleserver` | Toggle server mention/reply responses |
-| `,ignore <user>` | Ignore / unignore a user |
+| `/toggleactive` | Toggle the current channel as active |
+| `/toggledm` | Toggle DM responses |
+| `/togglegc` | Toggle group chat responses |
+| `/toggleserver` | Toggle server mention/reply responses |
+| `/ignore <user>` | Ignore / unignore a user |
 
 ### 🎙️ Voice
 | Command | Description |
 |---|---|
-| `,join <channel_id / link>` | Join a voice channel (muted & deafened) |
-| `,leave` | Leave the current voice channel |
-| `,autojoin <channel_id / link>` | Auto-join a voice channel on startup |
-| `,autojoin off` | Disable auto-join |
+| `/join <channel_id / link>` | Join a voice channel (muted & deafened) |
+| `/leave` | Leave the current voice channel |
+| `/autojoin <channel_id / link>` | Auto-join a voice channel on startup |
+| `/autojoin off` | Disable auto-join |
 
 ### 🖼️ Images
 | Command | Description |
 |---|---|
-| `,image ls` | List all pictures |
-| `,image upload` | Upload picture(s) (attach file) |
-| `,image download <n>` | Download a picture by number |
-| `,image delete <n>` | Delete a picture by number |
-| `,image delete all` | Delete all pictures |
+| `/image ls` | List all pictures |
+| `/image upload` | Upload picture(s) (attach file) |
+| `/image download <n>` | Download a picture by number |
+| `/image delete <n>` | Delete a picture by number |
+| `/image delete all` | Delete all pictures |
 
 ### 🎭 Profile & Status
 | Command | Description |
 |---|---|
-| `,status [emoji] [text]` | Set a custom status |
-| `,bio [text]` | Set profile bio |
-| `,pfp [url / attach]` | Change profile picture |
-| `,mood [name]` | View or set the current mood |
+| `/status [emoji] [text]` | Set a custom status |
+| `/bio [text]` | Set profile bio |
+| `/pfp [url / attach]` | Change profile picture |
+| `/mood [name]` | View or set the current mood |
 
 ### 🛠️ System
 | Command | Description |
 |---|---|
-| `,addfriend <user_id>` | Send a friend request to a user by ID |
-| `,reload` | Reload all cogs and instructions |
-| `,restart` | Restart the bot |
-| `,shutdown` | Shut down the bot |
-| `,update` | Update to the latest stable release |
-| `,update main` | Update to the latest commit |
-| `,getdb` | Download the memory database |
-| `,leaderboard [filter]` | Show top users by message count (e.g. `,leaderboard 3d`, `,leaderboard 1w`) |
-| `,ping` | Show latency |
+| `/addfriend <user_id>` | Send a friend request to a user by ID |
+| `/clear` | Clears the chat |
+| `/reload` | Reload all cogs and instructions |
+| `/restart` | Restart the bot |
+| `/shutdown` | Shut down the bot |
+| `/update` | Update to the latest stable release |
+| `/update main` | Update to the latest commit |
+| `/getdb` | Download the memory database |
+| `/leaderboard [filter]` | Show top users by message count (e.g. `,leaderboard 3d`, `,leaderboard 1w`) |
+| `/ping` | Show latency |
 
 ---
 
