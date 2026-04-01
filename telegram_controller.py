@@ -401,6 +401,7 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"  allow_dm             {bot_cfg.get('allow_dm')}",
                 f"  allow_gc             {bot_cfg.get('allow_gc')}",
                 f"  allow_server         {bot_cfg.get('allow_server', True)}",
+                f"  discord_commands_enabled  {bot_cfg.get('discord_commands_enabled', True)}",
                 f"  hold_conversation    {bot_cfg.get('hold_conversation')}",
                 f"  realistic_typing     {bot_cfg.get('realistic_typing')}",
                 f"  reply_ping           {bot_cfg.get('reply_ping')}",
@@ -453,6 +454,7 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "  🔔  Notifications",
                 f"  error_webhook        {'set' if notif.get('error_webhook') else 'not set'}",
                 f"  ratelimit_notifications  {notif.get('ratelimit_notifications')}",
+                f"  telegram_error_notifications  {notif.get('telegram_error_notifications', False)}",
                 "```",
                 "Edit with: /config key value",
                 "Example: /config tts.enabled true",
@@ -626,44 +628,173 @@ async def cmd_instructions_file(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text("✅ Instructions updated from file!")
 
 
-# ── /leaderboard — via IPC ────────────────────────────────────────────────────
+# ── /leaderboard — via IPC with pagination ───────────────────────────────────
 @owner_only
 async def cmd_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account = _get_account(context)
     label = _account_label(account)
     import re as _re
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     filter_str = context.args[0] if context.args else None
     if filter_str:
         m = _re.fullmatch(r"(\d+(?:\.\d+)?)\s*([hdwm])", filter_str.strip().lower())
         if not m:
             await update.message.reply_text(
-                "Invalid filter. Examples: /leaderboard 24h · /leaderboard 7d · /leaderboard 1w"
+                "Invalid filter\\. Examples: /leaderboard 24h · /leaderboard 7d · /leaderboard 1w",
+                parse_mode=ParseMode.MARKDOWN_V2
             )
             return
 
+    wait_msg = await update.message.reply_text("📊 Fetching leaderboard\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
     cmd_id = _send_command(account, "get_leaderboard", {"filter": filter_str})
     result = await _wait_for_result(account, cmd_id, timeout=15.0)
 
     if not result:
-        await update.message.reply_text(f"{label}⚠️ Selfbot didn't respond in time.")
+        await wait_msg.edit_text(f"{label}⚠️ Selfbot didn't respond in time\\.", parse_mode=ParseMode.MARKDOWN_V2)
         return
 
     rows = result.get("rows", [])
     filter_label = result.get("filter_label", "all time")
 
     if not rows:
-        await update.message.reply_text(f"{label}No conversations recorded ({filter_label}).")
+        safe_label = _escape(f"{label}No conversations recorded ({filter_label}).")
+        await wait_msg.edit_text(safe_label, parse_mode=ParseMode.MARKDOWN_V2)
         return
 
+    PER_PAGE = 10
+    total_pages = max(1, (len(rows) + PER_PAGE - 1) // PER_PAGE)
     medal = ["🥇", "🥈", "🥉"]
-    lines = [f"📊 *{label}Leaderboard* — {filter_label}\n"]
-    for i, row in enumerate(rows):
-        rank = medal[i] if i < 3 else f"`#{i+1}`"
-        msg = row["message_count"]
-        lines.append(f"{rank} *{row['username']}* — {msg} msg{'s' if msg != 1 else ''} · since {row['first_seen_fmt']}")
 
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+    def _build_lb_page(page: int) -> str:
+        start = page * PER_PAGE
+        chunk = rows[start:start + PER_PAGE]
+        header_raw = f"📊 {label}Leaderboard — {filter_label}  (page {page+1}/{total_pages})"
+        lines = [_escape(header_raw), ""]
+        for i, row in enumerate(chunk):
+            rank_n = start + i
+            rank = medal[rank_n] if rank_n < 3 else f"\\#{rank_n+1}"
+            msg_count = row["message_count"]
+            msg_str = f"{msg_count} msg{'s' if msg_count != 1 else ''}"
+            name_esc = _escape(row["username"])
+            date_esc = _escape(row["first_seen_fmt"])
+            lines.append(f"{rank} *{name_esc}* — {_escape(msg_str)} · since {date_esc}")
+        return "\n".join(lines)
+
+    def _build_lb_keyboard(page: int, filter_arg: str):
+        buttons = []
+        if page > 0:
+            buttons.append(InlineKeyboardButton("◀ Prev", callback_data=f"lb:{page-1}:{filter_arg or ''}:{account}"))
+        if page < total_pages - 1:
+            buttons.append(InlineKeyboardButton("Next ▶", callback_data=f"lb:{page+1}:{filter_arg or ''}:{account}"))
+        return InlineKeyboardMarkup([buttons]) if buttons else None
+
+    kb = _build_lb_keyboard(0, filter_str)
+    await wait_msg.edit_text(
+        _build_lb_page(0),
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=kb,
+    )
+
+
+async def _leaderboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle ◀/▶ pagination for /leaderboard."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    query = update.callback_query
+    if not query:
+        return
+    user = query.from_user
+    if not user or user.id != TG_OWNER_ID:
+        await query.answer("Not authorised.")
+        return
+    await query.answer()
+
+    parts = query.data.split(":", 3)
+    if len(parts) < 4 or parts[0] != "lb":
+        return
+    page = int(parts[1])
+    filter_str = parts[2] or None
+    account = int(parts[3])
+
+    cmd_id = _send_command(account, "get_leaderboard", {"filter": filter_str})
+    result = await _wait_for_result(account, cmd_id, timeout=15.0)
+    if not result:
+        await query.edit_message_text("⚠️ Selfbot didn't respond in time.")
+        return
+
+    rows = result.get("rows", [])
+    filter_label = result.get("filter_label", "all time")
+    label = _account_label(account)
+
+    if not rows:
+        await query.edit_message_text(f"{label}No conversations recorded ({filter_label}).")
+        return
+
+    PER_PAGE = 10
+    total_pages = max(1, (len(rows) + PER_PAGE - 1) // PER_PAGE)
+    medal = ["🥇", "🥈", "🥉"]
+
+    def _build_lb_page(pg: int) -> str:
+        start = pg * PER_PAGE
+        chunk = rows[start:start + PER_PAGE]
+        header_raw = f"📊 {label}Leaderboard — {filter_label}  (page {pg+1}/{total_pages})"
+        lines = [_escape(header_raw), ""]
+        for i, row in enumerate(chunk):
+            rank_n = start + i
+            rank = medal[rank_n] if rank_n < 3 else f"\\#{rank_n+1}"
+            msg_count = row["message_count"]
+            msg_str = f"{msg_count} msg{'s' if msg_count != 1 else ''}"
+            name_esc = _escape(row["username"])
+            date_esc = _escape(row["first_seen_fmt"])
+            lines.append(f"{rank} *{name_esc}* — {_escape(msg_str)} · since {date_esc}")
+        return "\n".join(lines)
+
+    def _build_lb_keyboard(pg: int):
+        buttons = []
+        if pg > 0:
+            buttons.append(InlineKeyboardButton("◀ Prev", callback_data=f"lb:{pg-1}:{filter_str or ''}:{account}"))
+        if pg < total_pages - 1:
+            buttons.append(InlineKeyboardButton("Next ▶", callback_data=f"lb:{pg+1}:{filter_str or ''}:{account}"))
+        return InlineKeyboardMarkup([buttons]) if buttons else None
+
+    await query.edit_message_text(
+        _build_lb_page(page),
+        parse_mode=ParseMode.MARKDOWN_V2,
+        reply_markup=_build_lb_keyboard(page),
+    )
+
+
+# ── /clear — delete bot's own Telegram messages ───────────────────────────────
+_bot_message_ids: list[int] = []   # track message IDs sent by the controller
+
+@owner_only
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete up to the last 50 messages sent by this Telegram controller."""
+    chat_id = update.effective_chat.id
+    deleted = 0
+    failed = 0
+    ids_to_clear = list(_bot_message_ids)
+    _bot_message_ids.clear()
+    # Also try to delete the /clear command itself
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+    for msg_id in reversed(ids_to_clear):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            deleted += 1
+        except Exception:
+            failed += 1
+    if deleted or failed:
+        note = await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🧹 Cleared {deleted} message(s)." + (f" ({failed} couldn't be deleted)" if failed else ""),
+        )
+        _bot_message_ids.append(note.message_id)
+    else:
+        note = await context.bot.send_message(chat_id=chat_id, text="🧹 Nothing to clear.")
+        _bot_message_ids.append(note.message_id)
 
 
 # ── /imagels — direct file access ────────────────────────────────────────────
@@ -1423,6 +1554,7 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 /restart \u2014 restart selfbot
 /shutdown \u2014 shut down selfbot
 /ping \u2014 check controller is running
+/clear \u2014 delete this bot's recent messages
 """
     # Retry up to 3 times on transient network errors, fall back to plain text
     from telegram.error import NetworkError as TGNetworkError
@@ -1469,6 +1601,63 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
     logger.error(f"[ERROR] Unhandled exception: {err}", exc_info=err)
 
 
+# ── Error notification polling loop ──────────────────────────────────────────
+async def _error_notification_loop(app):
+    """Poll the IPC commands file for error notifications sent by the selfbot
+    and forward them as Telegram DMs to the owner."""
+    import yaml
+    _POLL_INTERVAL = 3.0
+
+    def _tg_notifications_enabled() -> bool:
+        try:
+            with open(_CONFIG_YAML, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+            return cfg.get("notifications", {}).get("telegram_error_notifications", False)
+        except Exception:
+            return False
+
+    logger.info("[TG Error Loop] Started — polling for error notifications")
+    while True:
+        await asyncio.sleep(_POLL_INTERVAL)
+        if not _tg_notifications_enabled():
+            continue
+        for account in range(1, NUM_ACCOUNTS + 1):
+            cmd_file = _cmd_file(account)
+            if not cmd_file.exists():
+                continue
+            try:
+                raw = cmd_file.read_text()
+                commands_list = json.loads(raw)
+            except Exception:
+                continue
+            if not commands_list:
+                continue
+
+            remaining = []
+            changed = False
+            for entry in commands_list:
+                if entry.get("cmd") != "send_error_notification":
+                    remaining.append(entry)
+                    continue
+                changed = True
+                payload = entry.get("payload", {})
+                title = payload.get("title", "Error")
+                detail = payload.get("detail", "")
+                try:
+                    msg_text = f"🚨 *{_escape(title)}*\n\n{_escape(detail)}"
+                    sent = await app.bot.send_message(
+                        chat_id=TG_OWNER_ID,
+                        text=msg_text,
+                        parse_mode=ParseMode.MARKDOWN_V2,
+                    )
+                    _bot_message_ids.append(sent.message_id)
+                except Exception as e:
+                    logger.error(f"[TG Error Loop] Failed to send error notification: {e}")
+            if changed:
+                cmd_file.write_text(json.dumps(remaining))
+
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"[TG Controller] Starting")
@@ -1478,6 +1667,8 @@ def main():
     print(f"[TG Controller] Token     : {TG_TOKEN[:8]}...{TG_TOKEN[-4:]}")
 
     from telegram.request import HTTPXRequest
+    from telegram.ext import CallbackQueryHandler
+
     request = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
     app = Application.builder().token(TG_TOKEN).request(request).build()
     app.bot_data["account"] = 1  # default to account 1
@@ -1522,10 +1713,18 @@ def main():
     app.add_handler(CommandHandler("addfriend",       cmd_addfriend))
     app.add_handler(CommandHandler("restart",         cmd_restart))
     app.add_handler(CommandHandler("shutdown",        cmd_shutdown))
+    app.add_handler(CommandHandler("clear",           cmd_clear))
     app.add_handler(CommandHandler("help",            cmd_help))
+    app.add_handler(CallbackQueryHandler(_leaderboard_callback, pattern=r"^lb:"))
     app.add_handler(MessageHandler(filters.Document.FileExtension("txt"),  cmd_instructions_file))
     app.add_handler(MessageHandler(filters.Document.FileExtension("yaml"), cmd_setconfig))
     app.add_error_handler(_error_handler)
+
+    async def _post_init(application):
+        """Start background tasks after the app initialises."""
+        asyncio.create_task(_error_notification_loop(application))
+
+    app.post_init = _post_init
 
     print("[TG Controller] Running — send /start to your bot on Telegram.")
     app.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=5)
