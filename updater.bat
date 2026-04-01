@@ -43,7 +43,7 @@ python -m venv bot-env
 call .\bot-env\Scripts\activate.bat
 pip install --upgrade pip
 pip install -r requirements.txt
-pip install -U davey curl_cffi
+pip install -U davey curl_cffi python-telegram-bot
 
 echo Checking for ffmpeg...
 where ffmpeg >nul 2>&1
