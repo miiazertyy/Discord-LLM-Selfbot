@@ -60,12 +60,6 @@ class Management(commands.Cog):
         self.bot = bot
 
     async def cog_before_invoke(self, ctx):
-        # Check if Discord commands are enabled in config
-        cfg = load_config()
-        if not cfg.get("bot", {}).get("discord_commands_enabled", True):
-            # Still allow owner, but block all non-owner command invocations silently
-            if ctx.author.id != self.bot.owner_id:
-                raise commands.CheckFailure("Discord commands are disabled.")
         # Only add the human-like delay for non-owner users.
         if ctx.author.id != self.bot.owner_id:
             import random
@@ -1027,7 +1021,7 @@ class Management(commands.Cog):
             return
         await self._run_respond(ctx, args)
 
-    @commands.command(name="reply", description="Alias for ,respond — respond to one or more users by ID.")
+    @commands.command(name="reply", aliases=["response"], description="Alias for ,respond — respond to one or more users by ID.")
     async def reply_cmd(self, ctx, *, args: str = None):
         if ctx.author.id != self.bot.owner_id:
             return
@@ -1077,7 +1071,6 @@ class Management(commands.Cog):
                 f"  allow_dm              {bot_cfg.get('allow_dm')}",
                 f"  allow_gc              {bot_cfg.get('allow_gc')}",
                 f"  allow_server          {bot_cfg.get('allow_server', True)}",
-                f"  discord_commands_enabled  {bot_cfg.get('discord_commands_enabled', True)}",
                 f"  hold_conversation     {bot_cfg.get('hold_conversation')}",
                 f"  realistic_typing      {bot_cfg.get('realistic_typing')}",
                 f"  reply_ping            {bot_cfg.get('reply_ping')}",
@@ -1545,7 +1538,7 @@ class Management(commands.Cog):
             await ctx.send("Not in a voice channel.", delete_after=10)
 
 
-    @commands.command(name="image", aliases=["img", "pic", "pictures", "imagels", "imageupload", "imagedownload", "imagedelete"], description="Manage bot pictures. Subcommands: upload, ls, download [name]")
+    @commands.command(name="image", aliases=["img", "pic", "pictures", "imagels", "imagelist", "imageupload", "imagedownload", "imagedl", "imagedelete"], description="Manage bot pictures. Subcommands: upload, ls, download [name]")
     async def image(self, ctx, action: str = None, *, name: str = None):
         if ctx.author.id != self.bot.owner_id:
             return
@@ -1554,20 +1547,20 @@ class Management(commands.Cog):
         # extract the subcommand from the invoked alias.
         invoked = ctx.invoked_with.lower()
         if action is None:
-            if invoked in ("imagels",):
+            if invoked in ("imagels", "imagelist"):
                 action = "ls"
             elif invoked in ("imageupload",):
                 action = "upload"
-            elif invoked in ("imagedownload",):
+            elif invoked in ("imagedownload", "imagedl"):
                 action = "download"
             elif invoked in ("imagedelete",):
                 action = "delete"
             else:
                 action = "ls"
         # If alias encodes subcommand and user also typed an arg, that arg is the name
-        elif invoked in ("imagedownload", "imagedelete") and name is None:
+        elif invoked in ("imagedownload", "imagedl", "imagedelete") and name is None:
             name = action
-            action = "download" if invoked == "imagedownload" else "delete"
+            action = "download" if invoked in ("imagedownload", "imagedl") else "delete"
 
         from utils.helpers import resource_path
         folder = resource_path("config/pictures")
