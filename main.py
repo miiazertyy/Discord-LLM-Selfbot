@@ -2230,6 +2230,10 @@ async def on_message(message):
     if should_ignore_message(message):
         return
 
+    # Ignore sticker-only messages — stickers show up as attachments with no text
+    if message.stickers and not message.content:
+        return
+
     if message.author.id in bot.paused_users:
         return
 
