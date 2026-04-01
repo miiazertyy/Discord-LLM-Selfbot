@@ -761,18 +761,74 @@ async def _tg_ipc_loop():
 
                 elif cmd == "reply_check":
                     users_out = []
+                    seen_ids = set()
+
+                    # Pass 1: in-memory history (fast, works mid-session)
                     for hk, history in bot.message_history.items():
                         if not history or history[-1].get("role") != "user":
                             continue
                         try:
                             uid = int(hk.split("-")[0])
+                            if uid in seen_ids:
+                                continue
+                            seen_ids.add(uid)
                             u = bot.get_user(uid)
-                            pending = [e for e in reversed(history) if e["role"] == "user"]
-                            last = pending[0]["content"] if pending else ""
+                            pending = [e["content"] for e in reversed(history) if e["role"] == "user"]
+                            last = pending[0] if pending else ""
                             snippet = (last[:60] + "…") if len(last) > 60 else last
-                            users_out.append({"id": uid, "name": u.name if u else str(uid), "snippet": snippet, "count": len(pending)})
+                            users_out.append({
+                                "id": uid,
+                                "name": u.name if u else str(uid),
+                                "snippet": snippet,
+                                "count": len(pending),
+                            })
                         except Exception:
                             pass
+
+                    # Pass 2: live DM channel scan (catches post-restart gaps)
+                    try:
+                        _selfbot_id = getattr(bot, "selfbot_id", None) or bot.user.id
+                        for _ch in bot.private_channels:
+                            if not isinstance(_ch, discord.DMChannel):
+                                continue
+                            _other = _ch.recipient
+                            if _other is None or _other.id in seen_ids:
+                                continue
+                            # Quick cache check — skip if bot sent the last message
+                            _cached_last = None
+                            if _ch.last_message_id:
+                                _cached_last = _ch._state._get_message(_ch.last_message_id)
+                            if _cached_last is not None and _cached_last.author.id == _selfbot_id:
+                                continue
+                            try:
+                                _last_msgs = [m async for m in _ch.history(limit=10)]
+                                if not _last_msgs:
+                                    continue
+                                _last_other = next((m for m in _last_msgs if m.author.id != _selfbot_id), None)
+                                _last_bot   = next((m for m in _last_msgs if m.author.id == _selfbot_id), None)
+                                if _last_other is None:
+                                    continue
+                                if _last_bot and _last_bot.created_at > _last_other.created_at:
+                                    continue
+                                _pending_ct = sum(
+                                    1 for m in _last_msgs
+                                    if m.author.id != _selfbot_id
+                                    and (_last_bot is None or m.created_at > _last_bot.created_at)
+                                )
+                                _snip_text = _last_other.content or "[attachment]"
+                                _snip = (_snip_text[:60] + "…") if len(_snip_text) > 60 else _snip_text
+                                seen_ids.add(_other.id)
+                                users_out.append({
+                                    "id": _other.id,
+                                    "name": _other.name,
+                                    "snippet": _snip,
+                                    "count": max(_pending_ct, 1),
+                                })
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+
                     _write_result(cmd_id, {"users": users_out})
 
                 elif cmd == "reply_user":
@@ -1147,6 +1203,46 @@ async def _tg_ipc_loop():
                                     _reload_errors.append(str(_re))
                     bot.instructions = load_instructions()
                     _write_result(cmd_id, {"ok": True, "errors": _reload_errors})
+
+                # ── image_analyse ─────────────────────────────────────────────
+                elif cmd == "image_analyse":
+                    import base64 as _b64_ia
+                    from utils.helpers import resource_path as _rp_ia
+                    from utils.db import add_picture_description as _apd_ia
+                    from utils.ai import _create_image_completion as _cic_ia
+                    _ia_name = payload.get("name", "")
+                    _ia_b64  = payload.get("b64", "")
+                    _ia_ext  = payload.get("ext", ".jpg")
+                    _ia_folder = _rp_ia("config/pictures")
+                    _ia_path   = os.path.join(_ia_folder, _ia_name)
+                    # Save file if it doesn't exist yet (Telegram controller already wrote it,
+                    # but if running on same machine the path is shared — skip the write)
+                    if not os.path.exists(_ia_path) and _ia_b64:
+                        os.makedirs(_ia_folder, exist_ok=True)
+                        with open(_ia_path, "wb") as _f:
+                            _f.write(_b64_ia.b64decode(_ia_b64))
+                    try:
+                        _ia_cfg = load_config()
+                        _ia_model = _ia_cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
+                        _mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                                     ".gif": "image/gif", ".webp": "image/webp"}
+                        _ia_mime = _mime_map.get(_ia_ext.lower(), "image/jpeg")
+                        _ia_data_url = f"data:{_ia_mime};base64,{_ia_b64}"
+                        _ia_resp = await _cic_ia(
+                            _ia_model,
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": "Describe this image in full detail exactly as you see it. Include all visible text, objects, people, colors, layout, and context."},
+                                    {"type": "image_url", "image_url": {"url": _ia_data_url}},
+                                ],
+                            }],
+                        )
+                        _ia_desc = _ia_resp.choices[0].message.content.strip()
+                        _apd_ia(_ia_name, _ia_desc)
+                        _write_result(cmd_id, {"ok": True, "description": _ia_desc})
+                    except Exception as _ia_e:
+                        _write_result(cmd_id, {"ok": False, "reason": str(_ia_e)})
 
                 # ── image_delete ──────────────────────────────────────────────
                 elif cmd == "image_delete":
