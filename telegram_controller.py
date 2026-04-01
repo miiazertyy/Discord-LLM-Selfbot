@@ -41,7 +41,7 @@ COMMANDS AVAILABLE:
   💬 Replies
     /reply check        — show unreplied conversations
     /reply all          — respond to all unreplied users
-    /reply <id>         — respond to a specific user by ID
+    /reply / response <id>  — respond to a specific user by ID
 
   ⚙️ Config & Instructions
     /config             — view current config
@@ -80,8 +80,8 @@ COMMANDS AVAILABLE:
     /autojoin off       — disable auto-join
 
   🖼️ Images
-    /imagels            — list all pictures with descriptions
-    /imagedownload <n>  — download image by number
+    /imagels / imagelist    — list all pictures with descriptions
+    /imagedownload / imagedl <n>  — download image by number
     /imagedelete <n>    — delete image by number
     /imagedeleteall     — delete all images
 
@@ -1882,7 +1882,7 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 *\U0001f4ac Replies*
 /reply check \u2014 show unreplied conversations
 /reply all \u2014 respond to all unreplied
-/reply \\<id\\> \u2014 respond to specific user
+/reply \\<id\\> \u2014 respond to specific user \\(also: /response\\)
 
 *\u2699 Config & Instructions*
 /config \u2014 view full config
@@ -1923,9 +1923,9 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 /autojoin off \u2014 disable auto\\-join
 
 *\U0001f5bc Images*
-/imagels \u2014 browse pictures with full descriptions
+/imagels /imagelist \u2014 browse pictures with full descriptions
 /imageupload \u2014 upload a new image \\(attach photo or send one\\)
-/imagedownload \\<n\\> \u2014 download image by number
+/imagedownload /imagedl \\<n\\> \u2014 download image by number
 /imagedelete \\<n\\> \u2014 delete image by number
 /imagedeleteall \u2014 delete all images
 
@@ -2068,6 +2068,7 @@ def main():
     app.add_handler(CommandHandler("analyse",         cmd_analyse))
     app.add_handler(CommandHandler("analyze",         cmd_analyse))
     app.add_handler(CommandHandler("reply",           cmd_reply))
+    app.add_handler(CommandHandler("response",        cmd_reply))
     app.add_handler(CommandHandler("config",          cmd_config))
     app.add_handler(CommandHandler("getconfig",       cmd_getconfig))
     app.add_handler(CommandHandler("setconfig",       cmd_setconfig))
@@ -2090,7 +2091,9 @@ def main():
     app.add_handler(CommandHandler("leave",           cmd_leave))
     app.add_handler(CommandHandler("autojoin",        cmd_autojoin))
     app.add_handler(CommandHandler("imagels",         cmd_imagels))
+    app.add_handler(CommandHandler("imagelist",       cmd_imagels))
     app.add_handler(CommandHandler("imagedownload",   cmd_imagedownload))
+    app.add_handler(CommandHandler("imagedl",         cmd_imagedownload))
     app.add_handler(CommandHandler("imagedelete",     cmd_imagedelete))
     app.add_handler(CommandHandler("imagedeleteall",  cmd_imagedeleteall))
     app.add_handler(CommandHandler("imageupload",     cmd_imageupload))
