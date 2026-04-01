@@ -1044,30 +1044,47 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_file = None
     filename_hint = None
 
-    # Check the message itself first, then its caption context (Telegram sends
-    # photos with captions as a single message, but commands with photos attached
-    # may arrive as caption="/imageupload" on the photo message).
+    # Telegram sends photo+caption as ONE message. When user sends a file with
+    # caption "/imageupload", msg.document is set. When compressed photo + caption,
+    # msg.photo is set. CommandHandler fires on caption in both cases.
     if msg.photo:
+        # Compressed photo (with or without /imageupload caption)
         tg_file = await msg.photo[-1].get_file()
         filename_hint = "upload.jpg"
     elif msg.document:
+        # File/document upload — accept any image mime type OR image file extension
         doc = msg.document
-        if doc.mime_type and doc.mime_type.startswith("image/"):
+        fname = doc.file_name or ""
+        is_image_mime = bool(doc.mime_type and doc.mime_type.startswith("image/"))
+        is_image_ext = any(fname.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"))
+        if is_image_mime or is_image_ext:
             tg_file = await doc.get_file()
-            filename_hint = doc.file_name or "upload.jpg"
+            filename_hint = fname or "upload.png"
     elif msg.reply_to_message:
         rep = msg.reply_to_message
         if rep.photo:
             tg_file = await rep.photo[-1].get_file()
             filename_hint = "upload.jpg"
-        elif rep.document and rep.document.mime_type and rep.document.mime_type.startswith("image/"):
-            tg_file = await rep.document.get_file()
-            filename_hint = rep.document.file_name or "upload.jpg"
+        elif rep.document:
+            doc = rep.document
+            fname = doc.file_name or ""
+            is_image_mime = bool(doc.mime_type and doc.mime_type.startswith("image/"))
+            is_image_ext = any(fname.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"))
+            if is_image_mime or is_image_ext:
+                tg_file = await doc.get_file()
+                filename_hint = fname or "upload.png"
 
     if not tg_file:
         await msg.reply_text(
-            "📎 Send /imageupload with a photo or image file attached.\n"
-            "Or just send a photo directly — it will be saved automatically."
+            "📎 To upload an image:
+"
+            "• Send a photo with caption /imageupload
+"
+            "• Send a file with caption /imageupload
+"
+            "• Reply to an existing photo with /imageupload
+"
+            "• Or just send a photo directly (no command needed)"
         )
         return
 
