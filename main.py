@@ -1755,7 +1755,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     try:
         from datetime import timezone, timedelta
         _fr_tz = timezone(timedelta(hours=1))  # CET (UTC+1); DST shifts to CEST (UTC+2) in summer
-        _now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+        _now_utc = datetime.now(timezone.utc)
         # Determine if DST is active (last Sunday of March → last Sunday of October)
         import calendar as _cal
         _y, _m, _d = _now_utc.year, _now_utc.month, _now_utc.day
