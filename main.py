@@ -446,7 +446,6 @@ async def _friend_request_loop():
     """On startup, accept any pending friend requests using the raw HTTP API."""
     await bot.wait_until_ready()
     await asyncio.sleep(5)
-    log_system("Friend request loop started")
 
     fr_cfg = config["bot"].get("friend_requests") or {}
     if not fr_cfg.get("enabled", False):
@@ -688,6 +687,17 @@ async def _tg_ipc_loop():
                     with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
                         _yaml.dump(cfg, _f, default_flow_style=False, allow_unicode=True)
                     _write_result(cmd_id, {"allow_server": bot.allow_server})
+
+                elif cmd == "toggle_commands":
+                    import yaml as _yaml_tc
+                    cfg_tc = load_config()
+                    new_tc = not cfg_tc["bot"].get("discord_commands_enabled", True)
+                    if "value" in payload:
+                        new_tc = bool(payload["value"])
+                    cfg_tc["bot"]["discord_commands_enabled"] = new_tc
+                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
+                        _yaml_tc.dump(cfg_tc, _f, default_flow_style=False, allow_unicode=True)
+                    _write_result(cmd_id, {"discord_commands_enabled": new_tc})
 
                 elif cmd == "ignore_add":
                     uid = int(payload["user_id"])
