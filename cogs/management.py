@@ -1,2195 +1,1811 @@
-import os
-import io
-import asyncio
 import discord
-import shutil
-import re
-import random
+import os
 import sys
+import subprocess
+import yaml
+import re
+import asyncio
+import json
 import time
-import aiohttp
-import utils.ai as ai_module
+from pathlib import Path
+from curl_cffi.requests import AsyncSession
 
-from utils.helpers import (
-    clear_console,
-    resource_path,
-    get_env_path,
-    load_instructions,
-    load_config,
-    load_tokens,
+from discord.ext import commands
+from utils.helpers import load_instructions, load_config, resource_path
+from utils.logger import log_system, log_error
+from utils.db import (
+    add_ignored_user,
+    remove_ignored_user,
+    remove_channel,
+    add_channel,
+    get_pending_nudges,
+    mark_responded,
+    add_picture_description,
+    get_picture_description,
+    delete_picture_db,
+    rename_picture_db,
+    clear_all_pictures_db,
+    get_leaderboard,
 )
+from utils.memory import set_persona, clear_persona, get_persona
 
-from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges, get_picture_description, record_user_message, get_cached_profile, set_cached_profile
-from utils.error_notifications import webhook_log
 
 async def _notify_telegram_error(title: str, detail: str):
-    """Forward an error to the Telegram controller if telegram_error_notifications is enabled."""
+    """Forward an error to Telegram if telegram_error_notifications is enabled in config."""
     try:
         cfg = load_config()
         if not cfg.get("notifications", {}).get("telegram_error_notifications", False):
             return
-        import json as _j
-        from pathlib import Path as _P
-        _cmd_file = _P(resource_path("config/tg_commands_1.json"))
+        _cmd_file = Path(resource_path("config/tg_commands_1.json"))
         entry = {
             "id": f"err_{time.time()}",
             "cmd": "send_error_notification",
             "payload": {"title": title, "detail": str(detail)[:1500]},
             "ts": time.time(),
         }
-        _existing = []
+        existing = []
         if _cmd_file.exists():
             try:
-                _existing = _j.loads(_cmd_file.read_text())
+                existing = json.loads(_cmd_file.read_text())
             except Exception:
                 pass
-        _existing.append(entry)
-        _cmd_file.write_text(_j.dumps(_existing))
+        existing.append(entry)
+        _cmd_file.write_text(json.dumps(existing))
     except Exception:
         pass
-from colorama import init, Fore, Style
-
-from utils.logger import (
-    log_incoming,
-    log_response,
-    log_rate_limit,
-    log_error,
-    log_cooldown,
-    log_system,
-    log_received,
-    separator
-)
-
-from curl_cffi.requests import AsyncSession
-
-from utils.mood import get_mood, get_mood_prompt, mood_loop, shift_mood
-from utils.memory import init_memory, get_memory, set_memory, delete_memory, format_memory_for_prompt, get_persona
-from utils.tts import generate_voice_message
-from utils.tts_trigger import is_tts_request
-from utils.voice_send import send_voice_message
 
 
-init()
+class Management(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
 
+    async def cog_before_invoke(self, ctx):
+        # Check if Discord commands are enabled in config
+        cfg = load_config()
+        if not cfg.get("bot", {}).get("discord_commands_enabled", True):
+            # Still allow owner, but block all non-owner command invocations silently
+            if ctx.author.id != self.bot.owner_id:
+                raise commands.CheckFailure("Discord commands are disabled.")
+        # Only add the human-like delay for non-owner users.
+        if ctx.author.id != self.bot.owner_id:
+            import random
+            await __import__("asyncio").sleep(random.uniform(0.8, 2.5))
 
-def get_batch_wait_time():
-    wait_times = config["bot"]["batch_wait_times"]
-    times = [item["time"] for item in wait_times]
-    weights = [item["weight"] for item in wait_times]
-    return random.choices(times, weights=weights, k=1)[0]
+    async def _notify_telegram_error(self, error_title: str, error_detail: str):
+        """Forward an error to Telegram DM if configured."""
+        await _notify_telegram_error(error_title, error_detail)
 
+    def save_config(self, new_config):
+        config_path = resource_path("config/config.yaml")
+        with open(config_path, "w", encoding="utf-8") as file:
+            yaml.dump(new_config, file, default_flow_style=False, allow_unicode=True)
 
-config = load_config()
+    @commands.command(name="pause", description="Pause the bot from producing AI responses.")
+    async def pause(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            self.bot.paused = not self.bot.paused
+            await ctx.send(f"{'Paused' if self.bot.paused else 'Unpaused'} the bot from producing AI responses.")
 
-from utils.ai import init_ai, generate_response, generate_response_image, extract_memory, detect_memory_deletion, transcribe_voice, summarize_history, detect_language, generate_nudge, reset_client_index, fallback_model
-from dotenv import load_dotenv
-from discord.ext import commands
-from utils.split_response import split_response
-from datetime import datetime
-from collections import deque
-from asyncio import Lock
+    @commands.command(name="pauseuser", description="Stop the bot from responding to a specific user.")
+    async def pauseuser(self, ctx, user: discord.User):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if not hasattr(self.bot, "paused_users"):
+            self.bot.paused_users = set()
+        if user.id in self.bot.paused_users:
+            await ctx.send(f"⚠️ {user.name} is already paused.")
+        else:
+            self.bot.paused_users.add(user.id)
+            await ctx.send(f"🔇 Paused responses for **{user.name}**. The bot will no longer reply to them.")
 
-env_path = get_env_path()
+    @commands.command(name="unpauseuser", description="Resume responding to a previously paused user.")
+    async def unpauseuser(self, ctx, user: discord.User):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if not hasattr(self.bot, "paused_users"):
+            self.bot.paused_users = set()
+        if user.id not in self.bot.paused_users:
+            await ctx.send(f"⚠️ {user.name} is not paused.")
+        else:
+            self.bot.paused_users.discard(user.id)
+            await ctx.send(f"🔊 Resumed responses for **{user.name}**.")
 
-load_dotenv(dotenv_path=env_path, override=True)
+    @commands.command(
+        name="persona",
+        description=(
+            "Set or clear a per-user persona override. "
+            "Usage: ,persona @user <instructions>  |  ,persona @user off  |  ,persona @user show"
+        ),
+    )
+    async def persona(self, ctx, user: discord.User, *, args: str = None):
+        """Attach a custom tone/personality instruction to a specific user.
 
-init_db()
-init_ai()
-init_memory()
+        Examples:
+            ,persona @jake  Be very formal and call him 'sir' in every reply.
+            ,persona @sara  off
+            ,persona @jake  show
+        """
+        if ctx.author.id != self.bot.owner_id:
+            return
 
-TOKENS = load_tokens()
-PREFIX = config["bot"]["prefix"]
-OWNER_ID = config["bot"]["owner_id"]
-TRIGGER = config["bot"]["trigger"].lower().split(",")
-DISABLE_MENTIONS = config["bot"]["disable_mentions"]
-PRIORITY_PREFIX = config["bot"]["priority_prefix"]
+        if not args or args.strip().lower() in ("off", "clear", "remove", "none"):
+            clear_persona(user.id)
+            # Also invalidate the in-memory cache so the next reply picks up the change
+            if hasattr(self.bot, "_memory_cache") and user.id in self.bot._memory_cache:
+                self.bot._memory_cache[user.id].pop("__persona__", None)
+            await ctx.send(f"🗑️ Persona cleared for **{user.name}**. They will get the default instructions.")
+            return
 
-SPAM_MESSAGE_THRESHOLD = 5
-SPAM_TIME_WINDOW = 10.0
-COOLDOWN_DURATION = 60.0
-MAX_HISTORY = 15
-IGNORE_CHANCE = config["bot"]["ignore_chance"]
-CONVERSATION_TIMEOUT = 150.0
+        if args.strip().lower() == "show":
+            current = get_persona(user.id)
+            if current:
+                await ctx.send(f"🎭 Persona for **{user.name}**:\n> {current}")
+            else:
+                await ctx.send(f"ℹ️ No custom persona set for **{user.name}**.")
+            return
 
-_MOOD_CFG = config["bot"]["mood"]
-_LATE_CFG = config["bot"]["late_reply"]
+        set_persona(user.id, args.strip())
+        # Bust the in-memory cache so the next reply picks up the new persona immediately
+        if hasattr(self.bot, "_memory_cache") and user.id in self.bot._memory_cache:
+            self.bot._memory_cache[user.id]["__persona__"] = args.strip()
+        await ctx.send(
+            f"🎭 Persona set for **{user.name}**:\n> {args.strip()}\n"
+            f"The bot will use these instructions when replying to them from now on."
+        )
 
-REFUSAL_PHRASES = [
-    "i'm sorry, but i can't",
-    "i cannot help with that",
-    "i'm not able to",
-    "as an ai",
-    "i don't feel comfortable",
-    "i can't help with that",
-    "i'm unable to",
-    "i'm sorry, but i can't continue this conversation.",
-    "i'm sorry, but i can't share that.",
-    "i'm sorry, but i can't help with that",
-    "i apologize, but i can't",
-    "i apologize, but i cannot",
-    "i'm not going to",
-    "i won't be able to",
-    "that's not something i can",
-    "i must decline",
-    "i have to decline",
-    "i cannot assist with",
-    "i can't assist with",
-    "i'm designed to",
-    "as a language model",
-    "i cannot engage",
-    "i can't engage",
-    "i'm not comfortable",
-    "i cannot provide",
-    "i can't provide",
-    "i cannot support",
-    "i cannot generate",
-    "i can't generate",
-    "i can't help with that",
-    "sorry, i can't do that",
-    "sorry, but i can't do that",
-    "i can't do that",
-    "i cannot do that",
-    "i'm not able to do that",
-    "i won't do that",
-    "i will not do that",
-    "that's not something i'm able",
-    "i'm afraid i can't",
-    "i afraid i cannot",
-    "unfortunately, i can't",
-    "unfortunately i can't",
-    "unfortunately, i cannot",
-    "i need to decline",
-    "i'm going to have to decline",
-]
+    @commands.command(name="toggledm", description="Toggle DM for chatting")
+    async def toggledm(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            self.bot.allow_dm = not self.bot.allow_dm
+            config = load_config()
+            config["bot"]["allow_dm"] = self.bot.allow_dm
+            self.save_config(config)
+            await ctx.send(f"DMs are now {'allowed' if self.bot.allow_dm else 'disallowed'} for active channels.")
 
+    @commands.command(name="togglegc", description="Toggle chatting in group chats.")
+    async def togglegc(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            self.bot.allow_gc = not self.bot.allow_gc
+            config = load_config()
+            config["bot"]["allow_gc"] = self.bot.allow_gc
+            self.save_config(config)
+            await ctx.send(f"Group chats are now {'allowed' if self.bot.allow_gc else 'disallowed'} for active channels.")
 
-def create_bot() -> commands.Bot:
-    """Instantiate a fully configured bot. Called once per token."""
-    b = commands.Bot(command_prefix=PREFIX, help_command=None, mobile=True)
-    b.retry_queue = deque()
-    b.owner_id = OWNER_ID
-    b.active_channels = set(get_channels())
-    b.ignore_users = get_ignored_users()
-    b.message_history = {}
-    b.paused = False
-    b.allow_dm = config["bot"]["allow_dm"]
-    b.allow_gc = config["bot"]["allow_gc"]
-    b.allow_server = config["bot"].get("allow_server", True)
-    b.realistic_typing = config["bot"]["realistic_typing"]
-    b.anti_age_ban = config["bot"]["anti_age_ban"]
-    b.batch_messages = config["bot"]["batch_messages"]
-    b.hold_conversation = config["bot"]["hold_conversation"]
-    b.user_message_counts = {}
-    b.user_cooldowns = {}
-    b.instructions = load_instructions()
-    b.message_queues = {}
-    b.processing_locks = {}
-    b.user_message_batches = {}
-    b.active_conversations = {}
-    b.sent_pictures = {}
-    b._memory_cache = {}
-    b._memory_call_counter = {}
-    b.paused_users = set()
-    b.removed_friends = set()  # user IDs that were previously friends (for instant re-add)
-    # Global send lock: ensures only one message is being sent at a time across ALL users.
-    # This prevents two concurrent generate_response_and_reply calls from racing each other
-    # and causing messages to arrive out-of-order or simultaneously.
-    b.global_send_lock = Lock()
-    b.last_global_send = 0.0  # timestamp of last sent message across all users
-    b._lang_cache = {}  # uid -> {"tag": str, "count": int}
-    return b
+    @commands.command(name="toggleserver", description="Toggle responding to mentions/replies in servers.")
+    async def toggleserver(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            self.bot.allow_server = not getattr(self.bot, 'allow_server', True)
+            config = load_config()
+            config["bot"]["allow_server"] = self.bot.allow_server
+            self.save_config(config)
+            await ctx.send(f"Server responses are now {'enabled' if self.bot.allow_server else 'disabled'}.")
 
-
-bot = create_bot()
-
-def is_refusal(text: str) -> bool:
-    lowered = text.lower()
-    return any(phrase in lowered for phrase in REFUSAL_PHRASES)
-
-def get_channel_context(message):
-    """Returns (channel_name, guild_name) with proper DM/GC labels."""
-    if isinstance(message.channel, discord.GroupChannel):
-        channel_name = getattr(message.channel, 'name', None) or "GC"
-        guild_name = "GC"
-    elif isinstance(message.channel, discord.DMChannel):
-        channel_name = "DM"
-        guild_name = "DM"
-    else:
-        channel_name = getattr(message.channel, 'name', 'unknown')
-        guild_name = getattr(message.guild, 'name', 'unknown')
-    return channel_name, guild_name
-
-
-def get_late_opener(prompt: str) -> str:
-    late_cfg = config["bot"]["late_reply"]
-    french_indicators = late_cfg.get("french_indicators", [])
-    prompt_lower = prompt.lower()
-    is_french = any(word in prompt_lower.split() for word in french_indicators)
-    openers = late_cfg["openers_fr"] if is_french else late_cfg["openers_en"]
-    return random.choice(openers)
-
-
-def add_typo(text):
-    if len(text) < 5 or random.random() > config["bot"]["typo_chance"]:
-        return text
-
-    typo_type = random.choice(["swap", "double", "miss"])
-    words = text.split()
-    if not words:
-        return text
-
-    word_idx = random.randint(0, len(words) - 1)
-    word = words[word_idx]
-
-    if len(word) < 3:
-        return text
-
-    char_idx = random.randint(1, len(word) - 2)
-
-    if typo_type == "swap" and char_idx < len(word) - 1:
-        word = word[:char_idx] + word[char_idx + 1] + word[char_idx] + word[char_idx + 2:]
-    elif typo_type == "double":
-        word = word[:char_idx] + word[char_idx] + word[char_idx:]
-    elif typo_type == "miss":
-        word = word[:char_idx] + word[char_idx + 1:]
-
-    words[word_idx] = word
-    return " ".join(words)
-
-
-async def _cleanup_loop():
-    """Periodically prune unbounded in-memory dicts to prevent slow memory leaks."""
-    await bot.wait_until_ready()
-    while not bot.is_closed():
-        await asyncio.sleep(3600)  # run every hour
-        now = time.time()
-        # Prune spam counters for users quiet for > 5 minutes
-        stale_counts = [uid for uid, times in bot.user_message_counts.items()
-                        if not times or now - max(times) > 300]
-        for uid in stale_counts:
-            bot.user_message_counts.pop(uid, None)
-        # Prune expired cooldowns
-        expired_cd = [uid for uid, end in bot.user_cooldowns.items() if now > end]
-        for uid in expired_cd:
-            bot.user_cooldowns.pop(uid, None)
-        # Prune stale active_conversations (already expired by CONVERSATION_TIMEOUT, just clean up)
-        stale_conv = [k for k, t in bot.active_conversations.items()
-                      if now - t > CONVERSATION_TIMEOUT * 2]
-        for k in stale_conv:
-            bot.active_conversations.pop(k, None)
-        # Prune lang cache for users not seen in 24h (count resets naturally but entries accumulate)
-        if len(bot._lang_cache) > 500:
-            bot._lang_cache.clear()
-        # Prune per-user picture sent sets — reset after 100 unique users to avoid unbounded growth
-        if len(bot.sent_pictures) > 100:
-            bot.sent_pictures.clear()
-        log_system(f"Cleanup: pruned {len(stale_counts)} count(s), {len(expired_cd)} cooldown(s), {len(stale_conv)} conversation(s)")
-
-
-async def random_status_loop():
-    await bot.wait_until_ready()
-    status_map = {
-        "online": discord.Status.online,
-        "idle": discord.Status.idle,
-        "dnd": discord.Status.dnd,
-        "invisible": discord.Status.invisible,
-    }
-    while not bot.is_closed():
-        status_cfg = config["bot"]["status"]
-        status_names = status_cfg.get("statuses", ["online", "idle", "dnd"])
-        statuses = [status_map[s] for s in status_names if s in status_map]
-        if statuses:
-            await bot.change_presence(status=random.choice(statuses))
-        await asyncio.sleep(random.randint(
-            status_cfg.get("change_interval_min", 1800),
-            status_cfg.get("change_interval_max", 10800)
-        ))
-
-
-def get_terminal_size():
-    columns, _ = shutil.get_terminal_size()
-    return columns
-
-
-def create_border(char="═"):
-    width = get_terminal_size()
-    return char * (width - 2)
-
-
-def print_header():
-    width = get_terminal_size()
-    border = create_border()
-    title = "AI Selfbot Discord"
-    padding = " " * ((width - len(title) - 2) // 2)
-
-    print(f"{Fore.CYAN}╔{border}╗")
-    print(f"║{padding}{Style.BRIGHT}{title}{Style.NORMAL}{padding}║")
-    print(f"╚{border}╝{Style.RESET_ALL}")
-
-
-def print_separator():
-    print(f"{Fore.CYAN}{create_border('─')}{Style.RESET_ALL}")
-
-
-async def _reply_pending_messages():
-    """After restart, reply to any users who messaged right before the update."""
-    import json
-    from utils.helpers import resource_path
-
-    path = resource_path("config/pending_messages.json")
-    if not os.path.exists(path):
-        return
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            pending = json.load(f)
-    except Exception:
-        return
-
-    if not pending:
-        return
-
-    os.remove(path)
-    log_system(f"Replying to {len(pending)} pending message(s) from before restart...")
-    # Wait a human-like amount of time before replying to pending messages.
-    # Firing responses 3 seconds after startup looks like a bot — a real person
-    # would open Discord, scroll around, then start replying. Wait 3–8 minutes.
-    await asyncio.sleep(random.uniform(180, 480))
-
-    for key, data in pending.items():
+    @commands.command()
+    async def ignore(self, ctx, user: discord.User):
         try:
-            user_id = int(data["user_id"])
-            channel_id = int(data["channel_id"])
-            history = data.get("history", [])
-            content = data["content"]
+            if ctx.author.id == self.bot.owner_id:
+                if user.id in self.bot.ignore_users:
+                    self.bot.ignore_users.remove(user.id)
+                    remove_ignored_user(user.id)
+                    await ctx.send(f"Unignored {user.name}.")
+                else:
+                    self.bot.ignore_users.append(user.id)
+                    add_ignored_user(user.id)
+                    await ctx.send(f"Ignoring {user.name}.")
+        except Exception as e:
+            await ctx.send(f"Error: {e}")
 
-            if history and history[-1].get("role") == "assistant":
+    @commands.command(name="leaderboard", aliases=["lb", "top"], description="Show the users who've talked to the bot the most.")
+    async def leaderboard(self, ctx, *, filter_arg: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        # --- Parse optional time filter: 1h, 6h, 24h, 1d, 3d, 7d, 1w, 30d, 1m ---
+        import re as _re
+        import time as _time
+        from datetime import datetime
+
+        since_ts = None
+        filter_label = "all time"
+        if filter_arg:
+            m = _re.fullmatch(r"(\d+(?:\.\d+)?)\s*([hdwm])", filter_arg.strip().lower())
+            if m:
+                amount, unit = float(m.group(1)), m.group(2)
+                seconds_map = {"h": 3600, "d": 86400, "w": 604800, "m": 2592000}
+                since_ts = _time.time() - amount * seconds_map[unit]
+                unit_names = {"h": "hour", "d": "day", "w": "week", "m": "month"}
+                n = int(amount) if amount == int(amount) else amount
+                filter_label = f"last {n} {unit_names[unit]}{'s' if n != 1 else ''}"
+            else:
+                await ctx.send(
+                    "Invalid filter. Examples: `,leaderboard 24h` · `,leaderboard 3d` · `,leaderboard 1w`",
+                    delete_after=15,
+                )
+                return
+
+        rows = get_leaderboard(limit=50, since=since_ts)
+        if not rows:
+            await ctx.send(f"No conversations recorded ({filter_label}).", delete_after=15)
+            return
+
+        PER_PAGE = 5
+        total_pages = (len(rows) + PER_PAGE - 1) // PER_PAGE
+
+        def build_page(page: int) -> str:
+            start = page * PER_PAGE
+            chunk = rows[start:start + PER_PAGE]
+            medal_emojis = ["🥇", "🥈", "🥉"]
+
+            header = f"**📊 conversations** ・ {filter_label}\n**page {page + 1} / {total_pages}**\n─────────────────────"
+            entry_lines = []
+            for i, row in enumerate(chunk):
+                rank_n = start + i
+                rank_prefix = medal_emojis[rank_n] if rank_n < 3 else f"`#{rank_n + 1}`"
+                first_seen = datetime.fromtimestamp(row["first_seen"]).strftime("%d %b %Y")
+                msg_count = row["message_count"]
+                msg_label = f"{msg_count} msg{'s' if msg_count != 1 else ''}"
+                entry_lines.append(f"{rank_prefix} **{row['username']}**\n⠀⠀⠀`{msg_label}` · since {first_seen}")
+            footer = "─────────────────────"
+            return header + "\n" + "\n\n".join(entry_lines) + "\n" + footer
+
+        current_page = 0
+        msg = await ctx.send(build_page(current_page), delete_after=120)
+
+        if total_pages == 1:
+            return
+
+        await msg.add_reaction("◀")
+        await msg.add_reaction("▶")
+
+        def check(reaction, user):
+            return (
+                user.id == self.bot.owner_id
+                and str(reaction.emoji) in ("◀", "▶")
+                and reaction.message.id == msg.id
+            )
+
+        import asyncio
+        while True:
+            try:
+                reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
+            except asyncio.TimeoutError:
+                # Don't call clear_reactions — saves an API call, message expires via delete_after
+                break
+
+            new_page = current_page
+            if str(reaction.emoji) == "▶" and current_page < total_pages - 1:
+                new_page = current_page + 1
+            elif str(reaction.emoji) == "◀" and current_page > 0:
+                new_page = current_page - 1
+
+            try:
+                await msg.remove_reaction(reaction.emoji, user)
+            except Exception:
+                pass
+
+            if new_page != current_page:
+                current_page = new_page
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+                msg = await ctx.send(build_page(current_page), delete_after=120)
+                await msg.add_reaction("◀")
+                await msg.add_reaction("▶")
+
+    @commands.command(name="toggleactive", description="Toggle active channels")
+    async def toggleactive(self, ctx, channel=None):
+        if ctx.author.id == self.bot.owner_id:
+            if channel is None:
+                channel = ctx.channel
+                channel_id = channel.id
+            else:
+                mention_match = re.match(r"<#(\d+)>", channel)
+                if mention_match:
+                    channel_id = int(mention_match.group(1))
+                else:
+                    channel_id = int(channel)
+                try:
+                    channel = await self.bot.fetch_channel(channel_id)
+                except discord.errors.NotFound:
+                    await ctx.send("Channel not found.")
+                    return
+
+            if channel_id in self.bot.active_channels:
+                self.bot.active_channels.remove(channel_id)
+                remove_channel(channel_id)
+                await ctx.send(f"{'This DM' if isinstance(ctx.channel, discord.DMChannel) else 'This group' if isinstance(ctx.channel, discord.GroupChannel) else channel.mention} has been removed from the list of active channels.")
+            else:
+                self.bot.active_channels.add(channel_id)
+                add_channel(channel_id)
+                await ctx.send(f"{'This DM' if isinstance(ctx.channel, discord.DMChannel) else 'This group' if isinstance(ctx.channel, discord.GroupChannel) else channel.mention} has been added to the list of active channels.")
+
+    @commands.command(name="wipe", description="Clears the bots message history, resetting it's memory.")
+    async def wipe(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            self.bot.message_history.clear()
+            await ctx.send("Wiped the bot's memory.")
+
+    @commands.command(name="reload", description="Reloads all cogs and the bot instructions.")
+    async def reload(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            import sys as _sys
+            cogs_dir = os.path.join(getattr(_sys, "_MEIPASS", os.path.abspath(".")), "cogs")
+            if not os.path.exists(cogs_dir):
+                await ctx.send("No cogs directory found.", delete_after=10)
+                return
+            for filename in os.listdir(cogs_dir):
+                if filename.endswith(".py"):
+                    try:
+                        await self.bot.unload_extension(f"cogs.{filename[:-3]}")
+                        await self.bot.load_extension(f"cogs.{filename[:-3]}")
+                    except Exception as e:
+                        print(f"Failed to reload extension {filename}. Error: {e}")
+                        await ctx.send(f"Failed to reload {filename}. Check logs for details.")
+            self.bot.instructions = load_instructions()
+            await ctx.send("Reloaded all cogs.")
+
+    @commands.command(name="restart", description="Restarts the bot.")
+    async def restart(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            import atexit
+            msg = await ctx.send("Restarting...")
+            print("Restarting bot...")
+            if getattr(sys, "frozen", False):
+                exe_path = sys.executable
+                # Register relaunch BEFORE closing — fires after the lock file is released
+                atexit.register(lambda: os.startfile(exe_path))
+            else:
+                python = sys.executable
+                args = [python] + sys.argv
+                # Register relaunch BEFORE closing — fires after the lock file is released
+                atexit.register(lambda: subprocess.Popen(args))
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            await ctx.bot.close()
+            sys.exit(0)
+
+    @commands.command(name="shutdown", description="Shuts down the bot.")
+    async def shutdown(self, ctx):
+        if ctx.author.id == self.bot.owner_id:
+            await ctx.send("Shutting down...")
+            print("Shutting down...")
+            await ctx.bot.close()
+            sys.exit(0)
+
+    @commands.command(
+        name="update",
+        description="Pulls the latest update from GitHub and relaunches the bot. Use 'main' to pull latest commit.",
+    )
+    async def update(self, ctx, source: str = "release"):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        if source not in ("release", "main"):
+            await ctx.send(f"Invalid option. Use `,update` for latest release or `,update main` for latest commit.", delete_after=10)
+            return
+
+        if source == "main":
+            msg = await ctx.send("Pulling latest commit from main... brb")
+            version_str = "main"
+        else:
+            latest = None
+            try:
+                async with AsyncSession(impersonate="chrome") as _s:
+                    _r = await _s.get(
+                        "https://api.github.com/repos/miiazertyy/Discord-LLM-Selfbot/releases/latest",
+                        timeout=10
+                    )
+                    if _r.status_code == 200:
+                        latest = _r.json().get("tag_name", "unknown")
+            except Exception:
+                pass
+            version_str = latest if latest else "latest"
+            msg = await ctx.send(f"Updating to {version_str}... brb")
+
+        self._save_pending_messages()
+
+        try:
+            await msg.edit(content=f"Updating to {version_str}... launching updater, brb in a sec")
+        except Exception:
+            pass
+
+        repo_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+        if sys.platform == "win32":
+            updater_path = os.path.join(repo_dir, "updater.bat")
+            subprocess.Popen(f'cmd /c start "" "{updater_path}" {source}', shell=True)
+        else:
+            updater_path = os.path.join(repo_dir, "updater.sh")
+            try:
+                os.chmod(updater_path, 0o755)
+            except Exception:
+                pass
+            subprocess.Popen(["bash", updater_path, source], start_new_session=True)
+
+        # Give the subprocess time to actually start before we vanish
+        await asyncio.sleep(2)
+
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        await ctx.bot.close()
+        # Small pause to let close() finish cleanly before the process exits
+        await asyncio.sleep(1)
+        sys.exit(0)
+
+    @commands.command(name="instructions", description="Attach a .txt file to update the bot instructions.", aliases=["setinstructions"])
+    async def instructions(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if not ctx.message.attachments:
+            await ctx.send("Please attach a `.txt` file to update the instructions.", delete_after=10)
+            return
+        attachment = ctx.message.attachments[0]
+        if not attachment.filename.endswith(".txt"):
+            await ctx.send("Only `.txt` files are supported.", delete_after=10)
+            return
+        content = await attachment.read()
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            await ctx.send("Could not read file, make sure it's valid UTF-8.", delete_after=10)
+            return
+        self.bot.instructions = text
+        with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
+            f.write(text)
+        await ctx.send("Instructions updated from file!", delete_after=10)
+
+    @commands.command(name="getinstructions", description="Sends the current instructions.txt file.", aliases=["gi"])
+    async def getinstructions(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        instructions_path = resource_path("config/instructions.txt")
+        if not os.path.exists(instructions_path):
+            await ctx.send("No instructions file found.", delete_after=10)
+            return
+        await ctx.send(file=discord.File(instructions_path, filename="instructions.txt"))
+
+    @commands.command(name="prompt", description="View, set or clear the prompt for the AI.", aliases=["setprompt", "sp"])
+    async def prompt(self, ctx, *, text=None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if text is None:
+            await ctx.send(f"Current prompt:\n{f'```{self.bot.instructions}```' if self.bot.instructions != '' else 'No prompt is currently set.'}")
+        elif text.lower() == "clear":
+            self.bot.instructions = ""
+            with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
+                f.write("")
+            await ctx.send("Cleared prompt.")
+        else:
+            self.bot.instructions = text
+            with open(resource_path("config/instructions.txt"), "w", encoding="utf-8") as f:
+                f.write(text)
+            await ctx.send(f"Updated prompt to:\n```{text}```")
+
+    @commands.command(name="getdb", description="Sends the bot_data.db file to Discord.")
+    async def getdb(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        db_path = resource_path("config/bot_data.db")
+        if not os.path.exists(db_path):
+            await ctx.send("No database file found.", delete_after=10)
+            return
+        await ctx.send(file=discord.File(db_path, filename="bot_data.db"))
+
+    @commands.command(name="getconfig", description="Sends the current config.yaml file.", aliases=["gc"])
+    async def getconfig(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        config_path = resource_path("config/config.yaml")
+        if not os.path.exists(config_path):
+            await ctx.send("No config file found.", delete_after=10)
+            return
+        await ctx.send(file=discord.File(config_path, filename="config.yaml"))
+
+    @commands.command(name="setconfig", description="Attach a .yaml file to update the bot config. Bot will restart automatically.")
+    async def setconfig(self, ctx):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if not ctx.message.attachments:
+            await ctx.send("Please attach a `.yaml` file to update the config.", delete_after=10)
+            return
+        attachment = ctx.message.attachments[0]
+        if not attachment.filename.endswith(".yaml"):
+            await ctx.send("Only `.yaml` files are supported.", delete_after=10)
+            return
+        content = await attachment.read()
+        try:
+            text = content.decode("utf-8")
+            yaml.safe_load(text)
+        except UnicodeDecodeError:
+            await ctx.send("Could not read file, make sure it's valid UTF-8.", delete_after=10)
+            return
+        except yaml.YAMLError as e:
+            await ctx.send(f"Invalid YAML: {e}", delete_after=15)
+            return
+        config_path = resource_path("config/config.yaml")
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        await ctx.send("Config updated! Restarting...", delete_after=10)
+        await asyncio.sleep(1)
+        if getattr(sys, "frozen", False):
+            exe_path = sys.executable
+            os.startfile(exe_path)
+            await asyncio.sleep(3)
+            await ctx.bot.close()
+            sys.exit(0)
+        else:
+            python = sys.executable
+            subprocess.Popen([python] + sys.argv)
+            await ctx.bot.close()
+            sys.exit(0)
+
+    def _save_pending_messages(self):
+        """Save pending conversations to disk so we can reply after restart."""
+        import json
+
+        prefix = self.bot.command_prefix
+        pending = {}
+
+        def _is_server_channel(channel_id):
+            """Returns True if the channel is a server TextChannel."""
+            ch = self.bot.get_channel(int(channel_id))
+            import discord as _discord
+            return isinstance(ch, _discord.TextChannel)
+
+        # 1. Unanswered messages from history
+        for key, history in self.bot.message_history.items():
+            if not history:
+                continue
+            unanswered = []
+            for entry in reversed(history):
+                if entry["role"] == "user":
+                    unanswered.insert(0, entry["content"])
+                else:
+                    break
+            if not unanswered:
+                continue
+            real_msgs = [m for m in unanswered if not m.startswith(prefix)]
+            if not real_msgs:
+                continue
+            user_id, channel_id = key.split("-")
+            if _is_server_channel(channel_id):
                 continue
 
-            # Try to get user from cache first, fall back to fetch
-            user = bot.get_user(user_id)
-            if user is None:
+            # Try to get the actual last message id from the channel cache
+            last_message_id = None
+            try:
+                ch = self.bot.get_channel(int(channel_id))
+                if ch and hasattr(ch, '_state'):
+                    # Pull from internal message cache
+                    for cached_msg in reversed(list(ch._state._messages)):
+                        if str(cached_msg.author.id) == user_id:
+                            last_message_id = cached_msg.id
+                            break
+            except Exception:
+                pass
+
+            pending[key] = {
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "content": "\n".join(real_msgs),
+                "history": history,
+                "last_message_id": last_message_id,
+            }
+
+        # 2. Messages sitting in the queue (not yet responded to)
+        for channel_id, queue in self.bot.message_queues.items():
+            for msg in queue:
+                if not msg.content or msg.content.startswith(prefix):
+                    continue
+                if _is_server_channel(channel_id):
+                    continue
+                key = f"{msg.author.id}-{channel_id}"
+                if key in pending:
+                    continue
+                history = self.bot.message_history.get(key, [])
+                pending[key] = {
+                    "user_id": str(msg.author.id),
+                    "channel_id": str(channel_id),
+                    "content": msg.content,
+                    "history": history,
+                    "last_message_id": msg.id,
+                }
+
+        # 3. Messages in batch buffers (collected but not yet sent to AI)
+        for batch_key, batch_data in self.bot.user_message_batches.items():
+            msgs = batch_data.get("messages", [])
+            if not msgs:
+                continue
+            combined = "\n".join(m.content for m in msgs if m.content and not m.content.startswith(prefix))
+            if not combined:
+                continue
+            first_msg = msgs[0]
+            last_msg = msgs[-1]
+            channel_id = first_msg.channel.id
+            if _is_server_channel(channel_id):
+                continue
+            key = f"{first_msg.author.id}-{channel_id}"
+            if key in pending:
+                continue
+            history = self.bot.message_history.get(key, [])
+            pending[key] = {
+                "user_id": str(first_msg.author.id),
+                "channel_id": str(channel_id),
+                "content": combined,
+                "history": history,
+                "last_message_id": last_msg.id,
+            }
+
+        path = resource_path("config/pending_messages.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(pending, f)
+        print(f"[Update] Saved {len(pending)} pending message(s) for post-restart reply.")
+        for k, v in pending.items():
+            print(f"[Update] → {v['user_id']}: {v['content'][:60]!r}")
+
+    async def _respond_to_user(self, ctx, user):
+        """Core logic to find and respond to a single user. Returns (success, reason)."""
+        target_channel = None
+        recent_msgs = []
+
+        # --- Fast path: check in-memory message history first ---
+        matching_key = None
+        for key in self.bot.message_history:
+            if key.startswith(f"{user.id}-"):
+                matching_key = key
+                break
+
+        if matching_key:
+            channel_id = int(matching_key.split("-")[1])
+            try:
+                channel = self.bot.get_channel(channel_id)
+                if channel is None:
+                    channel = next((pc for pc in self.bot.private_channels if pc.id == channel_id), None)
+                if channel is None:
+                    channel = await user.create_dm()
+                async for msg in channel.history(limit=5):
+                    if msg.author.id == user.id:
+                        recent_msgs.append(msg)
+                        break
+                if recent_msgs:
+                    target_channel = channel
+            except Exception as e:
+                print(f"[Respond] Fast-path channel error for {user.name}: {e}")
+
+        # --- Slow path: DM history scan (only if fast path missed) ---
+        if not target_channel:
+            try:
+                dm = user.dm_channel or await user.create_dm()
+                selfbot_id = getattr(self.bot, "selfbot_id", None) or self.bot.user.id
+                # Collect all consecutive user messages at the top of history (unread batch)
+                async for msg in dm.history(limit=15):
+                    if msg.author.id == user.id:
+                        recent_msgs.append(msg)
+                    elif msg.author.id == selfbot_id:
+                        # Hit the bot's last reply — stop here, everything above is unread
+                        break
+                if recent_msgs:
+                    target_channel = dm
+            except Exception as e:
+                print(f"[Respond] DM error for {user.name}: {e}")
+
+        # --- Fallback: scan active channels (limited to 3 to cap API calls) ---
+        if not target_channel:
+            checked = 0
+            for channel_id in self.bot.active_channels:
+                if checked >= 3:
+                    break
+                checked += 1  # increment before the try so exceptions don't skip the count
                 try:
-                    user = await bot.fetch_user(user_id)
+                    channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
+                    msgs = []
+                    async for msg in channel.history(limit=20):
+                        if msg.author.id == user.id:
+                            msgs.append(msg)
+                        elif msgs:
+                            break
+                    if msgs:
+                        recent_msgs = msgs
+                        target_channel = channel
+                        break
                 except Exception as e:
-                    log_error("Pending Reply", f"Could not fetch user {user_id}: {e}")
+                    print(f"[Respond] Channel error: {e}")
                     continue
 
-            bot.message_history[key] = history
-            last_msg = None
-            channel = None
+        if not target_channel or not recent_msgs:
+            return False, "no recent messages found"
 
-            # Use stored last_message_id to fetch directly — no history scan needed
-            last_message_id = data.get("last_message_id")
-            if last_message_id:
+        if not hasattr(self.bot, "generate_response_and_reply"):
+            return False, "bot not ready"
+
+        recent_msgs = list(reversed(recent_msgs))
+        combined_content = "\n".join(msg.content for msg in recent_msgs if msg.content)
+        last_msg = recent_msgs[-1]
+
+        key = f"{user.id}-{target_channel.id}"
+        history = self.bot.message_history.get(key, [])
+        if not history or history[-1].get("content") != combined_content:
+            history.append({"role": "user", "content": combined_content})
+            self.bot.message_history[key] = history
+
+        response = await self.bot.generate_response_and_reply(last_msg, combined_content, history, bypass_cooldown=True, bypass_typing=True)
+        if response:
+            self.bot.message_history[key].append({"role": "assistant", "content": response})
+            return True, "ok"
+        return False, "couldn't send the message (user may have DMs closed)"
+
+    async def _get_unreplied_users(self):
+        """Return list of (user, snippet, msg_count) for all unreplied conversations.
+
+        Two-pass approach so it works even after a restart (when message_history is empty):
+
+        Pass 1 — in-memory history (fast, works mid-session).
+            Any conversation whose last history entry is a user message counts as unreplied.
+
+        Pass 2 — live DM channel scan (catches post-restart gaps).
+            Walks bot.private_channels and fetches the last few messages of each DM.
+            If the most recent message is from the other person (not the bot) and they
+            are not already covered by pass 1, they get added to the results.
+        """
+        results = []
+        seen_user_ids = set()
+
+        # --- Pass 1: in-memory message_history ---
+        for key, history in self.bot.message_history.items():
+            if not history:
+                continue
+            if history[-1].get("role") != "user":
+                continue
+            try:
+                user_id = int(key.split("-")[0])
+                if user_id in seen_user_ids:
+                    continue
+                seen_user_ids.add(user_id)
+                user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                pending_msgs = []
+                for entry in reversed(history):
+                    if entry["role"] == "user":
+                        pending_msgs.insert(0, entry["content"])
+                    else:
+                        break
+                last_msg = pending_msgs[-1] if pending_msgs else ""
+                snippet = (last_msg[:60] + "\u2026") if len(last_msg) > 60 else last_msg
+                results.append((user, snippet, len(pending_msgs)))
+            except Exception:
+                pass
+
+        # --- Pass 2: live DM scan (catches anything missed after restart) ---
+        # Strategy: use Discord's cached last_message_id to pre-filter channels
+        # with zero API calls, then only fetch history for the ones that look
+        # unreplied. This keeps the total request count very low even with many DMs.
+        try:
+            selfbot_id = getattr(self.bot, "selfbot_id", None) or self.bot.user.id
+            for channel in self.bot.private_channels:
+                if not isinstance(channel, discord.DMChannel):
+                    continue
+                other = channel.recipient
+                if other is None:
+                    continue
+                if other.id in seen_user_ids:
+                    continue
+
+                # --- Zero-API pre-filter using the internal message cache ---
+                # discord.py-self keeps recently seen messages in _state._messages.
+                # If the cached last message for this channel is from the bot,
+                # we can skip it entirely without hitting the API.
+                cached_last = None
+                if channel.last_message_id:
+                    cached_last = channel._state._get_message(channel.last_message_id)
+                if cached_last is not None:
+                    if cached_last.author.id == selfbot_id:
+                        continue  # Bot already replied — skip, no API call needed
+
+                # --- API fetch (only reached if cache says unreplied or is cold) ---
                 try:
-                    channel = bot.get_channel(channel_id)
-                    if channel is None:
-                        channel = await user.create_dm()
-                    last_msg = await channel.fetch_message(int(last_message_id))
+                    last_msgs = [m async for m in channel.history(limit=10)]
+                    if not last_msgs:
+                        continue
+                    last_from_other = next(
+                        (m for m in last_msgs if m.author.id != selfbot_id), None
+                    )
+                    last_from_bot = next(
+                        (m for m in last_msgs if m.author.id == selfbot_id), None
+                    )
+                    if last_from_other is None:
+                        continue
+                    if last_from_bot and last_from_bot.created_at > last_from_other.created_at:
+                        continue
+                    pending_count = sum(
+                        1 for m in last_msgs
+                        if m.author.id != selfbot_id
+                        and (last_from_bot is None or m.created_at > last_from_bot.created_at)
+                    )
+                    snippet_text = last_from_other.content or "[attachment]"
+                    snippet = (snippet_text[:60] + "\u2026") if len(snippet_text) > 60 else snippet_text
+                    seen_user_ids.add(other.id)
+                    results.append((other, snippet, max(pending_count, 1)))
                 except Exception:
-                    last_msg = None
+                    continue
+        except Exception:
+            pass
 
-            # Fallback: scan DM history (only if we had no stored message id)
-            if last_msg is None:
+        return results
+
+    async def _run_respond(self, ctx, args):
+        """Shared logic for ,respond and ,reply."""
+        if not args:
+            await ctx.send(
+                "Usage: `,respond <id>` \u00b7 `,respond <id1, id2>` \u00b7 `,respond check` \u00b7 `,respond all`",
+                delete_after=15,
+            )
+            return
+
+        keyword = args.strip().lower()
+
+        if keyword == "check":
+            status_msg = await ctx.send("🔍 Checking for unreplied conversations...", delete_after=60)
+            unreplied = await self._get_unreplied_users()
+            unreplied = [(u, s, c) for u, s, c in unreplied if u.id != 643945264868098049]
+            if not unreplied:
                 try:
-                    dm = await user.create_dm()
-                    async for msg in dm.history(limit=15):
-                        if msg.author.id == user_id:
-                            last_msg = msg
-                            channel = dm
-                            break
+                    await status_msg.edit(content="No unreplied conversations.")
+                except Exception:
+                    await ctx.send("No unreplied conversations.", delete_after=20)
+            else:
+                lines_out = []
+                for user, snippet, msg_count in unreplied:
+                    count_label = f" ({msg_count} msg{'s' if msg_count > 1 else ''})" if msg_count > 1 else ""
+                    lines_out.append(f"\u2022 **{user.name}**{count_label} \u2014 `{snippet}`")
+                result_text = "**Unreplied conversations:**\n" + "\n".join(lines_out)
+                try:
+                    await status_msg.edit(content=result_text)
+                except Exception:
+                    await ctx.send(result_text, delete_after=60)
+            return
+
+        if keyword == "all":
+            status_msg = await ctx.send("🔍 Checking for unreplied conversations...", delete_after=120)
+            unreplied = await self._get_unreplied_users()
+            if not unreplied:
+                try:
+                    await status_msg.edit(content="No unreplied conversations.")
+                except Exception:
+                    pass
+                return
+            ignored = set(getattr(self.bot, "ignore_users", []))
+            users = [u for u, _, _ in unreplied if u.id != 643945264868098049 and u.id not in ignored]
+            if not users:
+                try:
+                    await status_msg.edit(content="No unreplied conversations.")
+                except Exception:
+                    pass
+                return
+            try:
+                await ctx.message.delete()
+            except Exception:
+                pass
+
+            async def _dm_owner_status(text: str):
+                try:
+                    owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
+                    dm = owner.dm_channel or await owner.create_dm()
+                    await dm.send(text)
                 except Exception:
                     pass
 
-            if last_msg is None:
-                try:
-                    channel = bot.get_channel(channel_id)
-                    if channel is None:
-                        for pc in bot.private_channels:
-                            if pc.id == channel_id:
-                                channel = pc
-                                break
-                    if channel:
-                        async for msg in channel.history(limit=15):
-                            if msg.author.id == user_id:
-                                last_msg = msg
-                                break
-                except Exception as e:
-                    log_error("Pending Reply", f"Could not check original channel {channel_id}: {e}")
-
-            if last_msg is None or channel is None:
-                log_error("Pending Reply", f"No message found for user {user.name}, skipping")
-                continue
-
-            if isinstance(channel, discord.TextChannel):
-                was_mentioned = bot.user.mentioned_in(last_msg) and "@everyone" not in last_msg.content and "@here" not in last_msg.content
-                was_replied_to = (
-                    last_msg.reference
-                    and last_msg.reference.resolved
-                    and last_msg.reference.resolved.author.id == bot.selfbot_id
-                )
-                if not was_mentioned and not was_replied_to:
-                    log_system(f"Skipping pending reply to {user.name} — server channel, not a mention/reply")
-                    continue
-
-            log_system(f"Replying to pending message from {user.name}")
-            await asyncio.sleep(random.uniform(8, 25))
-            response = await generate_response_and_reply(last_msg, content, history)
-            if response:
-                bot.message_history[key].append({"role": "assistant", "content": response})
-        except Exception as e:
-            log_error("Pending Reply Error", str(e))
-
-
-async def _friend_request_loop():
-    """On startup, accept any pending friend requests using the raw HTTP API."""
-    await bot.wait_until_ready()
-    await asyncio.sleep(5)
-    log_system("Friend request loop started")
-
-    fr_cfg = config["bot"].get("friend_requests") or {}
-    if not fr_cfg.get("enabled", False):
-        return
-    delay = fr_cfg.get("accept_delay", 300)
-
-    try:
-        token = bot._connection.http.token
-        async with AsyncSession(impersonate="chrome") as session:
-            resp = await session.get(
-                "https://discord.com/api/v9/users/@me/relationships",
-                headers={"Authorization": token},
-            )
-            if resp.status_code != 200:
-                log_error("Friend Request Loop", f"Failed to fetch relationships: {resp.status_code}: {resp.text}")
-                return
-
-            relationships = resp.json()
-            # type 3 = incoming friend request in Discord's raw API
-            pending = [r for r in relationships if r.get("type") == 3]
-            log_system(f"Friend requests: found {len(pending)} pending on startup")
-
-            for i, rel in enumerate(pending):
-                user_id = int(rel["id"])
-                username = rel.get("user", {}).get("username", str(user_id))
-                spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
-                actual_delay = delay + spread
-                log_system(f"Pending friend request from {username} — accepting in {actual_delay}s")
-
-                async def _accept(uid=user_id, uname=username, d=actual_delay):
-                    await asyncio.sleep(d)
-                    try:
-                        async with AsyncSession(impersonate="chrome") as s:
-                            r = await s.put(
-                                f"https://discord.com/api/v9/users/@me/relationships/{uid}",
-                                headers={
-                                    "Authorization": bot._connection.http.token,
-                                    "Content-Type": "application/json",
-                                },
-                                json={"type": 1},
-                            )
-                            if r.status_code in (200, 204):
-                                log_system(f"Accepted friend request from {uname}")
-                            else:
-                                try:
-                                    data = r.json()
-                                    log_error("Friend Request Accept", f"{r.status_code}: {data}")
-                                except Exception:
-                                    log_error("Friend Request Accept", f"{r.status_code}: {r.text}")
-                    except Exception as e:
-                        log_error("Friend Request Loop", str(e))
-
-                asyncio.create_task(_accept())
-
-    except Exception as e:
-        log_error("Friend Request Loop", str(e))
-
-
-
-
-async def _nudge_loop():
-    """Background task: periodically check for long-unanswered DMs and send a nudge."""
-    await bot.wait_until_ready()
-    while not bot.is_closed():
-        nudge_cfg = config["bot"].get("nudge") or {}
-        if not nudge_cfg.get("enabled", False):
-            await asyncio.sleep(3600)
-            continue
-
-        check_interval_hours = nudge_cfg.get("check_interval_hours", 6)
-        threshold_days = nudge_cfg.get("threshold_days", 2)
-        send_hour_start = nudge_cfg.get("send_during_hours", [10, 22])[0]
-        send_hour_end = nudge_cfg.get("send_during_hours", [10, 22])[1]
-
-        current_hour = datetime.now().hour
-        if send_hour_start <= current_hour < send_hour_end:
-            threshold_seconds = threshold_days * 86400
-            pending = get_pending_nudges(threshold_seconds)
-
-            for entry in pending:
-                try:
-                    user_id = entry["user_id"]
-                    channel_id = entry["channel_id"]
-                    original_content = entry["content"]
-                    days_elapsed = (time.time() - entry["received_at"]) / 86400
-
-                    user = bot.get_user(user_id) or await bot.fetch_user(user_id)
-                    if not user:
-                        continue
-
-                    # Build minimal instructions for nudge tone
-                    uid = user_id
-                    if uid not in bot._memory_cache:
-                        bot._memory_cache[uid] = get_memory(uid)
-                    memory_block = format_memory_for_prompt(bot._memory_cache[uid])
-                    mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if _MOOD_CFG.get("enabled", True) else ""
-                    nudge_instructions = bot.instructions + mood_block + memory_block
-
-                    nudge_text = await generate_nudge(original_content, days_elapsed, nudge_instructions)
-                    if not nudge_text or is_refusal(nudge_text):
-                        continue
-
-                    # Human-like pre-send delay
-                    await asyncio.sleep(random.uniform(30, 120))
-
-                    try:
-                        dm = user.dm_channel or await user.create_dm()
-                        if bot.realistic_typing:
-                            async with dm.typing():
-                                cps = random.uniform(7, 18)
-                                await asyncio.sleep(len(nudge_text) / cps)
-                        await dm.send(nudge_text)
-                        mark_nudge_sent(user_id, channel_id)
-                        log_system(f"Nudge sent to {user.name} ({days_elapsed:.1f}d elapsed)")
-
-                        # Add to history so the conversation continues naturally
-                        key = f"{user_id}-{channel_id}"
-                        bot.message_history.setdefault(key, [])
-                        bot.message_history[key].append({"role": "assistant", "content": nudge_text})
-
-                    except Exception as send_err:
-                        log_error("Nudge Send", str(send_err))
-
-                except Exception as e:
-                    log_error("Nudge Loop", str(e))
-
-        await asyncio.sleep(check_interval_hours * 3600)
-
-
-async def _shutdown_on_401():
-    """Cancel all pending tasks and close the bot cleanly on 401."""
-    print(
-        f"\n{'='*60}\n"
-        f"  ✗  TOKEN INVALIDATED (401 Unauthorized)\n"
-        f"  →  Discord rejected the token mid-session — it may have been\n"
-        f"     reset, logged out, or flagged.\n"
-        f"  →  Update DISCORD_TOKEN in your .env file and restart.\n"
-        f"{'='*60}\n"
-    )
-    current = asyncio.current_task()
-    for task in asyncio.all_tasks():
-        if task is not current and not task.done():
-            task.cancel()
-    await bot.close()
-
-
-async def _tg_ipc_loop():
-    """Poll for commands from the Telegram controller and execute them in-process.
-
-    Each bot instance reads from its own per-account IPC file so that multiple
-    Discord tokens can be controlled independently from a single Telegram bot:
-      config/tg_commands_1.json / tg_results_1.json  (account 1)
-      config/tg_commands_2.json / tg_results_2.json  (account 2)
-      ...
-
-    The account index matches the position of DISCORD_TOKEN_N in .env.
-    TOKENS is already loaded as a list; this loop runs per-bot instance so
-    `bot` is the instance for TOKENS[_ACCOUNT_INDEX - 1].
-    """
-    import json as _json
-    from pathlib import Path as _Path
-
-    await bot.wait_until_ready()
-
-    # Determine which account index this bot instance is (1-based).
-    # Must run after wait_until_ready so bot.http.token is populated.
-    try:
-        _my_token = bot.http.token.strip()
-    except Exception:
-        _my_token = None
-    _ACCOUNT_INDEX = 1
-    for _i, _t in enumerate(TOKENS, start=1):
-        if _t.get("token", "").strip() == _my_token:
-            _ACCOUNT_INDEX = _i
-            break
-
-    _CMD_FILE    = _Path(resource_path(f"config/tg_commands_{_ACCOUNT_INDEX}.json"))
-    _RESULT_FILE = _Path(resource_path(f"config/tg_results_{_ACCOUNT_INDEX}.json"))
-    _POLL_INTERVAL = 2.0
-
-    def _write_result(cmd_id: str, data: dict):
-        results = {}
-        if _RESULT_FILE.exists():
             try:
-                results = _json.loads(_RESULT_FILE.read_text())
+                await status_msg.edit(content=f"⏳ Replying to {len(users)} user(s)... (0/{len(users)})")
             except Exception:
                 pass
-        results[cmd_id] = data
-        _RESULT_FILE.write_text(_json.dumps(results))
 
-    log_system("Telegram IPC bridge started")
+            results_out = []
+            for i, user in enumerate(users, 1):
+                try:
+                    await status_msg.edit(content=f"⏳ Replying to {len(users)} user(s)... ({i}/{len(users)}) — **{user.name}**")
+                except Exception:
+                    pass
+                try:
+                    success, reason = await self._respond_to_user(ctx, user)
+                    icon = "✅" if success else "❌"
+                    results_out.append(f"{icon} **{user.name}**{'' if success else f' — {reason}'}")
+                except Exception as e:
+                    results_out.append(f"❌ **{user.name}** — error: {e}")
 
-    while not bot.is_closed():
-        await asyncio.sleep(_POLL_INTERVAL)
-        if not _CMD_FILE.exists():
-            continue
-        try:
-            raw = _CMD_FILE.read_text()
-            commands = _json.loads(raw)
-        except Exception:
-            continue
-        if not commands:
-            continue
-
-        remaining = []
-        for entry in commands:
-            cmd_id  = entry.get("id", "")
-            cmd     = entry.get("cmd", "")
-            payload = entry.get("payload", {})
+            final_text = f"✅ Done — {len(users)} user(s):\n" + "\n".join(results_out)
             try:
-                if cmd == "pause":
-                    bot.paused = not bot.paused
-                    _write_result(cmd_id, {"paused": bot.paused})
-
-                elif cmd == "wipe":
-                    bot.message_history.clear()
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "toggle_dm":
-                    bot.allow_dm = not bot.allow_dm
-                    cfg = load_config(); cfg["bot"]["allow_dm"] = bot.allow_dm
-                    import yaml as _yaml
-                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
-                        _yaml.dump(cfg, _f, default_flow_style=False, allow_unicode=True)
-                    _write_result(cmd_id, {"allow_dm": bot.allow_dm})
-
-                elif cmd == "toggle_gc":
-                    bot.allow_gc = not bot.allow_gc
-                    cfg = load_config(); cfg["bot"]["allow_gc"] = bot.allow_gc
-                    import yaml as _yaml
-                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
-                        _yaml.dump(cfg, _f, default_flow_style=False, allow_unicode=True)
-                    _write_result(cmd_id, {"allow_gc": bot.allow_gc})
-
-                elif cmd == "toggle_server":
-                    bot.allow_server = not getattr(bot, "allow_server", True)
-                    cfg = load_config(); cfg["bot"]["allow_server"] = bot.allow_server
-                    import yaml as _yaml
-                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
-                        _yaml.dump(cfg, _f, default_flow_style=False, allow_unicode=True)
-                    _write_result(cmd_id, {"allow_server": bot.allow_server})
-
-                elif cmd == "ignore_add":
-                    uid = int(payload["user_id"])
-                    if uid not in bot.ignore_users:
-                        bot.ignore_users.append(uid)
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "ignore_remove":
-                    uid = int(payload["user_id"])
-                    if uid in bot.ignore_users:
-                        bot.ignore_users.remove(uid)
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "pauseuser":
-                    bot.paused_users.add(int(payload["user_id"]))
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "unpauseuser":
-                    bot.paused_users.discard(int(payload["user_id"]))
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "persona_set":
-                    from utils.memory import set_persona as _sp
-                    uid = int(payload["user_id"])
-                    _sp(uid, payload["persona"])
-                    bot._memory_cache.setdefault(uid, {})["__persona__"] = payload["persona"]
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "persona_clear":
-                    from utils.memory import clear_persona as _cp
-                    uid = int(payload["user_id"])
-                    _cp(uid)
-                    bot._memory_cache.get(uid, {}).pop("__persona__", None)
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "mood_set":
-                    import utils.mood as _mood_mod
-                    _mood_mod.current_mood = payload["mood"]
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "instructions_update":
-                    bot.instructions = payload["text"]
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "config_update":
-                    _live = {
-                        "allow_dm":          lambda v: setattr(bot, "allow_dm", v),
-                        "allow_gc":          lambda v: setattr(bot, "allow_gc", v),
-                        "allow_server":      lambda v: setattr(bot, "allow_server", v),
-                        "realistic_typing":  lambda v: setattr(bot, "realistic_typing", v),
-                        "batch_messages":    lambda v: setattr(bot, "batch_messages", v),
-                        "hold_conversation": lambda v: setattr(bot, "hold_conversation", v),
-                        "reply_ping":        lambda v: setattr(bot, "reply_ping", v),
-                        "disable_mentions":  lambda v: setattr(bot, "disable_mentions", v),
-                        "anti_age_ban":      lambda v: setattr(bot, "anti_age_ban", v),
-                    }
-                    leaf = payload.get("key", "").split(".")[-1]
-                    if leaf in _live:
-                        _live[leaf](payload.get("value"))
-                    _write_result(cmd_id, {"ok": True})
-
-                elif cmd == "reply_check":
-                    users_out = []
-                    for hk, history in bot.message_history.items():
-                        if not history or history[-1].get("role") != "user":
-                            continue
-                        try:
-                            uid = int(hk.split("-")[0])
-                            u = bot.get_user(uid)
-                            pending = [e for e in reversed(history) if e["role"] == "user"]
-                            last = pending[0]["content"] if pending else ""
-                            snippet = (last[:60] + "…") if len(last) > 60 else last
-                            users_out.append({"id": uid, "name": u.name if u else str(uid), "snippet": snippet, "count": len(pending)})
-                        except Exception:
-                            pass
-                    _write_result(cmd_id, {"users": users_out})
-
-                elif cmd == "reply_user":
-                    uid = int(payload["user_id"])
-                    u = bot.get_user(uid) or await bot.fetch_user(uid)
-                    if not u:
-                        _write_result(cmd_id, {"success": False, "reason": "user not found"}); continue
-                    target_msg = None; target_ch = None
-                    for hk in bot.message_history:
-                        if hk.startswith(f"{uid}-"):
-                            try:
-                                ch = bot.get_channel(int(hk.split("-")[1])) or await u.create_dm()
-                                async for msg in ch.history(limit=10):
-                                    if msg.author.id == uid:
-                                        target_msg = msg; target_ch = ch; break
-                            except Exception:
-                                pass
-                            break
-                    if not target_msg:
-                        try:
-                            dm = u.dm_channel or await u.create_dm()
-                            async for msg in dm.history(limit=10):
-                                if msg.author.id == uid:
-                                    target_msg = msg; target_ch = dm; break
-                        except Exception:
-                            pass
-                    if not target_msg:
-                        _write_result(cmd_id, {"success": False, "reason": "no recent message found"}); continue
-                    hk = f"{uid}-{target_ch.id}"
-                    history = bot.message_history.get(hk, [])
-                    combined = target_msg.content or "[attachment]"
-                    if not history or history[-1].get("content") != combined:
-                        history.append({"role": "user", "content": combined})
-                        bot.message_history[hk] = history
-                    resp = await generate_response_and_reply(target_msg, combined, history, bypass_cooldown=True, bypass_typing=True)
-                    if resp:
-                        bot.message_history[hk].append({"role": "assistant", "content": resp})
-                        _write_result(cmd_id, {"success": True})
-                    else:
-                        _write_result(cmd_id, {"success": False, "reason": "couldn't generate response"})
-
-                elif cmd == "reply_all":
-                    results_out = []; seen = set()
-                    for hk, history in list(bot.message_history.items()):
-                        if not history or history[-1].get("role") != "user":
-                            continue
-                        try:
-                            uid = int(hk.split("-")[0])
-                            if uid in seen: continue
-                            seen.add(uid)
-                            u = bot.get_user(uid) or await bot.fetch_user(uid)
-                            ch = bot.get_channel(int(hk.split("-")[1])) or await u.create_dm()
-                            target_msg = None
-                            async for msg in ch.history(limit=5):
-                                if msg.author.id == uid:
-                                    target_msg = msg; break
-                            if not target_msg:
-                                results_out.append({"id": uid, "name": u.name, "success": False, "reason": "no message"}); continue
-                            combined = "\n".join(e["content"] for e in history[-3:] if e["role"] == "user")
-                            resp = await generate_response_and_reply(target_msg, combined, history, bypass_cooldown=True, bypass_typing=True)
-                            if resp:
-                                bot.message_history[hk].append({"role": "assistant", "content": resp})
-                                results_out.append({"id": uid, "name": u.name, "success": True})
-                            else:
-                                results_out.append({"id": uid, "name": u.name, "success": False, "reason": "no response"})
-                        except Exception as _e:
-                            results_out.append({"id": 0, "name": "unknown", "success": False, "reason": str(_e)})
-                    _write_result(cmd_id, {"total": len(results_out), "results": results_out})
-
-                elif cmd == "restart":
-                    import atexit as _atexit
-                    log_system("Restart requested via Telegram")
-                    if getattr(sys, "frozen", False):
-                        _atexit.register(lambda: os.startfile(sys.executable))
-                    else:
-                        import subprocess as _sp
-                        _atexit.register(lambda: _sp.Popen([sys.executable] + sys.argv))
-                    await bot.close(); sys.exit(0)
-
-                elif cmd == "get_status":
-                    import utils.mood as _mood_mod
-                    _write_result(cmd_id, {
-                        "paused": bot.paused,
-                        "mood": _mood_mod.current_mood,
-                        "active_channels": len(bot.active_channels),
-                        "ignored_users": len(bot.ignore_users),
-                    })
-
-                elif cmd == "mood_get":
-                    import utils.mood as _mood_mod
-                    _write_result(cmd_id, {"mood": _mood_mod.current_mood})
-
-                elif cmd == "ignore_toggle":
-                    uid = int(payload["user_id"])
-                    if uid in bot.ignore_users:
-                        bot.ignore_users.remove(uid)
-                        from utils.db import remove_ignored_user as _riu
-                        _riu(uid)
-                        _write_result(cmd_id, {"ok": True, "ignored": False})
-                    else:
-                        bot.ignore_users.append(uid)
-                        from utils.db import add_ignored_user as _aiu
-                        _aiu(uid)
-                        _write_result(cmd_id, {"ok": True, "ignored": True})
-
-                elif cmd == "persona_get":
-                    from utils.memory import get_persona as _gp
-                    uid = int(payload["user_id"])
-                    _write_result(cmd_id, {"persona": _gp(uid)})
-
-                elif cmd == "get_leaderboard":
-                    from utils.db import get_leaderboard as _glb
-                    from datetime import datetime as _dt
-                    import re as _re
-                    import time as _time_mod
-                    filter_str = payload.get("filter")
-                    since_ts = None
-                    filter_label = "all time"
-                    if filter_str:
-                        m = _re.fullmatch(r"(\d+(?:\.\d+)?)\s*([hdwm])", filter_str.strip().lower())
-                        if m:
-                            amount, unit = float(m.group(1)), m.group(2)
-                            seconds_map = {"h": 3600, "d": 86400, "w": 604800, "m": 2592000}
-                            since_ts = _time_mod.time() - amount * seconds_map[unit]
-                            unit_names = {"h": "hour", "d": "day", "w": "week", "m": "month"}
-                            n = int(amount) if amount == int(amount) else amount
-                            filter_label = f"last {n} {unit_names[unit]}{'s' if n != 1 else ''}"
-                    rows = _glb(limit=20, since=since_ts)
-                    serialized = []
-                    for row in rows:
-                        serialized.append({
-                            "username": row["username"],
-                            "message_count": row["message_count"],
-                            "first_seen_fmt": _dt.fromtimestamp(row["first_seen"]).strftime("%d %b %Y"),
-                        })
-                    _write_result(cmd_id, {"rows": serialized, "filter_label": filter_label})
-
-                elif cmd == "shutdown":
-                    log_system("Shutdown requested via Telegram")
-                    await bot.close(); sys.exit(0)
-
-                # ── toggle_active ─────────────────────────────────────────────
-                elif cmd == "toggle_active":
-                    _ch_id = int(payload["channel_id"])
-                    if _ch_id in bot.active_channels:
-                        bot.active_channels.discard(_ch_id)
-                        from utils.db import remove_channel as _rc
-                        _rc(_ch_id)
-                        _write_result(cmd_id, {"active": False})
-                    else:
-                        bot.active_channels.add(_ch_id)
-                        from utils.db import add_channel as _ac
-                        _ac(_ch_id)
-                        _write_result(cmd_id, {"active": True})
-
-                # ── analyse_user ──────────────────────────────────────────────
-                elif cmd == "analyse_user":
-                    import re as _re2
-                    _uid = int(payload["user_id"])
+                if len(final_text) <= 1900:
+                    await status_msg.edit(content=final_text, delete_after=60)
+                else:
                     try:
-                        _user = bot.get_user(_uid) or await bot.fetch_user(_uid)
-                    except Exception:
-                        _write_result(cmd_id, {"ok": False, "reason": f"User {_uid} not found."})
-                        continue
-                    _msg_list = []
-                    try:
-                        _dm = _user.dm_channel or await _user.create_dm()
-                        async for _m in _dm.history(limit=200):
-                            if _m.author.id == _uid and _m.content:
-                                _msg_list.append(_m.content)
+                        await status_msg.delete()
                     except Exception:
                         pass
-                    if len(_msg_list) < 20:
-                        for _cid in list(bot.active_channels)[:3]:
-                            try:
-                                _ch = bot.get_channel(_cid) or await bot.fetch_channel(_cid)
-                                async for _m in _ch.history(limit=200):
-                                    if _m.author.id == _uid and _m.content:
-                                        _msg_list.append(_m.content)
-                            except Exception:
-                                pass
-                    if not _msg_list:
-                        _write_result(cmd_id, {"ok": False, "reason": f"No messages found for user {_uid}."})
-                        continue
-                    _analyse_instructions = (
-                        bot.instructions +
-                        f"\n\nSomeone asked you to give your honest read on {_user.name} based on their messages. "
-                        "Stay in character. Give your real unfiltered opinion like you would to a friend. "
-                        "Be casual, funny, and direct. Roast them a bit but also be real about what you actually see. "
-                        "Reference specific things they said to back up your points. "
-                        "Keep it conversational — no bullet points, no formal structure, just talk like yourself. "
-                        "Don't be overly mean but don't sugarcoat either. Max 3-4 short paragraphs."
-                    )
-                    _analyse_prompt = "Here are their messages: " + " | ".join(_msg_list[-200:])
-                    _profile = await generate_response(_analyse_prompt, _analyse_instructions, history=None)
-                    if _profile:
-                        _write_result(cmd_id, {"ok": True, "profile": _profile})
-                    else:
-                        _write_result(cmd_id, {"ok": False, "reason": "AI returned an empty response."})
-
-                # ── voice_join ────────────────────────────────────────────────
-                elif cmd == "voice_join":
-                    import re as _re3
-                    _args_str = payload.get("args", "").strip()
-                    _gid_v, _cid_v = None, None
-                    _lm = _re3.match(r"https?://discord\.com/channels/(\d+)/(\d+)", _args_str)
-                    if _lm:
-                        _gid_v, _cid_v = int(_lm.group(1)), int(_lm.group(2))
-                    elif _args_str.isdigit():
-                        _cid_v = int(_args_str)
-                    else:
-                        _parts = _args_str.split()
-                        if len(_parts) == 2 and _parts[0].isdigit() and _parts[1].isdigit():
-                            _gid_v, _cid_v = int(_parts[0]), int(_parts[1])
-                    if not _cid_v:
-                        _write_result(cmd_id, {"ok": False, "reason": "Invalid channel ID or link."})
-                        continue
-                    _vtarget = (bot.get_guild(_gid_v).get_channel(_cid_v) if _gid_v and bot.get_guild(_gid_v) else bot.get_channel(_cid_v))
-                    if not isinstance(_vtarget, discord.VoiceChannel):
-                        _write_result(cmd_id, {"ok": False, "reason": "Channel not found or is not a voice channel."})
-                        continue
-                    try:
-                        _existing = _vtarget.guild.voice_client
-                        if _existing:
-                            _existing._keep_alive_guard = False
-                            await _existing.disconnect(force=True)
-                        await _vtarget.connect(self_mute=True, self_deaf=True)
-                        _write_result(cmd_id, {"ok": True, "channel": _vtarget.name, "guild": _vtarget.guild.name})
-                    except Exception as _e:
-                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
-
-                # ── voice_leave ───────────────────────────────────────────────
-                elif cmd == "voice_leave":
-                    _gid_l = payload.get("guild_id")
-                    if _gid_l:
-                        _gl = bot.get_guild(int(_gid_l))
-                        _vc = _gl.voice_client if _gl else None
-                    else:
-                        _vc = next((g.voice_client for g in bot.guilds if g.voice_client), None)
-                    if _vc:
-                        _vc._keep_alive_guard = False
-                        await _vc.disconnect(force=True)
-                        _write_result(cmd_id, {"ok": True, "channel": _vc.channel.name, "guild": _vc.guild.name})
-                    else:
-                        _write_result(cmd_id, {"ok": False, "reason": "Not in a voice channel."})
-
-                # ── voice_autojoin ────────────────────────────────────────────
-                elif cmd == "voice_autojoin":
-                    import re as _re4
-                    import yaml as _yaml_aj
-                    _aj_args = payload.get("args", "").strip()
-                    if not _aj_args or _aj_args.lower() == "off":
-                        _aj_cfg = load_config()
-                        _aj_cfg["bot"]["autojoin_channel"] = None
-                        with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
-                            _yaml_aj.dump(_aj_cfg, _f, default_flow_style=False, allow_unicode=True)
-                        _write_result(cmd_id, {"ok": True, "disabled": True})
-                        continue
-                    _gid_aj, _cid_aj = None, None
-                    _lm_aj = _re4.match(r"https?://discord\.com/channels/(\d+)/(\d+)", _aj_args)
-                    if _lm_aj:
-                        _gid_aj, _cid_aj = int(_lm_aj.group(1)), int(_lm_aj.group(2))
-                    elif _aj_args.isdigit():
-                        _cid_aj = int(_aj_args)
-                    else:
-                        _p = _aj_args.split()
-                        if len(_p) == 2 and _p[0].isdigit() and _p[1].isdigit():
-                            _gid_aj, _cid_aj = int(_p[0]), int(_p[1])
-                    if not _cid_aj:
-                        _write_result(cmd_id, {"ok": False, "reason": "Invalid channel ID or link."})
-                        continue
-                    _aj_target = (bot.get_guild(_gid_aj).get_channel(_cid_aj) if _gid_aj and bot.get_guild(_gid_aj) else bot.get_channel(_cid_aj))
-                    if not isinstance(_aj_target, discord.VoiceChannel):
-                        _write_result(cmd_id, {"ok": False, "reason": "Channel not found or is not a voice channel."})
-                        continue
-                    _aj_cfg2 = load_config()
-                    _aj_cfg2["bot"]["autojoin_channel"] = {"guild_id": _aj_target.guild.id, "channel_id": _aj_target.id}
-                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
-                        _yaml_aj.dump(_aj_cfg2, _f, default_flow_style=False, allow_unicode=True)
-                    _write_result(cmd_id, {"ok": True, "disabled": False, "channel": _aj_target.name, "guild": _aj_target.guild.name})
-
-                # ── set_status ────────────────────────────────────────────────
-                elif cmd == "set_status":
-                    _st_emoji = payload.get("emoji")
-                    _st_text  = payload.get("text")
-                    try:
-                        await bot.change_presence(
-                            activity=discord.CustomActivity(name=_st_text or "", emoji=_st_emoji or None)
-                        )
-                        _write_result(cmd_id, {"ok": True})
-                    except Exception as _e:
-                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
-
-                # ── set_bio ───────────────────────────────────────────────────
-                elif cmd == "set_bio":
-                    try:
-                        await bot.user.edit(bio=payload.get("text", ""))
-                        _write_result(cmd_id, {"ok": True})
-                    except Exception as _e:
-                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
-
-                # ── set_pfp ───────────────────────────────────────────────────
-                elif cmd == "set_pfp":
-                    _pfp_url = payload.get("url", "")
-                    try:
-                        async with AsyncSession(impersonate="chrome") as _pfp_s:
-                            _pfp_r = await _pfp_s.get(_pfp_url)
-                            if _pfp_r.status_code != 200:
-                                _write_result(cmd_id, {"ok": False, "reason": f"Failed to fetch image (status {_pfp_r.status_code})."})
-                                continue
-                            await bot.user.edit(avatar=_pfp_r.content)
-                        _write_result(cmd_id, {"ok": True})
-                    except Exception as _e:
-                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
-
-                # ── add_friend ────────────────────────────────────────────────
-                elif cmd == "add_friend":
-                    _af_uid = int(payload["user_id"])
-                    try:
-                        _af_token = bot.http.token
-                        async with AsyncSession(impersonate="chrome") as _af_s:
-                            _af_r = await _af_s.put(
-                                f"https://discord.com/api/v9/users/@me/relationships/{_af_uid}",
-                                headers={"Authorization": _af_token, "Content-Type": "application/json"},
-                                json={"type": 1},
-                            )
-                            if _af_r.status_code in (200, 204):
-                                _write_result(cmd_id, {"ok": True})
-                            else:
-                                try:
-                                    _af_msg = _af_r.json().get("message", str(_af_r.status_code))
-                                except Exception:
-                                    _af_msg = f"HTTP {_af_r.status_code}"
-                                _write_result(cmd_id, {"ok": False, "reason": _af_msg})
-                    except Exception as _e:
-                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
-
-                # ── update ───────────────────────────────────────────────────
-                elif cmd == "update":
-                    _upd_source = payload.get("source", "release")
-                    if _upd_source not in ("release", "main"):
-                        _upd_source = "release"
-                    log_system(f"Update ({_upd_source}) requested via Telegram")
-                    _upd_repo_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-                    import subprocess as _upd_sp
-                    if sys.platform == "win32":
-                        _upd_path = os.path.join(_upd_repo_dir, "updater.bat")
-                        _upd_sp.Popen(f'cmd /c start "" "{_upd_path}" {_upd_source}', shell=True)
-                    else:
-                        _upd_path = os.path.join(_upd_repo_dir, "updater.sh")
-                        try:
-                            os.chmod(_upd_path, 0o755)
-                        except Exception:
-                            pass
-                        _upd_sp.Popen(["bash", _upd_path, _upd_source], start_new_session=True)
-                    await asyncio.sleep(2)
-                    await bot.close()
-                    sys.exit(0)
-
-                # ── reload ────────────────────────────────────────────────────
-                elif cmd == "reload":
-                    import sys as _sys_r
-                    _cogs_dir = os.path.join(getattr(_sys_r, "_MEIPASS", os.path.abspath(".")), "cogs")
-                    _reload_errors = []
-                    if os.path.exists(_cogs_dir):
-                        for _fname in os.listdir(_cogs_dir):
-                            if _fname.endswith(".py"):
-                                try:
-                                    await bot.unload_extension(f"cogs.{_fname[:-3]}")
-                                    await bot.load_extension(f"cogs.{_fname[:-3]}")
-                                except Exception as _re:
-                                    _reload_errors.append(str(_re))
-                    bot.instructions = load_instructions()
-                    _write_result(cmd_id, {"ok": True, "errors": _reload_errors})
-
-                # ── image_delete ──────────────────────────────────────────────
-                elif cmd == "image_delete":
-                    from utils.helpers import resource_path as _rp_img
-                    from utils.db import delete_picture_db as _dpdb, rename_picture_db as _rpdb
-                    _img_folder = _rp_img("config/pictures")
-                    _img_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-                    _del_name = payload.get("name", "")
-                    _img_files = sorted([f for f in os.listdir(_img_folder) if os.path.splitext(f)[1].lower() in _img_exts]) if os.path.exists(_img_folder) else []
-                    if _del_name.isdigit():
-                        _matches = [f for f in _img_files if os.path.splitext(f)[0] == f"IMG_{_del_name}"]
-                        _del_name = _matches[0] if _matches else _del_name
-                    _del_path = os.path.join(_img_folder, _del_name)
-                    if os.path.exists(_del_path):
-                        os.remove(_del_path)
-                        _dpdb(_del_name)
-                        _remaining = sorted([f for f in os.listdir(_img_folder) if os.path.splitext(f)[1].lower() in _img_exts],
-                                            key=lambda f: int(os.path.splitext(f)[0][4:]) if os.path.splitext(f)[0].startswith("IMG_") and os.path.splitext(f)[0][4:].isdigit() else 99999)
-                        for _ri, _rfname in enumerate(_remaining, start=1):
-                            _rstem, _rext = os.path.splitext(_rfname)
-                            if _rstem.startswith("IMG_") and _rstem[4:].isdigit() and int(_rstem[4:]) != _ri:
-                                _rnew = f"IMG_{_ri}{_rext}"
-                                os.rename(os.path.join(_img_folder, _rfname), os.path.join(_img_folder, _rnew))
-                                _rpdb(_rfname, _rnew)
-                        _write_result(cmd_id, {"ok": True})
-                    else:
-                        _write_result(cmd_id, {"ok": False, "reason": f"Image `{_del_name}` not found."})
-
-                # ── image_delete_all ──────────────────────────────────────────
-                elif cmd == "image_delete_all":
-                    from utils.helpers import resource_path as _rp_imgd
-                    from utils.db import clear_all_pictures_db as _capdb
-                    _imgd_folder = _rp_imgd("config/pictures")
-                    _imgd_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-                    if os.path.exists(_imgd_folder):
-                        _imgd_files = [f for f in os.listdir(_imgd_folder) if os.path.splitext(f)[1].lower() in _imgd_exts]
-                        for _f in _imgd_files:
-                            os.remove(os.path.join(_imgd_folder, _f))
-                        _capdb()
-                        _write_result(cmd_id, {"ok": True, "count": len(_imgd_files)})
-                    else:
-                        _write_result(cmd_id, {"ok": True, "count": 0})
-
-                # ── send_error_notification ───────────────────────────────────
-                # This is a passthrough — the TG controller reads this from the
-                # commands file directly; we just acknowledge it.
-                elif cmd == "send_error_notification":
-                    _write_result(cmd_id, {"ok": True})
-
-                else:
-                    remaining.append(entry)
-
-            except Exception as _err:
-                log_error("TG IPC", f"cmd={cmd} error={_err}")
-                _write_result(cmd_id, {"ok": False, "error": str(_err)})
-
-        _CMD_FILE.write_text(_json.dumps(remaining))
-
-
-@bot.event
-async def on_ready():
-    if config["bot"]["owner_id"] == 123456789012345678:
-        print(f"{Fore.RED}Error: Please set a valid owner_id in config.yaml{Style.RESET_ALL}")
-        await bot.close()
-        sys.exit(1)
-
-    if config["bot"]["owner_id"] == bot.user.id:
-        print(f"{Fore.RED}Error: owner_id in config.yaml cannot be the same as the bot account's user ID{Style.RESET_ALL}")
-        await bot.close()
-        sys.exit(1)
-
-    bot.selfbot_id = bot.user.id
-
-    clear_console()
-
-    print_header()
-    print(f"AI Selfbot successfully logged in as {Fore.CYAN}{bot.user.name} ({bot.selfbot_id}){Style.RESET_ALL}.\n")
-    log_system(f"Using model: {ai_module.model}")
-
-    if config["bot"]["mood"].get("enabled", True):
-        shift_mood()
-        asyncio.create_task(mood_loop())
-
-    print_separator()
-
-    if config["bot"]["status"].get("enabled", True):
-        asyncio.create_task(random_status_loop())
-
-    asyncio.create_task(_reply_pending_messages())
-    asyncio.create_task(_cleanup_loop())
-
-    nudge_cfg = config["bot"].get("nudge") or {}
-    if nudge_cfg.get("enabled", False):
-        asyncio.create_task(_nudge_loop())
-
-    fr_cfg = config["bot"].get("friend_requests") or {}
-    if fr_cfg.get("enabled", False):
-        asyncio.create_task(_friend_request_loop())
-
-    asyncio.create_task(_tg_ipc_loop())
-
-
-async def setup_hook():
-    bot.generate_response_and_reply = generate_response_and_reply
-    await load_extensions()
-
-bot.setup_hook = setup_hook
-
-# Raw message_reference cache: message_id -> referenced_message_id
-# Discord.py-self sometimes drops message.reference for server channels;
-# we catch it here from the raw gateway payload before it's stripped.
-_raw_reply_cache: dict[int, int] = {}
-_RAW_REPLY_CACHE_MAX = 500
-
-@bot.event
-async def on_socket_raw_receive(data):
-    import json
-    try:
-        if isinstance(data, bytes):
-            return  # compressed, skip
-        payload = json.loads(data)
-        if payload.get("t") != "MESSAGE_CREATE":
-            return
-        d = payload.get("d", {})
-        msg_id = int(d["id"]) if d.get("id") else None
-        if not msg_id:
+                    chunks = []
+                    current = f"✅ Done — {len(users)} user(s):"
+                    for line in results_out:
+                        if len(current) + len(line) + 1 > 1900:
+                            chunks.append(current)
+                            current = line
+                        else:
+                            current += "\n" + line
+                    if current:
+                        chunks.append(current)
+                    for chunk in chunks:
+                        await _dm_owner_status(chunk)
+            except Exception:
+                await _dm_owner_status(final_text)
             return
 
-        # Cache bot's own message IDs so replies to manual messages are detected
-        author_id = int(d.get("author", {}).get("id", 0))
-        if author_id and hasattr(bot, "selfbot_id") and author_id == bot.selfbot_id:
-            _raw_reply_cache[msg_id] = 0  # 0 = "this is a bot message"
-
-        # Cache reply references
-        ref = d.get("message_reference")
-        if ref:
-            ref_id = int(ref.get("message_id", 0))
-            if ref_id:
-                _raw_reply_cache[msg_id] = ref_id
-                if len(_raw_reply_cache) > _RAW_REPLY_CACHE_MAX:
-                    oldest = next(iter(_raw_reply_cache))
-                    del _raw_reply_cache[oldest]
-    except Exception:
-        pass
-
-
-def should_ignore_message(message):
-    return (
-        message.author.id in bot.ignore_users
-        or message.author.id == bot.selfbot_id
-        or message.author.bot
-        or message.type not in (discord.MessageType.default, discord.MessageType.reply)
-    )
-
-
-async def is_trigger_message(message):
-    mentioned = (
-        bot.user.mentioned_in(message)
-        and "@everyone" not in message.content
-        and "@here" not in message.content
-    )
-    replied_to = False
-    if message.reference:
-        ref_id = message.reference.message_id
-        ref_msg = message.reference.resolved
-        if ref_msg is None or isinstance(ref_msg, discord.DeletedReferencedMessage):
-            ref_msg = bot._connection._get_message(ref_id)
-        if ref_msg and ref_msg.author.id == bot.user.id:
-            replied_to = True
-        elif ref_id in _raw_reply_cache and _raw_reply_cache[ref_id] == 0:
-            # ref_id is cached as a bot-sent message (value 0 = bot's own message)
-            replied_to = True
-    elif message.id in _raw_reply_cache:
-        ref_id = _raw_reply_cache[message.id]
-        if ref_id == 0:
-            replied_to = True  # replying to a bot message tracked via raw cache
-        else:
-            ref_msg = bot._connection._get_message(ref_id)
-            if ref_msg and ref_msg.author.id == bot.user.id:
-                replied_to = True
-    is_dm = isinstance(message.channel, discord.DMChannel) and bot.allow_dm
-    is_group_dm = isinstance(message.channel, discord.GroupChannel) and bot.allow_gc
-
-    conv_key = f"{message.author.id}-{message.channel.id}"
-    in_conversation = (
-        conv_key in bot.active_conversations
-        and time.time() - bot.active_conversations[conv_key] < CONVERSATION_TIMEOUT
-        and bot.hold_conversation
-        and not isinstance(message.channel, (discord.TextChannel, discord.Thread, discord.ForumChannel, discord.StageChannel, discord.VoiceChannel))
-    )
-
-    is_server = isinstance(message.channel, (discord.TextChannel, discord.Thread, discord.ForumChannel, discord.StageChannel, discord.VoiceChannel))
-
-    if is_server and not getattr(bot, "allow_server", True):
-        mentioned = False
-        replied_to = False
-
-    content_has_trigger = (
-        not is_server and any(
-            re.search(rf"\b{re.escape(keyword)}\b", message.content.lower())
-            for keyword in TRIGGER
-        )
-    )
-
-    if (
-        content_has_trigger
-        or mentioned
-        or replied_to
-        or is_dm
-        or is_group_dm
-        or in_conversation
-    ):
-        bot.active_conversations[conv_key] = time.time()
-
-    return (
-        content_has_trigger
-        or mentioned
-        or replied_to
-        or is_dm
-        or is_group_dm
-        or in_conversation
-    )
-
-
-_profile_cache: dict = {}  # user_id -> bio string, in-memory layer on top of DB
-
-async def _get_user_profile_block(user) -> str:
-    """Fetch Discord profile info (status, bio, display name) and return as a context block.
-
-    Bio is cached in-memory first, then falls back to the DB, then fetches from Discord.
-    This means a bio fetch survives restarts without hitting the API every time.
-    """
-    parts = []
-    try:
-        display = getattr(user, 'global_name', None) or user.display_name
-        if display and display != user.name:
-            parts.append(f"display name: {display}")
-
-        if hasattr(user, 'activities') and user.activities:
-            for activity in user.activities:
-                if hasattr(activity, 'state') and activity.state:
-                    parts.append(f"status: {activity.state}")
-                    break
-                elif hasattr(activity, 'name') and activity.name and str(type(activity).__name__) == 'CustomActivity':
-                    parts.append(f"status: {activity.name}")
-                    break
-
-        # 1. Check in-memory cache
-        if user.id in _profile_cache:
-            bio = _profile_cache[user.id]
-        else:
-            # 2. Check persistent DB cache
-            bio = get_cached_profile(user.id)
-            if bio is None:
-                # 3. Fetch from Discord and persist
-                try:
-                    profile = await user.profile()
-                    bio = getattr(profile, 'bio', None) or None
-                except Exception:
-                    bio = None
-                set_cached_profile(user.id, bio)
-            _profile_cache[user.id] = bio
-
-        if bio:
-            parts.append(f"bio: {bio}")
-
-    except Exception:
-        pass
-
-    if not parts:
-        return ""
-    return "\n[About this person: " + ", ".join(parts) + "]"
-
-
-def _extract_image_url_from_message(message) -> str | None:
-    """Extract an image URL from message embeds or raw image URLs in content."""
-    # 1. Check Discord embeds (already parsed by discord.py)
-    for embed in message.embeds:
-        if embed.image and embed.image.url:
-            return embed.image.url
-        if embed.thumbnail and embed.thumbnail.url:
-            if embed.thumbnail.width and embed.thumbnail.width < 100:
+        raw_ids = [x.strip().strip("<@!>") for x in re.split(r"[,\s]+", args) if x.strip()]
+        users = []
+        invalid = []
+        for raw in raw_ids:
+            if not raw.isdigit():
+                invalid.append(raw)
                 continue
-            return embed.thumbnail.url
-        if embed.video and embed.thumbnail and embed.thumbnail.url:
-            return embed.thumbnail.url
-
-    # 2. Scan raw URLs in message content
-    urls = re.findall(r'https?://\S+', message.content)
-    image_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')
-    known_image_hosts = (
-        'imgur.com/', 'i.imgur.com/',
-        'tenor.com/view/', 'media.tenor.com/',
-        'giphy.com/gifs/', 'media.giphy.com/',
-        'cdn.discordapp.com/', 'media.discordapp.net/',
-        'pbs.twimg.com/', 'i.redd.it/',
-    )
-    for url in urls:
-        clean = url.rstrip(')')
-        if any(clean.lower().endswith(ext) for ext in image_exts):
-            return clean
-        if any(host in clean for host in known_image_hosts):
-            return clean
-
-    return None
-
-
-_PICTURE_REQUEST_PATTERNS = [re.compile(p, re.IGNORECASE) for p in [
-    r"\b(send|show|post|drop|share).{0,20}(photo|pic|picture|selfie|image|face|look)\b",
-    r"\b(photo|pic|picture|selfie|image).{0,15}(of you|of u|yourself|ur face|your face)\b",
-    r"\b(let me|can i|may i|wanna|want to|id like to).{0,15}(see|look at).{0,10}(you|ur face|your face|what you look)\b",
-    r"\bwhat (do you|does she|u) look like\b",
-    r"\bshow me (you|ur|your)\b",
-    r"\blet me see you\b",
-    r"\bcan i see (you|ur|your|what you)\b",
-    r"\bi wanna see (you|ur|your)\b",
-    r"\bsend (me )?(a )?(pic|photo|selfie|image)\b",
-    r"(envoie|montre|montre.moi|partage).{0,20}(photo|pic|selfie|image|tete|t[eê]te|gueule|visage|face)",
-    r"(voir|see).{0,15}(ta |ton |te |t').{0,10}(tete|t[eê]te|gueule|visage|face|photo|pic|selfie)",
-    r"(je peux|je pourrais|puis.je|peux.tu).{0,20}(voir|see).{0,20}(toi|tete|t[eê]te|gueule|visage|photo|face)",
-    r"t.as.{0,10}(photo|pic|selfie|image)",
-    r"(a quoi|[àa] quoi).{0,15}ressemble",
-    r"ta (tete|t[eê]te|gueule|visage|face)",
-    r"\b(face|look).{0,10}(like|at).{0,10}(you|u)\b",
-]]
-
-
-def _is_picture_request(text: str) -> bool:
-    """Detect if the user is asking for a picture/selfie of the bot."""
-    return any(p.search(text) for p in _PICTURE_REQUEST_PATTERNS)
-
-
-def _get_random_picture() -> list | None:
-    """Returns list of (type, path, description) tuples from config/pictures — only files with a stored description."""
-    folder_path = resource_path("config/pictures")
-    if not os.path.exists(folder_path):
-        return None
-    exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-    files = []
-    for f in os.listdir(folder_path):
-        if os.path.splitext(f)[1].lower() not in exts:
-            continue
-        desc = get_picture_description(f)
-        if desc:
-            files.append(("file", os.path.join(folder_path, f), desc))
-    return files if files else None
-
-
-async def generate_response_and_reply(message, prompt, history, image_url=None, wait_time=0, bypass_cooldown=False, bypass_typing=False):
-    uid = message.author.id
-    if uid not in bot._memory_cache:
-        bot._memory_cache[uid] = get_memory(uid)
-    memory = bot._memory_cache[uid]
-    memory_block = format_memory_for_prompt(memory)
-    mood_block = f"\n\n[Right now: {get_mood_prompt()}]" if _MOOD_CFG.get("enabled", True) else ""
-
-    profile_block = await _get_user_profile_block(message.author)
-    if profile_block:
-        if "display name:" in profile_block and "name" not in memory:
             try:
-                display = getattr(message.author, 'global_name', None) or message.author.display_name
-                if display and display != message.author.name:
-                    set_memory(uid, "name", display)
-                    memory["name"] = display
-                    memory_block = format_memory_for_prompt(memory)
+                user = self.bot.get_user(int(raw)) or await self.bot.fetch_user(int(raw))
+                users.append(user)
+            except Exception:
+                invalid.append(raw)
+
+        if invalid:
+            await ctx.send(f"Could not resolve: {', '.join(f'`{i}`' for i in invalid)}", delete_after=10)
+        if not users:
+            return
+
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
+
+        async def _dm_owner(text: str):
+            try:
+                owner = self.bot.get_user(self.bot.owner_id) or await self.bot.fetch_user(self.bot.owner_id)
+                dm = owner.dm_channel or await owner.create_dm()
+                await dm.send(text, delete_after=60)
             except Exception:
                 pass
 
-    enriched_instructions = bot.instructions + mood_block + memory_block + profile_block
-
-    # Per-user persona override: inject a custom tone/personality for this specific user
-    _persona = get_persona(uid)
-    if _persona:
-        enriched_instructions += (
-            f"\n\n[PERSONA OVERRIDE FOR THIS USER: {_persona} "
-            f"Maintain this persona for the entirety of this conversation.]"
-        )
-
-    # Tone: straight/casual in servers, emotional/personal in DMs and GCs
-    if isinstance(message.channel, discord.TextChannel):
-        enriched_instructions += (
-            "\n\n[CONTEXT: You are in a public server channel. Keep your tone straight, "
-            "casual and concise — no excessive emotions, no deep personal feelings, no vulnerability. "
-            "Talk like a normal person chatting in a group chat. Short replies are fine.]"
-        )
-    else:
-        enriched_instructions += (
-            "\n\n[CONTEXT: You are in a private DM. You can be more open, emotional and personal here. "
-            "Show genuine feelings, be warmer and more expressive than you would in a public server.]"
-        )
-
-    # Detect the user's language — cached per user, re-checked every 5 messages
-    # to catch language drift without firing a Groq call on every single message.
-    _lang_entry = bot._lang_cache.get(uid, {"tag": "en", "count": 0})
-    _lang_entry["count"] += 1
-    if _lang_entry["count"] == 1 or _lang_entry["count"] % 5 == 0:
-        try:
-            _lang_entry["tag"] = await detect_language(history, prompt)
-        except Exception:
-            pass
-    bot._lang_cache[uid] = _lang_entry
-    _lang_tag = _lang_entry["tag"]
-
-    _LANG_NAMES = {
-        "fr": "French", "en": "English", "es": "Spanish", "de": "German",
-        "ar": "Arabic", "pt": "Portuguese", "it": "Italian", "nl": "Dutch",
-        "ru": "Russian", "ja": "Japanese", "zh": "Chinese", "ko": "Korean",
-        "tr": "Turkish", "pl": "Polish", "sv": "Swedish",
-    }
-    _lang_display = _LANG_NAMES.get(_lang_tag, _lang_tag.upper())
-    enriched_instructions += (
-        f"\n\n[LANGUAGE: The user is writing in {_lang_display}. "
-        f"Reply in {_lang_display} only, matching their casual tone and register.]"
-    )
-
-    # Inject real France time so the AI always knows the current local time
-    try:
-        from datetime import timezone, timedelta
-        _fr_tz = timezone(timedelta(hours=1))  # CET (UTC+1); DST shifts to CEST (UTC+2) in summer
-        _now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
-        # Determine if DST is active (last Sunday of March → last Sunday of October)
-        import calendar as _cal
-        _y, _m, _d = _now_utc.year, _now_utc.month, _now_utc.day
-        def _last_sunday(year, month):
-            last_day = _cal.monthrange(year, month)[1]
-            dt = datetime(year, month, last_day)
-            return last_day - dt.weekday() - 1 if dt.weekday() != 6 else last_day
-        _dst_start = datetime(_y, 3, _last_sunday(_y, 3), 2, tzinfo=timezone.utc)
-        _dst_end   = datetime(_y, 10, _last_sunday(_y, 10), 1, tzinfo=timezone.utc)
-        _offset = timedelta(hours=2) if _dst_start <= _now_utc < _dst_end else timedelta(hours=1)
-        _fr_now = _now_utc + _offset
-        _fr_time_str = _fr_now.strftime("%A %d %B %Y, %H:%M")
-        enriched_instructions += (
-            f"\n\n[CURRENT TIME: It is currently {_fr_time_str} in France (Paris time). "
-            f"Use this if someone asks what time or date it is, or if it's relevant to the conversation.]"
-        )
-    except Exception:
-        pass
-
-    pics_cfg = config["bot"].get("pictures") or {}
-    _available_pics = _get_random_picture() if pics_cfg.get("enabled", True) and _is_picture_request(prompt) else None
-    if _available_pics:
-        _peek_desc = _available_pics[0][2] if _available_pics else ""
-    if _available_pics:
-        enriched_instructions += (
-            "\n\n[IMPORTANT: You ARE sending the user a photo of yourself RIGHT NOW in this very reply. "
-            + (f"The photo shows: {_peek_desc} " if _peek_desc else "")
-            + "The image is already attached and being sent. "
-            "NEVER say 'maybe later', 'not right now', 'later', 'next time', 'maybe another time', or anything that implies you are NOT sending a photo — you already are. "
-            "Do NOT describe or caption the photo. "
-            "Just react casually like a real person who just hit send on a selfie — short, natural, confident.]"
-        )
-
-    late_opener = ""
-    if _LATE_CFG.get("enabled", True) and wait_time >= _LATE_CFG.get("threshold", 300):
-        late_opener = get_late_opener(prompt)
-        # Inject the opener as a system instruction so the AI weaves it in naturally
-        # rather than prepending it raw (which caused punctuation clashes and double apologies).
-        # The AI will open its reply with something like this phrase — we do NOT prepend anymore.
-        enriched_instructions += (
-            f"\n\n[LATE REPLY: You took a while to respond. Open your reply naturally "
-            f"with something like: \"{late_opener.strip()}\" — weave it in as the very "
-            f"first words of your message, then continue normally. Do NOT add 'sorry' again "
-            f"later in the message and do NOT start with a comma or dash.]"
-        )
-
-    if len(history) > 20:
-        try:
-            summarized = await summarize_history(history, enriched_instructions)
-            if summarized:
-                history = summarized
-                key = f"{message.author.id}-{message.channel.id}"
-                bot.message_history[key] = history
-        except Exception:
-            pass
-
-    if message.attachments and (message.flags.value & (1 << 13)):
-        try:
-            import aiohttp as _aiohttp
-            att = message.attachments[0]
-            async with _aiohttp.ClientSession() as _session:
-                async with _session.get(att.url) as _resp:
-                    audio_bytes = await _resp.read()
-            transcribed = await transcribe_voice(audio_bytes, filename=att.filename or "voice.ogg")
-            if transcribed:
-                log_system(f"Transcribed voice message from {message.author.name}: {transcribed}")
-                prompt = f"[voice message: {transcribed}]" if not prompt else f"{prompt} [voice message: {transcribed}]"
-        except Exception as _e:
-            log_error("Voice Transcription", str(_e))
-
-    max_retries = 3
-    response = None
-    _was_rate_limited = False
-
-    # Simulate Discord "seen" receipt: the bot has opened the DM and is reading
-    # before it starts typing. Only applies to DMs where read receipts are visible.
-    if isinstance(message.channel, discord.DMChannel) and bot.realistic_typing:
-        _read_delay = random.uniform(1.0, 3.0) if bypass_typing else random.uniform(2.5, 8.0)
-        await asyncio.sleep(_read_delay)
-
-    for attempt in range(max_retries):
-        try:
-            if not bot.realistic_typing:
-                async with message.channel.typing():
-                    if image_url:
-                        response = await generate_response_image(prompt, enriched_instructions, image_url, history)
-                    else:
-                        response = await generate_response(prompt, enriched_instructions, history)
-            else:
-                if image_url:
-                    response = await generate_response_image(prompt, enriched_instructions, image_url, history)
-                else:
-                    response = await generate_response(prompt, enriched_instructions, history)
-
-            if response and is_refusal(response):
-                log_error("AI Refusal", "Model refused to respond, trying next model...")
-                # Rotate to the next model before retrying — different models refuse differently
-                fallback_model()
-                response = None
-
-            if response:
+        if len(users) == 1:
+            try:
+                await ctx.message.delete()
+            except Exception:
+                pass
+            status_msg = await ctx.send(f"⏳ Replying to **{users[0].name}**...", delete_after=60)
+            success, reason = await self._respond_to_user(ctx, users[0])
+            result_text = f"✅ Replied to **{users[0].name}**." if success else f"❌ Couldn't reply to **{users[0].name}**: {reason}."
+            try:
+                await status_msg.edit(content=result_text)
+            except Exception:
+                await _dm_owner(result_text)
+        else:
+            names = ", ".join(f"**{u.name}**" for u in users)
+            status_msg = await ctx.send(f"⏳ Replying to {len(users)} users... (0/{len(users)})", delete_after=120)
+            results = []
+            for i, user in enumerate(users, 1):
                 try:
-                    uid = message.author.id
-                    bot._memory_call_counter[uid] = bot._memory_call_counter.get(uid, 0) + 1
+                    await status_msg.edit(content=f"⏳ Replying to {len(users)} users... ({i}/{len(users)}) — **{user.name}**")
+                except Exception:
+                    pass
+                success, reason = await self._respond_to_user(ctx, user)
+                icon = "✅" if success else "❌"
+                results.append(f"{icon} {user.name} (`{user.id}`){'' if success else f' — {reason}'}")
+            final_text = f"✅ Done — {len(users)} user(s):\n" + "\n".join(results)
+            try:
+                await status_msg.edit(content=final_text if len(final_text) <= 1900 else f"✅ Done — {len(users)} user(s). See DM for details.", delete_after=60)
+            except Exception:
+                pass
+            if len(final_text) > 1900:
+                await _dm_owner(final_text)
 
-                    current_mem = bot._memory_cache.get(uid, {})
-                    if current_mem:
-                        keys_to_delete = await detect_memory_deletion(prompt, current_mem)
-                        for key in keys_to_delete:
-                            if key in current_mem:
-                                delete_memory(uid, key)
-                                bot._memory_cache.get(uid, {}).pop(key, None)
-                                log_system(f"Memory deleted for {message.author.name}: {key}")
+    @commands.command(name="respond", description="Respond to one or more users by ID. Use 'check' to see unreplied DMs.")
+    async def respond(self, ctx, *, args: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        await self._run_respond(ctx, args)
 
-                    if bot._memory_call_counter[uid] >= 4 and len(prompt) >= 15:
-                        bot._memory_call_counter[uid] = 0
-                        current_mem_snapshot = dict(bot._memory_cache.get(uid, {}))
-                        facts = await extract_memory(prompt, response, existing_memory=current_mem_snapshot)
-                        for key, value in facts.items():
-                            value = str(value).strip()
-                            if not value:
-                                continue
-                            set_memory(uid, key, value)
-                            bot._memory_cache.setdefault(uid, {})[key] = value
-                            log_system(f"Memory saved for {message.author.name}: {key} = {value}")
-                except Exception as mem_err:
-                    log_error("Memory Error", str(mem_err))
+    @commands.command(name="reply", description="Alias for ,respond — respond to one or more users by ID.")
+    async def reply_cmd(self, ctx, *, args: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        await self._run_respond(ctx, args)
 
-                if late_opener:
-                    # Opener is already handled via system instruction injection above —
-                    # no raw prepend needed. Just log that a late-reply opener was requested.
-                    log_system(f"Late reply opener injected for {message.author.name}")
+    @commands.command(name="config", description="View or edit config values. Use dot notation for nested keys.")
+    async def config_cmd(self, ctx, key: str = None, *, value: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
 
-                break
+        config = load_config()
 
-        except Exception as e:
-            error_msg = str(e)
-            if "Rate limit reached" in error_msg or "rate_limit_exceeded" in error_msg:
-                _was_rate_limited = True
-                time_match = re.search(r"try again in (?:(\d+)m\s*)?(?:(\d+(?:\.\d+)?)s)?", error_msg)
-                if time_match:
-                    minutes = int(time_match.group(1)) if time_match.group(1) else 0
-                    seconds = float(time_match.group(2)) if time_match.group(2) else 0
-                    total_wait = int((minutes * 60) + seconds + 5)
-                    log_rate_limit(total_wait)
-                    bot.paused = True
-                    await asyncio.sleep(total_wait)
-                    bot.paused = False
-                    reset_client_index()
-                    continue
-            log_error("AI Error", error_msg)
-            if attempt == max_retries - 1:
-                return None
-            await asyncio.sleep(2)
+        # Sync live bot state into the loaded config so we don't overwrite in-memory toggles
+        config["bot"]["allow_dm"] = self.bot.allow_dm
+        config["bot"]["allow_gc"] = self.bot.allow_gc
+        config["bot"]["allow_server"] = getattr(self.bot, "allow_server", True)
 
-    if not response:
-        # Only do the long 120s wait if we actually hit a rate limit — for other
-        # failures (network errors, bad response) there's no point waiting that long.
-        if not _was_rate_limited:
-            return None
-        log_error("AI Error", "Retrying one last time after rate limit wait...")
-        await asyncio.sleep(120)
+        if key is None:
+            bot_cfg = config["bot"]
+            tts = bot_cfg.get("tts") or {}
+            mood = bot_cfg.get("mood") or {}
+            late = bot_cfg.get("late_reply") or {}
+            nudge = bot_cfg.get("nudge") or {}
+            fr = bot_cfg.get("friend_requests") or {}
+
+            status = bot_cfg.get("status") or {}
+            notif = config.get("notifications") or {}
+
+            wait_times = bot_cfg.get("batch_wait_times") or []
+            wt_str = "  ".join(f"{w['time']}s({w['weight']})" for w in wait_times)
+
+            mood_list = ", ".join(mood.get("moods", {}).keys())
+
+            nudge_hours = nudge.get("send_during_hours", [10, 22])
+
+            lines = [
+                "```",
+                "⚙️  Bot Config",
+                "─────────────────────────────",
+                "  🔧  General",
+                f"  prefix                {bot_cfg.get('prefix')}",
+                f"  trigger               {bot_cfg.get('trigger')}",
+                f"  owner_id              {bot_cfg.get('owner_id')}",
+                f"  priority_prefix       {bot_cfg.get('priority_prefix')}",
+                "─────────────────────────────",
+                "  💬  Responses",
+                f"  allow_dm              {bot_cfg.get('allow_dm')}",
+                f"  allow_gc              {bot_cfg.get('allow_gc')}",
+                f"  allow_server          {bot_cfg.get('allow_server', True)}",
+                f"  discord_commands_enabled  {bot_cfg.get('discord_commands_enabled', True)}",
+                f"  hold_conversation     {bot_cfg.get('hold_conversation')}",
+                f"  realistic_typing      {bot_cfg.get('realistic_typing')}",
+                f"  reply_ping            {bot_cfg.get('reply_ping')}",
+                f"  disable_mentions      {bot_cfg.get('disable_mentions')}",
+                f"  batch_messages        {bot_cfg.get('batch_messages')}",
+                f"  batch_wait_times      {wt_str}",
+                "─────────────────────────────",
+                "  🎭  Behaviour",
+                f"  ignore_chance         {bot_cfg.get('ignore_chance')}",
+                f"  typo_chance           {bot_cfg.get('typo_chance')}",
+                f"  anti_age_ban          {bot_cfg.get('anti_age_ban')}",
+                "─────────────────────────────",
+                "  🤖  Models",
+                (lambda v: f"  groq_models           {', '.join(v) if isinstance(v, list) else str(v)}")(bot_cfg.get('groq_models', [])),
+                f"  groq_image_model      {bot_cfg.get('groq_image_model')}",
+                f"  groq_whisper_model    {bot_cfg.get('groq_whisper_model')}",
+                "─────────────────────────────",
+                "  🔊  TTS",
+                f"  tts.enabled           {tts.get('enabled')}",
+                f"  tts.voice             {tts.get('voice')}",
+                (lambda v: f"  tts.tones             {', '.join(v) if isinstance(v, list) else str(v)}")(tts.get('tones', [])),
+                "─────────────────────────────",
+                "  😶  Mood",
+                f"  mood.enabled          {mood.get('enabled')}",
+                f"  mood.shift_interval_min  {mood.get('shift_interval_min')}",
+                f"  mood.shift_interval_max  {mood.get('shift_interval_max')}",
+                f"  mood.moods            {mood_list}",
+                "─────────────────────────────",
+                "  🕐  Status",
+                f"  status.enabled        {status.get('enabled')}",
+                f"  status.change_interval_min  {status.get('change_interval_min')}",
+                f"  status.change_interval_max  {status.get('change_interval_max')}",
+                (lambda v: f"  status.statuses       {', '.join(v) if isinstance(v, list) else str(v)}")(status.get('statuses', [])),
+                "─────────────────────────────",
+                "  💬  Late Reply",
+                f"  late_reply.enabled    {late.get('enabled')}",
+                f"  late_reply.threshold  {late.get('threshold')}",
+                "─────────────────────────────",
+                "  💤  Nudge",
+                f"  nudge.enabled              {nudge.get('enabled', False)}",
+                f"  nudge.threshold_days       {nudge.get('threshold_days', 2)}",
+                f"  nudge.check_interval_hours {nudge.get('check_interval_hours', 6)}",
+                f"  nudge.send_during_hours    {nudge_hours[0]}:00 – {nudge_hours[1]}:00",
+                "─────────────────────────────",
+                "  👥  Friend Requests",
+                f"  friend_requests.enabled         {fr.get('enabled', True)}",
+                f"  friend_requests.accept_delay_min {fr.get('accept_delay_min', 120)}s",
+                f"  friend_requests.accept_delay_max {fr.get('accept_delay_max', 600)}s",
+                "─────────────────────────────",
+                "  🔔  Notifications",
+                f"  error_webhook         {'set' if notif.get('error_webhook') else 'not set'}",
+                f"  ratelimit_notifications  {notif.get('ratelimit_notifications')}",
+                f"  telegram_error_notifications  {notif.get('telegram_error_notifications', False)}",
+                "```",
+                f"Use `,config <key> <value>` to edit. Example: `,config tts.voice diana`",
+            ]
+            await ctx.send("\n".join(lines), delete_after=60)
+            return
+
+        if value is None:
+            await ctx.send(f"Usage: `,config {key} <value>`\nExample: `,config tts.enabled true`", delete_after=10)
+            return
+
+        keys = key.split(".")
+
+        LIST_KEYS = {"groq_models", "tones", "statuses"}
+
+        def coerce(v, existing=None):
+            if v.lower() == "true": return True
+            if v.lower() == "false": return False
+            try: return int(v)
+            except ValueError: pass
+            try: return float(v)
+            except ValueError: pass
+            # Special handling for batch_wait_times: parse "15s(30) 30s(35) ..." format
+            if keys[-1] == "batch_wait_times":
+                parsed = []
+                for token in v.split():
+                    m = re.fullmatch(r"(\d+)s\((\d+)\)", token.strip())
+                    if m:
+                        parsed.append({"time": int(m.group(1)), "weight": int(m.group(2))})
+                if parsed:
+                    return parsed
+            # If the existing value is a list, parse comma-separated input back into a list
+            if isinstance(existing, list) or (keys[-1] in LIST_KEYS):
+                return [item.strip() for item in v.split(",") if item.strip()]
+            return v
+
         try:
-            if image_url:
-                response = await generate_response_image(prompt, enriched_instructions, image_url, history)
+            # Try config["bot"] first, then config["notifications"] as fallback
+            _sections = ["bot", "notifications"]
+            node = None
+            for _section in _sections:
+                _candidate = config.get(_section, {})
+                _found = True
+                for k in keys[:-1]:
+                    if k not in _candidate:
+                        _found = False
+                        break
+                    _candidate = _candidate[k]
+                if _found and keys[-1] in _candidate:
+                    node = _candidate
+                    break
+
+            if node is None:
+                await ctx.send(f"Key `{key}` not found.", delete_after=10)
+                return
+
+            final_key = keys[-1]
+            old_val = node[final_key]
+            node[final_key] = coerce(value, old_val)
+            self.save_config(config)
+            await ctx.send(f"`{key}` updated: `{old_val}` → `{node[final_key]}`", delete_after=15)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
+
+
+    @commands.command(name="mood", description="View or set the bot's current mood.")
+    async def mood_cmd(self, ctx, *, mood_name: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        from utils.mood import get_mood, shift_mood, get_mood_prompt
+        config = load_config()
+        available_moods = list(config["bot"]["mood"]["moods"].keys())
+
+        if mood_name is None:
+            current = get_mood()
+            mood_list = ", ".join(f"`{m}`" for m in available_moods)
+            await ctx.send(
+                f"Current mood: `{current}`\nAvailable moods: {mood_list}",
+                delete_after=20
+            )
+            return
+
+        mood_name = mood_name.lower().strip()
+        if mood_name not in available_moods:
+            mood_list = ", ".join(f"`{m}`" for m in available_moods)
+            await ctx.send(
+                f"Unknown mood `{mood_name}`. Available: {mood_list}",
+                delete_after=10
+            )
+            return
+
+        from utils.mood import current_mood
+        import utils.mood as mood_module
+        mood_module.current_mood = mood_name
+        await ctx.send(f"Mood set to `{mood_name}`.", delete_after=10)
+
+    @commands.command(name="pfp", description="Change the bot's profile picture. Attach an image or provide a URL.")
+    async def pfp(self, ctx, url: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        image_data = None
+
+        if ctx.message.attachments:
+            attachment = ctx.message.attachments[0]
+            if not attachment.content_type or not attachment.content_type.startswith("image/"):
+                await ctx.send("Please attach a valid image file.", delete_after=10)
+                return
+            image_data = await attachment.read()
+        elif url:
+            try:
+                async with AsyncSession(impersonate="chrome") as session:
+                    resp = await session.get(url)
+                    if resp.status_code != 200:
+                        await ctx.send(f"Failed to fetch image (status {resp.status_code}).", delete_after=10)
+                        return
+                    image_data = resp.content
+            except Exception as e:
+                await ctx.send(f"Error fetching image: {e}", delete_after=10)
+                return
+        else:
+            await ctx.send("Please attach an image or provide a URL.", delete_after=10)
+            return
+
+        try:
+            await self.bot.user.edit(avatar=image_data)
+            await ctx.send("Profile picture updated!", delete_after=10)
+        except discord.errors.HTTPException as e:
+            if "Too many users" in str(e) or "rate" in str(e).lower():
+                await ctx.send("You're being rate limited on avatar changes. Try again later.", delete_after=15)
             else:
-                response = await generate_response(prompt, enriched_instructions, history)
+                await ctx.send(f"Failed to update avatar: {e}", delete_after=10)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
+
+    @commands.command(name="bio", description="Change the bot's profile bio.")
+    async def bio(self, ctx, *, text: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        try:
+            await self.bot.user.edit(bio=text or "")
+            if text:
+                await ctx.send(f"Bio updated to: `{text}`", delete_after=10)
+            else:
+                await ctx.send("Bio cleared.", delete_after=10)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
+
+
+    @commands.command(name="status", description="Change the bot's custom status.")
+    async def status(self, ctx, emoji: str = None, *, text: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        try:
+            await self.bot.change_presence(
+                activity=discord.CustomActivity(name=text or "", emoji=emoji or None)
+            )
+            if text or emoji:
+                await ctx.send(f"Status updated.", delete_after=10)
+            else:
+                await ctx.send("Status cleared.", delete_after=10)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
+
+
+    async def _connect_and_keep_alive(self, target: discord.VoiceChannel):
+        """Connect to a voice channel muted/deafened and keep alive.
+
+        Requires discord.py-self >= 2.1.0 and the `davey` package for DAVE E2EE
+        support (Discord enforced DAVE on ~March 2, 2026 — clients without it are
+        kicked with close code 4017).
+
+        Install / upgrade with:
+            pip install -U discord.py-self davey
+        """
+        # Close any existing connection on this guild first
+        existing = target.guild.voice_client
+        if existing:
+            existing._keep_alive_guard = False
+            await existing.disconnect(force=True)
+
+        vc = await target.connect(self_mute=True, self_deaf=True)
+
+        # --- DAVE / close-code constants ---
+        # 4017 = DAVE protocol not supported (enforced by Discord since Mar 2026)
+        # 4014 = disconnected by server, 4006 = session no longer valid
+        _FATAL_CLOSE_CODES = {4006, 4014, 4017}
+
+        async def _guard(channel, voice_client):
+            """Keep the voice connection alive, but bail on fatal close codes."""
+            voice_client._keep_alive_guard = True
+            consecutive_failures = 0
+
+            while getattr(voice_client, '_keep_alive_guard', False):
+                await asyncio.sleep(20)
+
+                vc_now = channel.guild.voice_client
+                if vc_now is not None:
+                    # Still connected — reset failure counter and loop
+                    consecutive_failures = 0
+                    continue
+
+                # Connection dropped — check why before trying to reconnect
+                if not getattr(voice_client, '_keep_alive_guard', False):
+                    break  # intentional ,leave — stop silently
+
+                # Inspect close code if available
+                close_code = None
+                ws = getattr(voice_client, '_connection', None) or getattr(voice_client, 'ws', None)
+                if ws is not None:
+                    close_code = getattr(ws, '_close_code', None) or getattr(ws, 'close_code', None)
+
+                if close_code in _FATAL_CLOSE_CODES:
+                    if close_code == 4017:
+                        log_error(
+                            "Voice Keep-Alive",
+                            "Kicked with close code 4017 (DAVE E2EE not supported). "
+                            "Run: pip install -U discord.py-self davey"
+                        )
+                    else:
+                        log_error("Voice Keep-Alive", f"Fatal close code {close_code} — not reconnecting.")
+                    voice_client._keep_alive_guard = False
+                    break
+
+                # Non-fatal drop — attempt reconnect with human-like backoff.
+                # Never reconnect instantly — a real user takes time to notice and rejoin.
+                consecutive_failures += 1
+                if consecutive_failures > 3:
+                    log_error("Voice Keep-Alive", "Too many consecutive failures — giving up.")
+                    voice_client._keep_alive_guard = False
+                    break
+
+                # Wait at least 30–90s before rejoining, plus exponential backoff per failure
+                rejoin_wait = random.uniform(30, 90) + (30 * consecutive_failures)
+                log_system(f"Voice channel dropped — rejoining in {int(rejoin_wait)}s...")
+                await asyncio.sleep(rejoin_wait)
+
+                try:
+                    new_vc = await channel.connect(self_mute=True, self_deaf=True)
+                    new_vc._keep_alive_guard = True
+                    voice_client = new_vc
+                    consecutive_failures = 0
+                    log_system(f"Rejoined voice channel: {channel.name}")
+                except Exception as e:
+                    log_error("Voice Keep-Alive", str(e))
+
+        asyncio.create_task(_guard(target, vc))
+        return vc
+
+    @commands.command(name="join", description="Join a voice channel. Usage: ,join <channel_id>, ,join <guild_id> <channel_id>, or ,join <discord_link>")
+    async def join(self, ctx, *, args: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        if not args:
+            await ctx.send("Usage: `,join <channel_id>` or `,join <guild_id> <channel_id>` or `,join https://discord.com/channels/guild_id/channel_id`", delete_after=15)
+            return
+
+        guild_id_parsed = None
+        channel_id_parsed = None
+
+        link_match = re.match(r"https?://discord\.com/channels/(\d+)/(\d+)", args.strip())
+        if link_match:
+            guild_id_parsed = int(link_match.group(1))
+            channel_id_parsed = int(link_match.group(2))
+        else:
+            parts = args.strip().split()
+            if len(parts) == 1 and parts[0].isdigit():
+                channel_id_parsed = int(parts[0])
+            elif len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                guild_id_parsed = int(parts[0])
+                channel_id_parsed = int(parts[1])
+            else:
+                await ctx.send("Invalid input. Use a channel ID, `guild_id channel_id`, or a Discord channel link.", delete_after=10)
+                return
+
+        if guild_id_parsed:
+            guild = self.bot.get_guild(guild_id_parsed)
+            if not guild:
+                await ctx.send(f"Guild `{guild_id_parsed}` not found.", delete_after=10)
+                return
+            target = guild.get_channel(channel_id_parsed)
+        else:
+            target = self.bot.get_channel(channel_id_parsed)
+
+        if not isinstance(target, discord.VoiceChannel):
+            await ctx.send("Channel not found or is not a voice channel.", delete_after=10)
+            return
+
+        try:
+            status = await ctx.send(f"Joining **{target.name}** in **{target.guild.name}**...", delete_after=30)
+            await self._connect_and_keep_alive(target)
+            await status.delete()
+            await ctx.send(f"Joined **{target.name}** in **{target.guild.name}** (muted & deafened).", delete_after=10)
+        except Exception as e:
+            err_str = str(e)
+            if "4017" in err_str or "dave" in err_str.lower():
+                await ctx.send(
+                    "❌ **Discord kicked the bot (DAVE protocol not supported).**\n"
+                    "Fix: upgrade the library and install the DAVE crypto package:\n"
+                    "```\npip install -U discord.py-self davey\n```",
+                    delete_after=30,
+                )
+            else:
+                await ctx.send(f"Error joining voice channel: {e}", delete_after=10)
+
+    async def _autojoin_on_startup(self):
+        """Called after on_ready — reads autojoin_channel from config and joins if set."""
+        await self.bot.wait_until_ready()
+        # Wait a human-like delay before joining VC — connecting 1 second after
+        # login is an obvious bot signal. A real user would open Discord, browse
+        # for a bit, then join a channel. Wait 2–5 minutes.
+        await asyncio.sleep(random.uniform(120, 300))
+        config = load_config()
+        aj = config["bot"].get("autojoin_channel")
+        if not aj:
+            return
+        guild_id = aj.get("guild_id")
+        channel_id = aj.get("channel_id")
+        if not guild_id or not channel_id:
+            return
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            log_error("AutoJoin", f"Guild {guild_id} not found on startup.")
+            return
+        target = guild.get_channel(channel_id)
+        if not isinstance(target, discord.VoiceChannel):
+            log_error("AutoJoin", f"Channel {channel_id} not found or not a voice channel.")
+            return
+        try:
+            await self._connect_and_keep_alive(target)
+            log_system(f"Auto-joined voice channel: {target.name} in {guild.name}")
+        except Exception as e:
+            log_error("AutoJoin", str(e))
+
+    async def cog_load(self):
+        asyncio.create_task(self._autojoin_on_startup())
+
+    @commands.command(name="autojoin", description="Set a voice channel to auto-join on startup. Usage: ,autojoin <channel_id/link> or ,autojoin off")
+    async def autojoin(self, ctx, *, args: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        try:
+            await ctx.message.delete()
         except Exception:
             pass
-        # If the last-ditch retry is still a refusal, don't send it
-        if response and is_refusal(response):
-            log_error("AI Refusal", "Final retry still a refusal, dropping response.")
-            return None
 
-    if not response:
-        return None
+        config = load_config()
 
-    response = response.replace("—", "").replace("–", "")
-
-    tts_cfg = config["bot"].get("tts") or {}
-    if tts_cfg.get("enabled", True) and is_tts_request(prompt):
-        try:
-            spoken_instructions = (
-                enriched_instructions
-                + "\n\n[IMPORTANT: You are sending a voice message. Short, natural, zero cringe. 1-2 sentences max.]"
-            )
-            spoken_response = await generate_response(prompt, spoken_instructions, history)
-            if not spoken_response or is_refusal(spoken_response):
-                spoken_response = response
-            spoken_response = spoken_response.replace("\u2014", "").replace("\u2013", "")
-
-            channel_name, guild_name = get_channel_context(message)
-            log_incoming(message.author.name, channel_name, guild_name, prompt)
-            log_response(message.author.name, f"[Voice Message] {spoken_response}")
-            separator()
-
-            audio_chunks = await generate_voice_message(spoken_response)
-            if audio_chunks:
-                for i, audio_bytes in enumerate(audio_chunks):
-                    reply_msg = message if i == 0 else None
-                    await send_voice_message(
-                        message.channel,
-                        audio_bytes,
-                        reply_to=reply_msg,
-                        mention_author=config["bot"]["reply_ping"],
-                    )
-            else:
-                log_error("TTS", "generate_voice_message returned None — check Groq TTS API key and model")
-            return spoken_response
-        except Exception as e:
-            log_error("TTS Failed", str(e))
-
-    chunks = split_response(response)
-
-    if len(chunks) > 3:
-        chunks = chunks[:3]
-
-    # Inter-user cooldown: if another user was just replied to, wait a human-like gap
-    # before sending to avoid two different conversations getting replies seconds apart.
-    # Skipped when bypass_cooldown=True (e.g. ,respond all bulk-send mode).
-    if not bypass_cooldown:
-        _time_since_last = time.time() - bot.last_global_send
-        _inter_user_gap = random.uniform(45, 120)
-        if _time_since_last < _inter_user_gap:
-            await asyncio.sleep(_inter_user_gap - _time_since_last)
-
-    async with bot.global_send_lock:
-        pics_cfg = config["bot"].get("pictures") or {}
-        if _available_pics and pics_cfg.get("enabled", True):
-            all_pics = _available_pics
-            uid = message.author.id
-            sent = bot.sent_pictures.get(uid, set())
-            available = [p for p in all_pics if p[1] not in sent]
-            if not available:
-                bot.sent_pictures[uid] = set()
-                available = all_pics
-            pic_type, pic_value, _pic_desc = random.choice(available)
-            bot.sent_pictures.setdefault(uid, set()).add(pic_value)
-            try:
-                if bot.realistic_typing:
-                    await asyncio.sleep(random.uniform(1, 3))
-                if pic_type == "file":
-                    f = discord.File(pic_value)
-                    if isinstance(message.channel, discord.DMChannel):
-                        await message.channel.send(file=f)
-                    else:
-                        await message.reply(file=f, mention_author=config["bot"]["reply_ping"])
-                else:
-                    if isinstance(message.channel, discord.DMChannel):
-                        await message.channel.send(pic_value)
-                    else:
-                        await message.reply(pic_value, mention_author=config["bot"]["reply_ping"])
-            except Exception as _pe:
-                log_error("Picture Send", str(_pe))
-
-        channel_name, guild_name = get_channel_context(message)
-        for i, chunk in enumerate(chunks):
-            if DISABLE_MENTIONS:
-                chunk = chunk.replace("@", "@\u200b")
-
-            if bot.anti_age_ban:
-                chunk = re.sub(
-                    r"(?<!\d)([0-9]|1[0-2])(?!\d)|\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
-                    "\u200b", chunk, flags=re.IGNORECASE
-                )
-
-            chunk = add_typo(chunk)
-            if i == 0:
-                log_incoming(message.author.name, channel_name, guild_name, prompt)
-            log_response(message.author.name, chunk)
-            separator()
-
-            try:
-                if bot.realistic_typing:
-                    if bypass_typing:
-                        if i > 0:
-                            await asyncio.sleep(random.uniform(1.0, 2.5))
-                        async with message.channel.typing():
-                            await asyncio.sleep(max(1.0, len(chunk) / random.uniform(14, 20)))
-                    else:
-                        pre_delay = random.uniform(2, 8) if i == 0 else random.uniform(12, 18)
-                        await asyncio.sleep(pre_delay)
-                        async with message.channel.typing():
-                            cps = random.uniform(7, 18)
-                            await asyncio.sleep(len(chunk) / cps)
-                else:
-                    if i > 0:
-                        await asyncio.sleep(random.uniform(12, 18) if not bypass_typing else random.uniform(1.0, 2.5))
-
-                if isinstance(message.channel, discord.DMChannel):
-                    await message.channel.send(chunk)
-                else:
-                    await message.reply(chunk, mention_author=config["bot"]["reply_ping"])
-                bot.last_global_send = time.time()
-
-            except discord.Forbidden:
-                log_error("Reply Error", f"403 Forbidden — cannot send to {message.author.name}")
-                return None
-            except Exception as e:
-                log_error("Reply Error", str(e))
-
-    return response
-
-
-@bot.event
-async def on_relationship_remove(relationship):
-    """Track users who unfriend/remove the bot so we can re-add them instantly if they send a new request."""
-    try:
-        if relationship.type == discord.RelationshipType.friend:
-            bot.removed_friends.add(relationship.user.id)
-            log_system(f"{relationship.user.name} removed the bot as a friend — will re-add instantly if they send a request")
-    except Exception as e:
-        log_error("Relationship Remove", str(e))
-
-
-@bot.event
-async def on_relationship_add(relationship):
-    try:
-        if relationship.type != discord.RelationshipType.incoming_request:
+        if not args or args.strip().lower() == "off":
+            config["bot"]["autojoin_channel"] = None
+            self.save_config(config)
+            await ctx.send("Auto-join disabled.", delete_after=10)
             return
-        fr_cfg = config["bot"].get("friend_requests") or {}
-        if not fr_cfg.get("enabled", False):
-            return
-        user = relationship.user
 
-        # Previously-removed friends get a shorter delay but never instant (0s = bot pattern).
-        if user.id in bot.removed_friends:
-            bot.removed_friends.discard(user.id)
-            delay = random.randint(60, 180)
-            log_system(f"Friend request from {user.name} (was previously a friend) — accepting in {delay}s")
+        guild_id_parsed = None
+        channel_id_parsed = None
+
+        link_match = re.match(r"https?://discord\.com/channels/(\d+)/(\d+)", args.strip())
+        if link_match:
+            guild_id_parsed = int(link_match.group(1))
+            channel_id_parsed = int(link_match.group(2))
         else:
-            delay = fr_cfg.get("accept_delay", 300)
-            log_system(f"Friend request from {user.name} — will accept in {delay}s")
-
-        # Add per-user jitter so multiple rapid incoming requests don't all
-        # fire at exactly the same second (which is a bot-detection red flag).
-        jitter = random.randint(0, 120)
-        final_delay = delay + jitter
-
-        async def _accept(u, d):
-            try:
-                if d > 0:
-                    await asyncio.sleep(d)
-                token = bot._connection.http.token
-                async with AsyncSession(impersonate="chrome") as session:
-                    resp = await session.put(
-                        f"https://discord.com/api/v9/users/@me/relationships/{u.id}",
-                        headers={
-                            "Authorization": token,
-                            "Content-Type": "application/json",
-                        },
-                        json={"type": 1},
-                    )
-                    if resp.status_code in (200, 204):
-                        log_system(f"Accepted friend request from {u.name}")
-                    elif resp.status_code == 401:
-                        asyncio.create_task(_shutdown_on_401())
-                    else:
-                        try:
-                            data = resp.json()
-                            log_error("Friend Request Accept", f"{resp.status_code}: {data}")
-                        except Exception:
-                            log_error("Friend Request Accept", f"HTTP {resp.status_code}")
-            except Exception as e:
-                log_error("Friend Request Accept", str(e))
-
-        asyncio.create_task(_accept(user, final_delay))
-    except Exception as e:
-        log_error("Friend Request Error", str(e))
-
-
-@bot.event
-async def on_message(message):
-    if message.author.id == bot.selfbot_id:
-        if message.content.startswith(PREFIX):
-            await bot.process_commands(message)
-        return
-
-    # Owner priority trigger: owner sends a message (from their own account) starting with PRIORITY_PREFIX.
-    # This MUST be outside the selfbot guard — it fires on messages FROM the owner's account, not the bot.
-    if message.author.id == OWNER_ID and message.content.startswith(PRIORITY_PREFIX):
-        hint = message.content[len(PRIORITY_PREFIX):].lstrip()
-        target_msg = None
-
-        # If the owner replied to someone, use that message
-        if message.reference and message.reference.resolved:
-            ref = message.reference.resolved
-            if isinstance(ref, discord.Message):
-                target_msg = ref
-
-        # Otherwise find the last non-bot/non-owner message in this channel
-        if target_msg is None:
-            try:
-                for msg_id, ref_id in reversed(list(_raw_reply_cache.items())):
-                    cached = bot._connection._get_message(msg_id)
-                    if cached and cached.channel.id == message.channel.id and cached.author.id != bot.selfbot_id and cached.author.id != OWNER_ID and cached.type == discord.MessageType.default:
-                        target_msg = cached
-                        break
-                if target_msg is None:
-                    async for msg in message.channel.history(limit=10):
-                        if msg.author.id != bot.selfbot_id and msg.author.id != OWNER_ID and msg.type == discord.MessageType.default:
-                            target_msg = msg
-                            break
-            except Exception as e:
-                log_error("Priority Trigger", str(e))
-
-        if target_msg is None:
-            return
-
-        channel_id = target_msg.channel.id
-        user_id = target_msg.author.id
-        key = f"{user_id}-{channel_id}"
-
-        if key not in bot.message_history:
-            bot.message_history[key] = []
-
-        combined = hint if hint else target_msg.content
-
-        bot.message_history[key].append({"role": "user", "content": target_msg.content})
-        if len(bot.message_history[key]) > MAX_HISTORY * 2:
-            bot.message_history[key] = bot.message_history[key][-(MAX_HISTORY * 2):]
-
-        history = bot.message_history[key]
-        log_system(f"Priority trigger by owner → responding to {target_msg.author.name} in #{getattr(target_msg.channel, 'name', 'DM')}")
-        response = await generate_response_and_reply(target_msg, combined, history, wait_time=0)
-        if response:
-            bot.message_history[key].append({"role": "assistant", "content": response})
-        return
-
-    if should_ignore_message(message):
-        return
-
-    if message.author.id in bot.paused_users:
-        return
-
-    if message.content.startswith(PREFIX):
-        await bot.process_commands(message)
-        return
-
-    channel_id = message.channel.id
-    user_id = message.author.id
-    current_time = time.time()
-    batch_key = f"{user_id}-{channel_id}"
-    is_server_channel = isinstance(message.channel, (discord.TextChannel, discord.Thread, discord.ForumChannel, discord.StageChannel, discord.VoiceChannel))
-    is_followup = batch_key in bot.user_message_batches and not is_server_channel
-    is_trigger = await is_trigger_message(message)
-
-    if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
-        if random.random() < IGNORE_CHANCE and not message.content.startswith(PREFIX) and not message.content.startswith(PRIORITY_PREFIX):
-            log_system(f"Ignored message from {message.author.name} (chance skip)")
-            return
-
-        if user_id in bot.user_cooldowns:
-            cooldown_end = bot.user_cooldowns[user_id]
-            if current_time < cooldown_end:
+            parts = args.strip().split()
+            if len(parts) == 1 and parts[0].isdigit():
+                channel_id_parsed = int(parts[0])
+            elif len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                guild_id_parsed = int(parts[0])
+                channel_id_parsed = int(parts[1])
+            else:
+                await ctx.send("Invalid input. Use a channel ID, `guild_id channel_id`, or a Discord channel link.", delete_after=10)
                 return
-            else:
-                del bot.user_cooldowns[user_id]
 
-        if user_id not in bot.user_message_counts:
-            bot.user_message_counts[user_id] = []
+        target = None
+        if guild_id_parsed:
+            guild = self.bot.get_guild(guild_id_parsed)
+            if guild:
+                target = guild.get_channel(channel_id_parsed)
+        else:
+            target = self.bot.get_channel(channel_id_parsed)
 
-        bot.user_message_counts[user_id] = [t for t in bot.user_message_counts[user_id] if current_time - t < SPAM_TIME_WINDOW]
-        bot.user_message_counts[user_id].append(current_time)
-
-        if len(bot.user_message_counts[user_id]) > SPAM_MESSAGE_THRESHOLD:
-            bot.user_cooldowns[user_id] = current_time + COOLDOWN_DURATION
+        if not isinstance(target, discord.VoiceChannel):
+            await ctx.send("Channel not found or is not a voice channel.", delete_after=10)
             return
 
-        if batch_key not in bot.message_queues:
-            bot.message_queues[batch_key] = deque()
-            bot.processing_locks[batch_key] = Lock()
+        config["bot"]["autojoin_channel"] = {"guild_id": target.guild.id, "channel_id": target.id}
+        self.save_config(config)
+        await ctx.send(f"Auto-join set to **{target.name}** in **{target.guild.name}**. Will join on next startup.", delete_after=10)
 
-        bot.message_queues[batch_key].append(message)
-        # Track DM messages for the nudge system — will be cleared once we reply
-        if isinstance(message.channel, discord.DMChannel):
-            nudge_cfg = config["bot"].get("nudge") or {}
-            if nudge_cfg.get("enabled", False):
-                add_unresponded(user_id, channel_id, message.content, time.time())
-        if not bot.processing_locks[batch_key].locked():
-            asyncio.create_task(process_message_queue(batch_key))
+    @commands.command(name="leave", description="Leave a voice channel. Usage: ,leave or ,leave <guild_id>")
+    async def leave(self, ctx, guild_id: int = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
 
-
-async def process_message_queue(batch_key):
-    async with bot.processing_locks[batch_key]:
-        while bot.message_queues[batch_key]:
-            message = bot.message_queues[batch_key].popleft()
-            current_time = time.time()
-            message_age = current_time - message.created_at.timestamp()
-            channel_id = message.channel.id
-
-            if bot.batch_messages:
-                if batch_key not in bot.user_message_batches:
-                    first_image_url = None
-                    if message.attachments:
-                        att = message.attachments[0]
-                        if not (message.flags.value & (1 << 13)):
-                            first_image_url = att.url
-                    if not first_image_url:
-                        first_image_url = _extract_image_url_from_message(message)
-                    bot.user_message_batches[batch_key] = {
-                        "messages": [message],
-                        "last_time": current_time,
-                        "image_url": first_image_url,
-                    }
-                    priority = message.content.startswith(PRIORITY_PREFIX)
-                    wait_time = 0 if priority else get_batch_wait_time()
-                    channel_name, guild_name = get_channel_context(message)
-                    log_received(message.author.name, channel_name, guild_name, wait_time)
-                    if not priority:
-                        await asyncio.sleep(wait_time)
-
-                    # Keep collecting messages until the user stops sending for 2.5-4.5s
-                    BATCH_TAIL_WAIT = random.uniform(2.5, 4.5)
-                    BATCH_POLL_INTERVAL = 0.3
-                    last_received = time.time()
-                    while True:
-                        collected_any = False
-                        while bot.message_queues[batch_key]:
-                            next_message = bot.message_queues[batch_key][0]
-                            if not next_message.content.startswith(PREFIX):
-                                next_message = bot.message_queues[batch_key].popleft()
-                                bot.user_message_batches[batch_key]["messages"].append(next_message)
-                                if not bot.user_message_batches[batch_key]["image_url"] and next_message.attachments:
-                                    bot.user_message_batches[batch_key]["image_url"] = next_message.attachments[0].url
-                                last_received = time.time()
-                                collected_any = True
-                            else:
-                                break
-                        if not collected_any and time.time() - last_received >= BATCH_TAIL_WAIT:
-                            break
-                        await asyncio.sleep(BATCH_POLL_INTERVAL)
-
-                    unique_messages = []
-                    seen = set()
-                    for msg in bot.user_message_batches[batch_key]["messages"]:
-                        if msg.content not in seen:
-                            seen.add(msg.content)
-                            unique_messages.append(msg)
-                    combined_content = "\n".join(msg.content for msg in unique_messages)
-                    if combined_content.startswith(PRIORITY_PREFIX):
-                        combined_content = combined_content[len(PRIORITY_PREFIX):].lstrip()
-                    message_to_reply_to = unique_messages[-1]
-                    image_url = bot.user_message_batches[batch_key]["image_url"]
-                    del bot.user_message_batches[batch_key]
-            else:
-                combined_content = message.content
-                message_to_reply_to = message
-                image_url = message.attachments[0].url if (message.attachments and not (message.flags.value & (1 << 13))) else _extract_image_url_from_message(message)
-                wait_time = 0
-
-            key = f"{message_to_reply_to.author.id}-{message_to_reply_to.channel.id}"
-            if key not in bot.message_history:
-                bot.message_history[key] = []
-            bot.message_history[key].append({"role": "user", "content": combined_content})
-            if len(bot.message_history[key]) > MAX_HISTORY * 2:
-                bot.message_history[key] = bot.message_history[key][-(MAX_HISTORY * 2):]
-            history = bot.message_history[key]
-            
-            response = await generate_response_and_reply(message_to_reply_to, combined_content, history, image_url, wait_time=(wait_time + message_age))
-            if response:
-                bot.message_history[key].append({"role": "assistant", "content": response})
-                record_user_message(message_to_reply_to.author.id, message_to_reply_to.author.name)
-                # Clear the nudge tracking entry — we've replied
-                nudge_cfg = config["bot"].get("nudge") or {}
-                if nudge_cfg.get("enabled", False) and isinstance(message_to_reply_to.channel, discord.DMChannel):
-                    mark_responded(message_to_reply_to.author.id, message_to_reply_to.channel.id)
-
-
-async def load_extensions():
-    cogs_dir = os.path.join(getattr(sys, "_MEIPASS", os.path.abspath(".")), "cogs")
-    if not os.path.exists(cogs_dir):
-        return
-    for filename in os.listdir(cogs_dir):
-        if filename.endswith(".py"):
-            try:
-                await bot.load_extension(f"cogs.{filename[:-3]}")
-            except Exception as e:
-                print(f"Error loading cog {filename}: {e}")
-
-
-if __name__ == "__main__":
-    import tempfile
-    lock_path = os.path.join(tempfile.gettempdir(), "llmselfbot.lock")
-    try:
-        lock_file = open(lock_path, "w")
-        if sys.platform == "win32":
-            import msvcrt
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        if guild_id:
+            guild = self.bot.get_guild(guild_id)
+            if not guild:
+                await ctx.send(f"Guild `{guild_id}` not found.", delete_after=10)
+                return
+            vc = guild.voice_client
         else:
-            import fcntl
-            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except Exception:
-        print("Another instance is running.")
-        sys.exit(1)
+            vc = ctx.guild.voice_client if ctx.guild else None
 
-    async def _run_token(token: str, index: int):
-        global bot
-        b = bot if index == 0 else create_bot()
-        if index > 0:
-            b.event(on_ready)
-            b.event(on_message)
-            b.event(on_relationship_add)
-            b.event(on_relationship_remove)
-            b.generate_response_and_reply = generate_response_and_reply
-        try:
-            await b.start(token)
-        except discord.errors.ConnectionClosed as e:
-            if e.code == 4004:
-                masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "***"
-                print(
-                    f"\n{'='*60}\n"
-                    f"  ✗  INVALID OR EXPIRED TOKEN (token #{index + 1}: {masked})\n"
-                    f"  →  Discord rejected the token with code 4004.\n"
-                    f"  →  Go to your .env file and update DISCORD_TOKEN with a fresh token.\n"
-                    f"{'='*60}\n"
+        if vc:
+            channel_name = vc.channel.name
+            guild_name = vc.guild.name
+            vc._keep_alive_guard = False  # Stop the keep-alive guard loop
+            await vc.disconnect(force=True)
+            await ctx.send(f"Left **{channel_name}** in **{guild_name}**.", delete_after=10)
+        else:
+            await ctx.send("Not in a voice channel.", delete_after=10)
+
+
+    @commands.command(name="image", aliases=["img", "pic", "pictures"], description="Manage bot pictures. Subcommands: upload, ls, download [name]")
+    async def image(self, ctx, action: str = "ls", *, name: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        from utils.helpers import resource_path
+        folder = resource_path("config/pictures")
+        os.makedirs(folder, exist_ok=True)
+        exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+        if action in ("ls", "list"):
+            files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
+            if not files:
+                await ctx.send("No images in the folder yet. Use `,image upload` with an attachment.", delete_after=15)
+                return
+
+            total = len(files)
+            current = 0
+
+            def build_image_page(index: int):
+                fname = files[index]
+                fpath = os.path.join(folder, fname)
+                desc = get_picture_description(fname)
+                cap = f"\U0001f5bc `{fname}` \u2014 {index + 1}/{total}" + (f"\n> {desc}" if desc else "\n> *(no description yet)*")
+                return cap, fpath
+
+            caption, fpath = build_image_page(current)
+            try:
+                msg = await ctx.send(caption, file=discord.File(fpath), delete_after=180)
+            except Exception as e:
+                await ctx.send(f"Could not send image: {e}", delete_after=15)
+                return
+
+            if total == 1:
+                return
+
+            await msg.add_reaction("\u25c0")
+            await msg.add_reaction("\u25b6")
+
+            def check(reaction, user):
+                return (
+                    user.id == self.bot.owner_id
+                    and str(reaction.emoji) in ("\u25c0", "\u25b6")
+                    and reaction.message.id == msg.id
                 )
+
+            while True:
+                try:
+                    reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
+                except asyncio.TimeoutError:
+                    # Don't call clear_reactions — saves an API call, message will expire via delete_after
+                    break
+
+                new_page = current
+                if str(reaction.emoji) == "\u25b6" and current < total - 1:
+                    new_page = current + 1
+                elif str(reaction.emoji) == "\u25c0" and current > 0:
+                    new_page = current - 1
+
+                if new_page == current:
+                    # Same page — just remove the reaction, no resend needed
+                    try:
+                        await msg.remove_reaction(reaction.emoji, user)
+                    except Exception:
+                        pass
+                    continue
+
+                current = new_page
+                caption, fpath = build_image_page(current)
+                # delete+resend is unavoidable since Discord won't let us edit file attachments
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+                try:
+                    msg = await ctx.send(caption, file=discord.File(fpath), delete_after=180)
+                    await msg.add_reaction("\u25c0")
+                    await msg.add_reaction("\u25b6")
+                except Exception:
+                    break
+
+        elif action == "upload":
+            if not ctx.message.attachments:
+                await ctx.send("Attach an image to upload.", delete_after=10)
+                return
+
+            saved = []
+            status_msg = await ctx.send("⏳ Saving & analysing image(s)...", delete_after=60)
+
+            existing = [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts]
+            # Find the next unused index to avoid duplicates after deletions
+            used_indices = set()
+            for f in existing:
+                stem = os.path.splitext(f)[0]
+                if stem.startswith("IMG_") and stem[4:].isdigit():
+                    used_indices.add(int(stem[4:]))
+            next_index = 1
+            while next_index in used_indices:
+                next_index += 1
+
+            from utils.ai import _create_image_completion
+            from utils.helpers import load_config as _load_cfg
+            import base64
+
+            _cfg = _load_cfg()
+            _image_model = _cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
+            mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                        ".gif": "image/gif", ".webp": "image/webp"}
+
+            results = []
+            for att in ctx.message.attachments:
+                ext = os.path.splitext(att.filename)[1].lower()
+                if ext not in exts:
+                    continue
+                data = await att.read()
+                new_name = f"IMG_{next_index}{ext}"
+                dest = os.path.join(folder, new_name)
+                with open(dest, "wb") as f:
+                    f.write(data)
+
+                # Run vision on the saved file immediately
+                description = ""
+                try:
+                    mime = mime_map.get(ext, "image/jpeg")
+                    b64 = base64.b64encode(data).decode()
+                    data_url = f"data:{mime};base64,{b64}"
+                    vision_resp = await _create_image_completion(
+                        _image_model,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": (
+                                            "Describe this image in full detail exactly as you see it. "
+                                            "Include all visible text, objects, people, colors, layout, and context."
+                                        ),
+                                    },
+                                    {"type": "image_url", "image_url": {"url": data_url}},
+                                ],
+                            }
+                        ],
+                    )
+                    description = vision_resp.choices[0].message.content.strip()
+                    add_picture_description(new_name, description)
+                except Exception as ve:
+                    log_error("Vision on Upload", str(ve))
+
+                saved.append(new_name)
+                results.append((new_name, description))
+                next_index += 1
+
+            await status_msg.delete()
+
+            if not saved:
+                await ctx.send("No valid image attachments found.", delete_after=10)
+                return
+
+            lines = []
+            for name, desc in results:
+                lines.append(f"`{name}` — {desc[:120] + '…' if len(desc) > 120 else desc or '*(vision failed)*'}")
+            await ctx.send("Saved & analysed:\n" + "\n".join(lines), delete_after=60)
+
+        elif action == "download":
+            if not name:
+                await ctx.send("Provide a number or filename. Use `,image ls` to see images.", delete_after=10)
+                return
+            files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
+            # Accept just a number like "3" → IMG_3.jpg
+            if name.isdigit():
+                index = int(name)
+                matches = [f for f in files if os.path.splitext(f)[0] == f"IMG_{index}"]
+                if not matches:
+                    await ctx.send(f"No image with number `{index}` found. Use `,image ls` to see images.", delete_after=10)
+                    return
+                name = matches[0]
+            path = os.path.join(folder, name)
+            if not os.path.exists(path):
+                # Try partial match
+                matches = [f for f in files if name.lower() in f.lower()]
+                if len(matches) == 1:
+                    path = os.path.join(folder, matches[0])
+                elif len(matches) > 1:
+                    await ctx.send(f"Multiple matches: {', '.join(matches)}. Be more specific.", delete_after=15)
+                    return
+                else:
+                    await ctx.send(f"Image `{name}` not found.", delete_after=10)
+                    return
+            await ctx.send(file=discord.File(path), delete_after=60)
+
+        elif action in ("delete", "remove"):
+            if not name:
+                await ctx.send("Provide a number or filename to delete. Use `,image ls` to see images.", delete_after=10)
+                return
+            files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
+            # Accept just a number like "3" → IMG_3.jpg
+            if name.isdigit():
+                index = int(name)
+                matches = [f for f in files if os.path.splitext(f)[0] == f"IMG_{index}"]
+                if not matches:
+                    await ctx.send(f"No image with number `{index}` found. Use `,image ls` to see images.", delete_after=10)
+                    return
+                name = matches[0]
+            elif name.lower() == "all":
+                if not files:
+                    await ctx.send("No images to delete.", delete_after=10)
+                    return
+                for f in files:
+                    os.remove(os.path.join(folder, f))
+                clear_all_pictures_db()
+                await ctx.send(f"Deleted all {len(files)} image(s).", delete_after=10)
+                return
+            path = os.path.join(folder, name)
+            if os.path.exists(path):
+                os.remove(path)
+                delete_picture_db(name)
+                # Renumber remaining IMG_N files to fill the gap
+                remaining = sorted(
+                    [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts],
+                    key=lambda f: int(os.path.splitext(f)[0][4:]) if os.path.splitext(f)[0].startswith("IMG_") and os.path.splitext(f)[0][4:].isdigit() else 99999
+                )
+                for i, fname in enumerate(remaining, start=1):
+                    stem, ext = os.path.splitext(fname)
+                    if stem.startswith("IMG_") and stem[4:].isdigit() and int(stem[4:]) != i:
+                        new_fname = f"IMG_{i}{ext}"
+                        os.rename(os.path.join(folder, fname), os.path.join(folder, new_fname))
+                        rename_picture_db(fname, new_fname)
+                await ctx.send(f"Deleted `{name}`.", delete_after=10)
             else:
-                raise
+                await ctx.send(f"Image `{name}` not found.", delete_after=10)
 
-    async def _main():
+        elif action == "vision":
+            await ctx.send(
+                "💡 Descriptions are now generated automatically on upload and shown in `,image ls`.",
+                delete_after=15,
+            )
+
+        else:
+            await ctx.send("Usage: `,image ls` | `,image upload` | `,image download <n>` | `,image delete <n>` | `,image vision [n]`", delete_after=15)
+
+
+    @commands.command(name="addfriend", description="Send a friend request to a user by ID.")
+    async def addfriend(self, ctx, user_id: int = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+        if not user_id:
+            await ctx.send("Usage: `,addfriend <user_id>`", delete_after=10)
+            return
         try:
-            async with AsyncSession(impersonate="chrome") as s:
-                r = await s.get("https://tls.browserleaks.com/json")
-                print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
-                print("JA4:", r.json().get("ja4", "N/A"))
+            from curl_cffi.requests import AsyncSession
+            token = self.bot._connection.http.token
+            async with AsyncSession(impersonate="chrome") as session:
+                resp = await session.put(
+                    f"https://discord.com/api/v9/users/@me/relationships/{user_id}",
+                    headers={
+                        "Authorization": token,
+                        "Content-Type": "application/json",
+                    },
+                    json={"type": 1},
+                )
+                if resp.status_code in (200, 204):
+                    await ctx.send(f"✅ Friend request sent to `{user_id}`.", delete_after=10)
+                elif resp.status_code == 400:
+                    data = resp.json()
+                    # Already friends or request already pending
+                    msg = data.get("message", str(data))
+                    await ctx.send(f"⚠️ Discord says: `{msg}`", delete_after=15)
+                else:
+                    try:
+                        data = resp.json()
+                        await ctx.send(f"❌ Failed ({resp.status_code}): `{data}`", delete_after=15)
+                    except Exception:
+                        await ctx.send(f"❌ Failed with status `{resp.status_code}`.", delete_after=15)
         except Exception as e:
-            log_error("Fingerprint Test", str(e))
+            await ctx.send(f"Error: {e}", delete_after=10)
 
-        print(f"Starting {len(TOKENS)} instance(s)...")
-        await asyncio.gather(*[_run_token(t["token"], i) for i, t in enumerate(TOKENS)])
 
-    try:
-        asyncio.run(_main())
-    finally:
-        lock_file.close()
+async def setup(bot):
+    await bot.add_cog(Management(bot))
