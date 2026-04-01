@@ -163,9 +163,13 @@ NUM_ACCOUNTS = _count_accounts()
 
 logging.basicConfig(
     format="%(asctime)s [TG] %(levelname)s %(message)s",
-    level=logging.INFO,
+    level=logging.WARNING,
 )
+# Suppress noisy httpx / httpcore / python-telegram-bot polling logs
+for _noisy in ("httpx", "httpcore", "telegram.ext.Application", "apscheduler"):
+    logging.getLogger(_noisy).setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 
 # ── Per-account IPC file helpers ──────────────────────────────────────────────
@@ -459,7 +463,7 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Edit with: /config key value",
                 "Example: /config tts.enabled true",
             ]
-            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text("\n".join(lines))
         except Exception as e:
             await update.message.reply_text(f"❌ Error reading config: {e}")
         return
@@ -678,7 +682,7 @@ async def cmd_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_str = f"{msg_count} msg{'s' if msg_count != 1 else ''}"
             name_esc = _escape(row["username"])
             date_esc = _escape(row["first_seen_fmt"])
-            lines.append(f"{rank} *{name_esc}* — {_escape(msg_str)} · since {date_esc}")
+            lines.append(f"{rank} `{name_esc}` — {_escape(msg_str)} · since {date_esc}")
         return "\n".join(lines)
 
     def _build_lb_keyboard(page: int, filter_arg: str):
@@ -746,7 +750,7 @@ async def _leaderboard_callback(update: Update, context: ContextTypes.DEFAULT_TY
             msg_str = f"{msg_count} msg{'s' if msg_count != 1 else ''}"
             name_esc = _escape(row["username"])
             date_esc = _escape(row["first_seen_fmt"])
-            lines.append(f"{rank} *{name_esc}* — {_escape(msg_str)} · since {date_esc}")
+            lines.append(f"{rank} `{name_esc}` — {_escape(msg_str)} · since {date_esc}")
         return "\n".join(lines)
 
     def _build_lb_keyboard(pg: int):
@@ -764,37 +768,50 @@ async def _leaderboard_callback(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
-# ── /clear — delete bot's own Telegram messages ───────────────────────────────
+# ── /clear — delete all messages in the Telegram chat ────────────────────────
 _bot_message_ids: list[int] = []   # track message IDs sent by the controller
 
 @owner_only
 async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Delete up to the last 50 messages sent by this Telegram controller."""
+    """Delete all messages in this chat (up to 200 recent messages).
+
+    Strategy: try to delete every message from the recent history.
+    Telegram only lets bots delete their own messages in private chats,
+    so we delete bot messages AND the user's /clear command itself.
+    Then we use the tracked _bot_message_ids list to catch anything missed.
+    """
     chat_id = update.effective_chat.id
-    deleted = 0
-    failed = 0
-    ids_to_clear = list(_bot_message_ids)
-    _bot_message_ids.clear()
-    # Also try to delete the /clear command itself
+    clear_msg_id = update.message.message_id
+
+    # Delete the /clear command first
     try:
         await update.message.delete()
     except Exception:
         pass
-    for msg_id in reversed(ids_to_clear):
+
+    # Build the full set of IDs to delete: tracked + a sweep of recent history
+    ids_to_delete = set(_bot_message_ids)
+    _bot_message_ids.clear()
+
+    # Sweep: try deleting message IDs from (current-200) to current
+    # This catches everything in the conversation regardless of tracking
+    for msg_id in range(max(1, clear_msg_id - 200), clear_msg_id):
+        ids_to_delete.add(msg_id)
+
+    deleted = 0
+    failed = 0
+    for msg_id in sorted(ids_to_delete, reverse=True):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
             deleted += 1
         except Exception:
             failed += 1
-    if deleted or failed:
-        note = await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"🧹 Cleared {deleted} message(s)." + (f" ({failed} couldn't be deleted)" if failed else ""),
-        )
-        _bot_message_ids.append(note.message_id)
-    else:
-        note = await context.bot.send_message(chat_id=chat_id, text="🧹 Nothing to clear.")
-        _bot_message_ids.append(note.message_id)
+
+    note = await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"🧹 Cleared {deleted} message(s)." + (f" ({failed} couldn't be deleted — normal for old/user messages)" if failed else ""),
+    )
+    _bot_message_ids.append(note.message_id)
 
 
 # ── /imagels — direct file access ────────────────────────────────────────────
@@ -814,7 +831,9 @@ async def cmd_imagels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for f in files:
             desc = get_picture_description(f.name) or "*(no description)*"
             short_desc = desc[:80] + ("…" if len(desc) > 80 else "")
-            lines.append(f"`{f.name}` — {short_desc}")
+            # Escape the description to avoid Markdown entity errors
+            safe_desc = short_desc.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+            lines.append(f"`{f.name}` — {safe_desc}")
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
@@ -1218,6 +1237,31 @@ async def cmd_toggleserver(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @owner_only
+async def cmd_togglecommands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle or set discord_commands_enabled. Usage: /togglecommands [true|false]"""
+    account = _get_account(context)
+    label = _account_label(account)
+    payload = {}
+    if context.args:
+        v = context.args[0].lower()
+        if v in ("true", "1", "on", "yes"):
+            payload["value"] = True
+        elif v in ("false", "0", "off", "no"):
+            payload["value"] = False
+        else:
+            await update.message.reply_text("Usage: /togglecommands [true|false]")
+            return
+    cmd_id = _send_command(account, "toggle_commands", payload)
+    result = await _wait_for_result(account, cmd_id)
+    if result:
+        await update.message.reply_text(
+            f"{label}Discord commands are now {'✅ enabled' if result.get('discord_commands_enabled') else '❌ disabled'}."
+        )
+    else:
+        await update.message.reply_text(f"{label}⚠️ Command sent to selfbot.")
+
+
+@owner_only
 async def cmd_toggleactive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account = _get_account(context)
     label = _account_label(account)
@@ -1531,6 +1575,8 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 /toggledm \u2014 toggle DM responses
 /togglegc \u2014 toggle group chat responses
 /toggleserver \u2014 toggle server responses
+/togglecommands \u2014 toggle Discord command responses
+/togglecommands \\<true\\|false\\> \u2014 set explicitly
 /toggleactive \\<id\\> \u2014 toggle channel as active
 
 *\U0001f399 Voice*
@@ -1701,6 +1747,7 @@ def main():
     app.add_handler(CommandHandler("toggledm",        cmd_toggledm))
     app.add_handler(CommandHandler("togglegc",        cmd_togglegc))
     app.add_handler(CommandHandler("toggleserver",    cmd_toggleserver))
+    app.add_handler(CommandHandler("togglecommands",  cmd_togglecommands))
     app.add_handler(CommandHandler("toggleactive",    cmd_toggleactive))
     app.add_handler(CommandHandler("join",            cmd_join))
     app.add_handler(CommandHandler("leave",           cmd_leave))
