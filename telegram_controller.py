@@ -1430,7 +1430,9 @@ def main():
     print(f"[TG Controller] IPC files : config/tg_commands_N.json (per account)")
     print(f"[TG Controller] Token     : {TG_TOKEN[:8]}...{TG_TOKEN[-4:]}")
 
-    app = Application.builder().token(TG_TOKEN).build()
+    from telegram.request import HTTPXRequest
+    request = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
+    app = Application.builder().token(TG_TOKEN).request(request).build()
     app.bot_data["account"] = 1  # default to account 1
 
     app.add_handler(CommandHandler("start",           cmd_start))
@@ -1478,7 +1480,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.FileExtension("yaml"), cmd_setconfig))
 
     print("[TG Controller] Running — send /start to your bot on Telegram.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=5)
 
 
 if __name__ == "__main__":
