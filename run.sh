@@ -68,14 +68,14 @@ if [ -f "config/.env" ]; then
         echo "Starting Telegram controller..."
         mkdir -p logs
         if command -v gnome-terminal >/dev/null 2>&1; then
-            gnome-terminal -- bash -c "source bot-env/bin/activate && python3 telegram_controller.py; exec bash"
+            gnome-terminal -- bash -c "source bot-env/bin/activate && python3 telegram/telegram_controller.py; exec bash"
         elif command -v xterm >/dev/null 2>&1; then
-            xterm -title "Telegram Controller" -e "source bot-env/bin/activate && python3 telegram_controller.py; exec bash" &
+            xterm -title "Telegram Controller" -e "source bot-env/bin/activate && python3 telegram/telegram_controller.py; exec bash" &
         elif command -v konsole >/dev/null 2>&1; then
-            konsole --new-tab -e bash -c "source bot-env/bin/activate && python3 telegram_controller.py; exec bash" &
+            konsole --new-tab -e bash -c "source bot-env/bin/activate && python3 telegram/telegram_controller.py; exec bash" &
         else
             # No GUI terminal — run in background and log to file
-            python3 telegram_controller.py > logs/telegram_controller.log 2>&1 &
+            python3 telegram/telegram_controller.py > logs/telegram_controller.log 2>&1 &
             echo "Telegram controller started in background (logs/telegram_controller.log)"
         fi
     else
