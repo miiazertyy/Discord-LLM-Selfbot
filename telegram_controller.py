@@ -1339,87 +1339,124 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
     account_section = ""
     if NUM_ACCOUNTS > 1:
         account_section = (
-            f"\n*🔀 Accounts* — targeting account {account}\\/{NUM_ACCOUNTS}\n"
-            "/account — show current account\n"
-            "/account \\<n\\> — switch to account n\n"
+            f"\n*\U0001f500 Accounts* \u2014 targeting account {account}\\/{NUM_ACCOUNTS}\n"
+            "/account \u2014 show current account\n"
+            "/account \\<n\\> \u2014 switch to account n\n"
         )
 
     help_text = f"""
-🤖 *AI Selfbot Telegram Controller*
-💡 _Using Telegram is safer than Discord commands — no selfbot activity on your account\\._{account_section}
-*🤖 AI*
-/pause — toggle pause AI responses
-/pauseuser \\<id\\> — stop responding to user
-/unpauseuser \\<id\\> — resume responding to user
-/wipe — clear conversation history
-/persona \\<id\\> \\<text\\|off\\|show\\> — manage per\\-user persona
-/analyse \\<id\\> — psychological profile of a user
+\U0001f916 *AI Selfbot Telegram Controller*
+\U0001f4a1 _Using Telegram is safer than Discord commands \u2014 no selfbot activity on your account\\._{account_section}
+*\U0001f916 AI*
+/pause \u2014 toggle pause AI responses
+/pauseuser \\<id\\> \u2014 stop responding to user
+/unpauseuser \\<id\\> \u2014 resume responding to user
+/wipe \u2014 clear conversation history
+/persona \\<id\\> \\<text\\|off\\|show\\> \u2014 manage per\\-user persona
+/analyse \\<id\\> \u2014 psychological profile of a user
 
-*💬 Replies*
-/reply check — show unreplied conversations
-/reply all — respond to all unreplied
-/reply \\<id\\> — respond to specific user
+*\U0001f4ac Replies*
+/reply check \u2014 show unreplied conversations
+/reply all \u2014 respond to all unreplied
+/reply \\<id\\> \u2014 respond to specific user
 
-*⚙️ Config & Instructions*
-/config — view full config
-/config \\<key\\> \\<value\\> — edit a value
-/prompt — view instructions
-/prompt \\<text\\> — update instructions
-/prompt clear — clear instructions
-/getconfig — download config\\.yaml
-/setconfig — upload new config\\.yaml \\(attach file\\)
-/instructions — upload new instructions\\.txt \\(attach file\\)
-/getinstructions — download instructions\\.txt
-/getdb — download bot\\_data\\.db
-/reload — reload all cogs \\+ instructions
-/update — update to latest release
-/update main — update to latest commit
+*\u2699 Config & Instructions*
+/config \u2014 view full config
+/config \\<key\\> \\<value\\> \u2014 edit a value
+/prompt \u2014 view instructions
+/prompt \\<text\\> \u2014 update instructions
+/prompt clear \u2014 clear instructions
+/getconfig \u2014 download config\\.yaml
+/setconfig \u2014 upload new config\\.yaml \\(attach file\\)
+/instructions \u2014 upload new instructions\\.txt \\(attach file\\)
+/getinstructions \u2014 download instructions\\.txt
+/getdb \u2014 download bot\\_data\\.db
+/reload \u2014 reload all cogs \\+ instructions
+/update \u2014 update to latest release
+/update main \u2014 update to latest commit
 
-*🎭 Behaviour*
-/mood — view current mood \\(live\\)
-/mood \\<n\\> — set mood
-/ignore \\<id\\> — ignore\\/unignore user
+*\U0001f3ad Behaviour*
+/mood \u2014 view current mood \\(live\\)
+/mood \\<n\\> \u2014 set mood
+/ignore \\<id\\> \u2014 ignore\\/unignore user
 
-*🎙️ Profile & Status*
-/status — show bot status
-/setstatus \\[emoji\\] \\[text\\] — set Discord custom status
-/bio \\[text\\] — set profile bio \\(omit to clear\\)
-/pfp \\<url\\> — change profile picture
+*\U0001f399 Profile & Status*
+/status \u2014 show bot status
+/setstatus \\[emoji\\] \\[text\\] \u2014 set Discord custom status
+/bio \\[text\\] \u2014 set profile bio \\(omit to clear\\)
+/pfp \\<url\\> \u2014 change profile picture
 
-*📡 Channels*
-/toggledm — toggle DM responses
-/togglegc — toggle group chat responses
-/toggleserver — toggle server responses
-/toggleactive \\<id\\> — toggle channel as active
+*\U0001f4e1 Channels*
+/toggledm \u2014 toggle DM responses
+/togglegc \u2014 toggle group chat responses
+/toggleserver \u2014 toggle server responses
+/toggleactive \\<id\\> \u2014 toggle channel as active
 
-*🎙️ Voice*
-/join \\<id\\/link\\> — join voice channel
-/leave — leave voice channel
-/autojoin \\<id\\/link\\> — set auto\\-join channel
-/autojoin off — disable auto\\-join
+*\U0001f399 Voice*
+/join \\<id\\/link\\> \u2014 join voice channel
+/leave \u2014 leave voice channel
+/autojoin \\<id\\/link\\> \u2014 set auto\\-join channel
+/autojoin off \u2014 disable auto\\-join
 
-*🖼️ Images*
-/imagels — list all pictures
-/imagedownload \\<n\\> — download image by number
-/imagedelete \\<n\\> — delete image by number
-/imagedeleteall — delete all images
+*\U0001f5bc Images*
+/imagels \u2014 list all pictures
+/imagedownload \\<n\\> \u2014 download image by number
+/imagedelete \\<n\\> \u2014 delete image by number
+/imagedeleteall \u2014 delete all images
 
-*📊 Stats*
-/leaderboard — top users all time
-/leaderboard \\<filter\\> — e\\.g\\. /leaderboard 7d
-/addfriend \\<id\\> — send friend request
+*\U0001f4ca Stats*
+/leaderboard \u2014 top users all time
+/leaderboard \\<filter\\> \u2014 e\\.g\\. /leaderboard 7d
+/addfriend \\<id\\> \u2014 send friend request
 
-*🛠️ System*
-/restart — restart selfbot
-/shutdown — shut down selfbot
-/ping — check controller is running
+*\U0001f6e0 System*
+/restart \u2014 restart selfbot
+/shutdown \u2014 shut down selfbot
+/ping \u2014 check controller is running
 """
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
+    # Retry up to 3 times on transient network errors, fall back to plain text
+    from telegram.error import NetworkError as TGNetworkError
+    for attempt in range(3):
+        try:
+            await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
+            return
+        except TGNetworkError as e:
+            if attempt < 2:
+                logger.warning(f"[HELP] Network error on attempt {attempt + 1}, retrying in 2s: {e}")
+                await asyncio.sleep(2)
+            else:
+                logger.error(f"[HELP] All retries failed, sending plain text fallback: {e}")
+                try:
+                    await update.message.reply_text(
+                        "Bot controller is running.\nSend /help to see commands."
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"[HELP] Unexpected error sending help: {e}")
+            try:
+                await update.message.reply_text(
+                    "Bot controller is running.\nSend /help to see commands."
+                )
+            except Exception:
+                pass
+            return
 
 
 @owner_only
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_help(update, context)
+
+
+# ── Global error handler ──────────────────────────────────────────────────────
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log all errors; suppress transient network errors silently."""
+    from telegram.error import NetworkError as TGNetworkError, TimedOut
+    err = context.error
+    if isinstance(err, (TGNetworkError, TimedOut)):
+        logger.warning(f"[ERROR] Transient network error (suppressed): {err}")
+        return
+    logger.error(f"[ERROR] Unhandled exception: {err}", exc_info=err)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -1478,6 +1515,7 @@ def main():
     app.add_handler(CommandHandler("help",            cmd_help))
     app.add_handler(MessageHandler(filters.Document.FileExtension("txt"),  cmd_instructions_file))
     app.add_handler(MessageHandler(filters.Document.FileExtension("yaml"), cmd_setconfig))
+    app.add_error_handler(_error_handler)
 
     print("[TG Controller] Running — send /start to your bot on Telegram.")
     app.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=5)
