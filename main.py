@@ -583,7 +583,10 @@ async def _tg_ipc_loop():
     import json as _json
     from pathlib import Path as _Path
 
-    # Determine which account index this bot instance is (1-based)
+    await bot.wait_until_ready()
+
+    # Determine which account index this bot instance is (1-based).
+    # Must run after wait_until_ready so bot._connection.http.token is populated.
     _my_token = bot._connection.http.token if bot._connection else None
     _ACCOUNT_INDEX = 1
     for _i, _t in enumerate(TOKENS, start=1):
@@ -605,7 +608,6 @@ async def _tg_ipc_loop():
         results[cmd_id] = data
         _RESULT_FILE.write_text(_json.dumps(results))
 
-    await bot.wait_until_ready()
     log_system("Telegram IPC bridge started")
 
     while not bot.is_closed():
@@ -872,6 +874,202 @@ async def _tg_ipc_loop():
                 elif cmd == "shutdown":
                     log_system("Shutdown requested via Telegram")
                     await bot.close(); sys.exit(0)
+
+                # ── toggle_active ─────────────────────────────────────────────
+                elif cmd == "toggle_active":
+                    _ch_id = int(payload["channel_id"])
+                    if _ch_id in bot.active_channels:
+                        bot.active_channels.discard(_ch_id)
+                        from utils.db import remove_channel as _rc
+                        _rc(_ch_id)
+                        _write_result(cmd_id, {"active": False})
+                    else:
+                        bot.active_channels.add(_ch_id)
+                        from utils.db import add_channel as _ac
+                        _ac(_ch_id)
+                        _write_result(cmd_id, {"active": True})
+
+                # ── analyse_user ──────────────────────────────────────────────
+                elif cmd == "analyse_user":
+                    import re as _re2
+                    _uid = int(payload["user_id"])
+                    try:
+                        _user = bot.get_user(_uid) or await bot.fetch_user(_uid)
+                    except Exception:
+                        _write_result(cmd_id, {"ok": False, "reason": f"User {_uid} not found."})
+                        continue
+                    _msg_list = []
+                    try:
+                        _dm = _user.dm_channel or await _user.create_dm()
+                        async for _m in _dm.history(limit=200):
+                            if _m.author.id == _uid and _m.content:
+                                _msg_list.append(_m.content)
+                    except Exception:
+                        pass
+                    if len(_msg_list) < 20:
+                        for _cid in list(bot.active_channels)[:3]:
+                            try:
+                                _ch = bot.get_channel(_cid) or await bot.fetch_channel(_cid)
+                                async for _m in _ch.history(limit=200):
+                                    if _m.author.id == _uid and _m.content:
+                                        _msg_list.append(_m.content)
+                            except Exception:
+                                pass
+                    if not _msg_list:
+                        _write_result(cmd_id, {"ok": False, "reason": f"No messages found for user {_uid}."})
+                        continue
+                    _analyse_instructions = (
+                        bot.instructions +
+                        f"\n\nSomeone asked you to give your honest read on {_user.name} based on their messages. "
+                        "Stay in character. Give your real unfiltered opinion like you would to a friend. "
+                        "Be casual, funny, and direct. Roast them a bit but also be real about what you actually see. "
+                        "Reference specific things they said to back up your points. "
+                        "Keep it conversational — no bullet points, no formal structure, just talk like yourself. "
+                        "Don't be overly mean but don't sugarcoat either. Max 3-4 short paragraphs."
+                    )
+                    _analyse_prompt = "Here are their messages: " + " | ".join(_msg_list[-200:])
+                    _profile = await generate_response(_analyse_prompt, _analyse_instructions, history=None)
+                    if _profile:
+                        _write_result(cmd_id, {"ok": True, "profile": _profile})
+                    else:
+                        _write_result(cmd_id, {"ok": False, "reason": "AI returned an empty response."})
+
+                # ── voice_join ────────────────────────────────────────────────
+                elif cmd == "voice_join":
+                    import re as _re3
+                    _args_str = payload.get("args", "").strip()
+                    _gid_v, _cid_v = None, None
+                    _lm = _re3.match(r"https?://discord\.com/channels/(\d+)/(\d+)", _args_str)
+                    if _lm:
+                        _gid_v, _cid_v = int(_lm.group(1)), int(_lm.group(2))
+                    elif _args_str.isdigit():
+                        _cid_v = int(_args_str)
+                    else:
+                        _parts = _args_str.split()
+                        if len(_parts) == 2 and _parts[0].isdigit() and _parts[1].isdigit():
+                            _gid_v, _cid_v = int(_parts[0]), int(_parts[1])
+                    if not _cid_v:
+                        _write_result(cmd_id, {"ok": False, "reason": "Invalid channel ID or link."})
+                        continue
+                    _vtarget = (bot.get_guild(_gid_v).get_channel(_cid_v) if _gid_v and bot.get_guild(_gid_v) else bot.get_channel(_cid_v))
+                    if not isinstance(_vtarget, discord.VoiceChannel):
+                        _write_result(cmd_id, {"ok": False, "reason": "Channel not found or is not a voice channel."})
+                        continue
+                    try:
+                        _existing = _vtarget.guild.voice_client
+                        if _existing:
+                            _existing._keep_alive_guard = False
+                            await _existing.disconnect(force=True)
+                        await _vtarget.connect(self_mute=True, self_deaf=True)
+                        _write_result(cmd_id, {"ok": True, "channel": _vtarget.name, "guild": _vtarget.guild.name})
+                    except Exception as _e:
+                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
+
+                # ── voice_leave ───────────────────────────────────────────────
+                elif cmd == "voice_leave":
+                    _gid_l = payload.get("guild_id")
+                    if _gid_l:
+                        _gl = bot.get_guild(int(_gid_l))
+                        _vc = _gl.voice_client if _gl else None
+                    else:
+                        _vc = next((g.voice_client for g in bot.guilds if g.voice_client), None)
+                    if _vc:
+                        _vc._keep_alive_guard = False
+                        await _vc.disconnect(force=True)
+                        _write_result(cmd_id, {"ok": True, "channel": _vc.channel.name, "guild": _vc.guild.name})
+                    else:
+                        _write_result(cmd_id, {"ok": False, "reason": "Not in a voice channel."})
+
+                # ── voice_autojoin ────────────────────────────────────────────
+                elif cmd == "voice_autojoin":
+                    import re as _re4
+                    import yaml as _yaml_aj
+                    _aj_args = payload.get("args", "").strip()
+                    if not _aj_args or _aj_args.lower() == "off":
+                        _aj_cfg = load_config()
+                        _aj_cfg["bot"]["autojoin_channel"] = None
+                        with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
+                            _yaml_aj.dump(_aj_cfg, _f, default_flow_style=False, allow_unicode=True)
+                        _write_result(cmd_id, {"ok": True, "disabled": True})
+                        continue
+                    _gid_aj, _cid_aj = None, None
+                    _lm_aj = _re4.match(r"https?://discord\.com/channels/(\d+)/(\d+)", _aj_args)
+                    if _lm_aj:
+                        _gid_aj, _cid_aj = int(_lm_aj.group(1)), int(_lm_aj.group(2))
+                    elif _aj_args.isdigit():
+                        _cid_aj = int(_aj_args)
+                    else:
+                        _p = _aj_args.split()
+                        if len(_p) == 2 and _p[0].isdigit() and _p[1].isdigit():
+                            _gid_aj, _cid_aj = int(_p[0]), int(_p[1])
+                    if not _cid_aj:
+                        _write_result(cmd_id, {"ok": False, "reason": "Invalid channel ID or link."})
+                        continue
+                    _aj_target = (bot.get_guild(_gid_aj).get_channel(_cid_aj) if _gid_aj and bot.get_guild(_gid_aj) else bot.get_channel(_cid_aj))
+                    if not isinstance(_aj_target, discord.VoiceChannel):
+                        _write_result(cmd_id, {"ok": False, "reason": "Channel not found or is not a voice channel."})
+                        continue
+                    _aj_cfg2 = load_config()
+                    _aj_cfg2["bot"]["autojoin_channel"] = {"guild_id": _aj_target.guild.id, "channel_id": _aj_target.id}
+                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
+                        _yaml_aj.dump(_aj_cfg2, _f, default_flow_style=False, allow_unicode=True)
+                    _write_result(cmd_id, {"ok": True, "disabled": False, "channel": _aj_target.name, "guild": _aj_target.guild.name})
+
+                # ── set_status ────────────────────────────────────────────────
+                elif cmd == "set_status":
+                    _st_emoji = payload.get("emoji")
+                    _st_text  = payload.get("text")
+                    try:
+                        await bot.change_presence(
+                            activity=discord.CustomActivity(name=_st_text or "", emoji=_st_emoji or None)
+                        )
+                        _write_result(cmd_id, {"ok": True})
+                    except Exception as _e:
+                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
+
+                # ── set_bio ───────────────────────────────────────────────────
+                elif cmd == "set_bio":
+                    try:
+                        await bot.user.edit(bio=payload.get("text", ""))
+                        _write_result(cmd_id, {"ok": True})
+                    except Exception as _e:
+                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
+
+                # ── set_pfp ───────────────────────────────────────────────────
+                elif cmd == "set_pfp":
+                    _pfp_url = payload.get("url", "")
+                    try:
+                        async with AsyncSession(impersonate="chrome") as _pfp_s:
+                            _pfp_r = await _pfp_s.get(_pfp_url)
+                            if _pfp_r.status_code != 200:
+                                _write_result(cmd_id, {"ok": False, "reason": f"Failed to fetch image (status {_pfp_r.status_code})."})
+                                continue
+                            await bot.user.edit(avatar=_pfp_r.content)
+                        _write_result(cmd_id, {"ok": True})
+                    except Exception as _e:
+                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
+
+                # ── add_friend ────────────────────────────────────────────────
+                elif cmd == "add_friend":
+                    _af_uid = int(payload["user_id"])
+                    try:
+                        _af_token = bot._connection.http.token
+                        async with AsyncSession(impersonate="chrome") as _af_s:
+                            _af_r = await _af_s.put(
+                                f"https://discord.com/api/v9/users/@me/relationships/{_af_uid}",
+                                headers={"Authorization": _af_token, "Content-Type": "application/json"},
+                                json={"type": 1},
+                            )
+                            if _af_r.status_code in (200, 204):
+                                _write_result(cmd_id, {"ok": True})
+                            else:
+                                try:
+                                    _af_msg = _af_r.json().get("message", str(_af_r.status_code))
+                                except Exception:
+                                    _af_msg = f"HTTP {_af_r.status_code}"
+                                _write_result(cmd_id, {"ok": False, "reason": _af_msg})
+                    except Exception as _e:
+                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
 
                 else:
                     remaining.append(entry)
