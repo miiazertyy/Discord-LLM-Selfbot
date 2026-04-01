@@ -31,6 +31,17 @@ if not exist bot-env (
 )
 
 call .\bot-env\Scripts\activate.bat
+
+:: Launch Telegram controller in a separate window if token is configured
+findstr /i "TELEGRAM_BOT_TOKEN" config\.env >nul 2>&1
+if %errorlevel% equ 0 (
+    findstr /i "TELEGRAM_BOT_TOKEN=" config\.env | findstr /v "TELEGRAM_BOT_TOKEN=$" | findstr /v "TELEGRAM_BOT_TOKEN= " >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo Starting Telegram controller...
+        start "Telegram Controller" cmd /k "call .\bot-env\Scripts\activate.bat && python telegram_controller.py"
+    )
+)
+
 echo Starting bot...
 title AI Selfbot
 python "main.py"
