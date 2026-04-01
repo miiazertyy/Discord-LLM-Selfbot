@@ -638,8 +638,42 @@ async def _tg_ipc_loop():
 
     log_system("Telegram IPC bridge started")
 
+    _FLAG_FILE = _Path(resource_path("config/update.flag"))
+
     while not bot.is_closed():
         await asyncio.sleep(_POLL_INTERVAL)
+
+        # ── Check for update sentinel flag (written by Telegram controller or /update command) ──
+        if _FLAG_FILE.exists():
+            try:
+                _flag_source = _FLAG_FILE.read_text().strip() or "release"
+                if _flag_source not in ("release", "main"):
+                    _flag_source = "release"
+                _FLAG_FILE.unlink(missing_ok=True)
+                log_system(f"Update ({_flag_source}) triggered via flag file")
+                _upd_repo_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+                import subprocess as _upd_sp
+                if sys.platform == "win32":
+                    _upd_path = os.path.join(_upd_repo_dir, "updater.bat")
+                    _upd_sp.Popen(
+                        f'cmd /c start "Updating AI Selfbot..." /d "{_upd_repo_dir}" "{_upd_path}" {_flag_source}',
+                        shell=True,
+                        cwd=_upd_repo_dir,
+                        creationflags=subprocess.CREATE_NEW_CONSOLE,
+                    )
+                else:
+                    _upd_path = os.path.join(_upd_repo_dir, "updater.sh")
+                    try:
+                        os.chmod(_upd_path, 0o755)
+                    except Exception:
+                        pass
+                    _upd_sp.Popen(["bash", _upd_path, _flag_source], start_new_session=True, cwd=_upd_repo_dir)
+                await asyncio.sleep(2)
+                await bot.close()
+                sys.exit(0)
+            except Exception as _flag_err:
+                log_error("Update Flag", str(_flag_err))
+
         if not _CMD_FILE.exists():
             continue
         try:
@@ -1208,37 +1242,19 @@ async def _tg_ipc_loop():
                     except Exception as _e:
                         _write_result(cmd_id, {"ok": False, "reason": str(_e)})
 
-                # ── update ───────────────────────────────────────────────────
+                # ── update (now handled via sentinel flag file) ───────────────
                 elif cmd == "update":
+                    # Kept for backwards compatibility but the Telegram controller
+                    # now writes config/update.flag directly instead of using IPC.
+                    # Still handle it here in case of Discord command /update.
                     _upd_source = payload.get("source", "release")
                     if _upd_source not in ("release", "main"):
                         _upd_source = "release"
-                    log_system(f"Update ({_upd_source}) requested via Telegram")
-                    _upd_repo_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-                    import subprocess as _upd_sp
-                    if sys.platform == "win32":
-                        _upd_path = os.path.join(_upd_repo_dir, "updater.bat")
-                        # Use 'start /d' to set the working directory for the new window.
-                        # Without this, cmd /c start launches from System32 and all
-                        # relative paths inside updater.bat (git, bot-env, etc.) fail.
-                        _upd_sp.Popen(
-                            f'cmd /c start "Updating AI Selfbot..." /d "{_upd_repo_dir}" "{_upd_path}" {_upd_source}',
-                            shell=True,
-                            cwd=_upd_repo_dir,
-                        )
-                    else:
-                        _upd_path = os.path.join(_upd_repo_dir, "updater.sh")
-                        try:
-                            os.chmod(_upd_path, 0o755)
-                        except Exception:
-                            pass
-                        _upd_sp.Popen(["bash", _upd_path, _upd_source], start_new_session=True, cwd=_upd_repo_dir)
-                    await asyncio.sleep(2)
-                    # Flush the command file NOW (before exit) so the update entry
-                    # is not re-processed on the next startup, causing an infinite loop.
-                    _CMD_FILE.write_text(_json.dumps(remaining))
-                    await bot.close()
-                    sys.exit(0)
+                    _upd_flag = _Path(resource_path("config/update.flag"))
+                    _upd_flag.write_text(_upd_source)
+                    # The sentinel poll below will pick this up immediately.
+                    remaining.append(entry)  # keep in list so we flush it below
+                    continue
 
                 # ── reload ────────────────────────────────────────────────────
                 elif cmd == "reload":
