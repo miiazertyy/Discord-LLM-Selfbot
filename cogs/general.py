@@ -84,7 +84,6 @@ class General(commands.Cog):
             f"  {p}config <key> <value>      edit a config value using dot notation",
             f"  {p}getconfig  (gc)           download config.yaml",
             f"  {p}setconfig                 upload a new config.yaml (attach .yaml, bot restarts)",
-            f"  {p}togglecommands            enable / disable Discord command responses",
             "─────────────────────────────",
             "  📡  Channels",
             f"  {p}toggleactive              toggle current channel as active",
