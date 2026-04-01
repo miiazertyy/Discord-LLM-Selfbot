@@ -861,30 +861,79 @@ async def _tg_ipc_loop():
 
                 elif cmd == "reply_all":
                     results_out = []; seen = set()
+                    _ra_selfbot_id = getattr(bot, "selfbot_id", None) or bot.user.id
+
+                    # ── Pass 1: in-memory history (fast, works mid-session) ────
+                    _ra_candidates = []  # list of (uid, channel_id, history_key)
                     for hk, history in list(bot.message_history.items()):
                         if not history or history[-1].get("role") != "user":
                             continue
                         try:
                             uid = int(hk.split("-")[0])
+                            cid = int(hk.split("-")[1])
                             if uid in seen: continue
                             seen.add(uid)
-                            u = bot.get_user(uid) or await bot.fetch_user(uid)
-                            ch = bot.get_channel(int(hk.split("-")[1])) or await u.create_dm()
-                            target_msg = None
-                            async for msg in ch.history(limit=5):
-                                if msg.author.id == uid:
-                                    target_msg = msg; break
-                            if not target_msg:
-                                results_out.append({"id": uid, "name": u.name, "success": False, "reason": "no message"}); continue
-                            combined = "\n".join(e["content"] for e in history[-3:] if e["role"] == "user")
-                            resp = await generate_response_and_reply(target_msg, combined, history, bypass_cooldown=True, bypass_typing=True)
+                            _ra_candidates.append((uid, cid, hk))
+                        except Exception:
+                            pass
+
+                    # ── Pass 2: live DM scan (catches post-restart gaps) ───────
+                    try:
+                        for _ra_ch in bot.private_channels:
+                            if not isinstance(_ra_ch, discord.DMChannel):
+                                continue
+                            _ra_other = _ra_ch.recipient
+                            if _ra_other is None or _ra_other.id in seen:
+                                continue
+                            # Quick cache pre-filter — skip if bot sent last message
+                            _ra_cached = None
+                            if _ra_ch.last_message_id:
+                                _ra_cached = _ra_ch._state._get_message(_ra_ch.last_message_id)
+                            if _ra_cached is not None and _ra_cached.author.id == _ra_selfbot_id:
+                                continue
+                            try:
+                                _ra_msgs = [m async for m in _ra_ch.history(limit=10)]
+                                if not _ra_msgs: continue
+                                _ra_last_other = next((m for m in _ra_msgs if m.author.id != _ra_selfbot_id), None)
+                                _ra_last_bot   = next((m for m in _ra_msgs if m.author.id == _ra_selfbot_id), None)
+                                if _ra_last_other is None: continue
+                                if _ra_last_bot and _ra_last_bot.created_at > _ra_last_other.created_at:
+                                    continue
+                                seen.add(_ra_other.id)
+                                _ra_candidates.append((_ra_other.id, _ra_ch.id, None))
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+
+                    # ── Reply to every discovered candidate ───────────────────
+                    _ra_ignored = set(getattr(bot, "ignore_users", []))
+                    for _ra_uid, _ra_cid, _ra_hk in _ra_candidates:
+                        if _ra_uid in _ra_ignored:
+                            continue
+                        try:
+                            _ra_u = bot.get_user(_ra_uid) or await bot.fetch_user(_ra_uid)
+                            _ra_ch2 = bot.get_channel(_ra_cid) or await _ra_u.create_dm()
+                            _ra_target = None
+                            async for _ra_m in _ra_ch2.history(limit=10):
+                                if _ra_m.author.id == _ra_uid:
+                                    _ra_target = _ra_m; break
+                            if not _ra_target:
+                                results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": False, "reason": "no message"}); continue
+                            _ra_hk2 = _ra_hk or f"{_ra_uid}-{_ra_cid}"
+                            history = bot.message_history.get(_ra_hk2, [])
+                            combined = "\n".join(e["content"] for e in history[-3:] if e["role"] == "user") or (_ra_target.content or "[attachment]")
+                            if not history or history[-1].get("content") != combined:
+                                history.append({"role": "user", "content": combined})
+                                bot.message_history[_ra_hk2] = history
+                            resp = await generate_response_and_reply(_ra_target, combined, history, bypass_cooldown=True, bypass_typing=True)
                             if resp:
-                                bot.message_history[hk].append({"role": "assistant", "content": resp})
-                                results_out.append({"id": uid, "name": u.name, "success": True})
+                                bot.message_history[_ra_hk2].append({"role": "assistant", "content": resp})
+                                results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": True})
                             else:
-                                results_out.append({"id": uid, "name": u.name, "success": False, "reason": "no response"})
-                        except Exception as _e:
-                            results_out.append({"id": 0, "name": "unknown", "success": False, "reason": str(_e)})
+                                results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": False, "reason": "no response"})
+                        except Exception as _ra_e:
+                            results_out.append({"id": _ra_uid, "name": str(_ra_uid), "success": False, "reason": str(_ra_e)})
                     _write_result(cmd_id, {"total": len(results_out), "results": results_out})
 
                 elif cmd == "restart":
@@ -895,6 +944,9 @@ async def _tg_ipc_loop():
                     else:
                         import subprocess as _sp
                         _atexit.register(lambda: _sp.Popen([sys.executable] + sys.argv))
+                    # Flush command file before exit so the restart entry is not
+                    # re-processed on the next startup.
+                    _CMD_FILE.write_text(_json.dumps(remaining))
                     await bot.close(); sys.exit(0)
 
                 elif cmd == "get_status":
@@ -957,6 +1009,7 @@ async def _tg_ipc_loop():
 
                 elif cmd == "shutdown":
                     log_system("Shutdown requested via Telegram")
+                    _CMD_FILE.write_text(_json.dumps(remaining))
                     await bot.close(); sys.exit(0)
 
                 # ── toggle_active ─────────────────────────────────────────────
@@ -1174,6 +1227,9 @@ async def _tg_ipc_loop():
                             pass
                         _upd_sp.Popen(["bash", _upd_path, _upd_source], start_new_session=True)
                     await asyncio.sleep(2)
+                    # Flush the command file NOW (before exit) so the update entry
+                    # is not re-processed on the next startup, causing an infinite loop.
+                    _CMD_FILE.write_text(_json.dumps(remaining))
                     await bot.close()
                     sys.exit(0)
 
@@ -1204,9 +1260,16 @@ async def _tg_ipc_loop():
                     _ia_ext  = payload.get("ext", ".jpg")
                     _ia_folder = _rp_ia("config/pictures")
                     _ia_path   = os.path.join(_ia_folder, _ia_name)
-                    # Save file if it doesn't exist yet (Telegram controller already wrote it,
-                    # but if running on same machine the path is shared — skip the write)
-                    if not os.path.exists(_ia_path) and _ia_b64:
+                    # If no b64 was sent (same-machine case), read the file from disk.
+                    # If b64 was sent and the file doesn't exist yet, decode and write it.
+                    if not _ia_b64:
+                        if os.path.exists(_ia_path):
+                            with open(_ia_path, "rb") as _f:
+                                _ia_b64 = _b64_ia.b64encode(_f.read()).decode()
+                        else:
+                            _write_result(cmd_id, {"ok": False, "reason": f"Image file not found: {_ia_name}"})
+                            continue
+                    elif not os.path.exists(_ia_path):
                         os.makedirs(_ia_folder, exist_ok=True)
                         with open(_ia_path, "wb") as _f:
                             _f.write(_b64_ia.b64decode(_ia_b64))
