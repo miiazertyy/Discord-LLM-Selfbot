@@ -103,6 +103,7 @@ import os
 import sys
 import time
 import logging
+import uuid
 from pathlib import Path
 
 # ── Dependency check ─────────────────────────────────────────────────────────
@@ -246,23 +247,36 @@ def _save_instructions(text: str):
 
 # ── IPC helpers ───────────────────────────────────────────────────────────────
 def _send_command(account: int, cmd: str, payload: dict = None) -> str:
-    """Write a command to the per-account IPC file."""
+    """Write a command to the per-account IPC file, with retries on write failure."""
+    cmd_id = str(uuid.uuid4())
     entry = {
-        "id": str(time.time()),
+        "id": cmd_id,
         "cmd": cmd,
         "payload": payload or {},
         "ts": time.time(),
     }
     f = _cmd_file(account)
-    existing = []
-    if f.exists():
+    for attempt in range(5):
         try:
-            existing = json.loads(f.read_text())
-        except Exception:
-            pass
-    existing.append(entry)
-    f.write_text(json.dumps(existing))
-    return entry["id"]
+            existing = []
+            if f.exists():
+                try:
+                    existing = json.loads(f.read_text())
+                    if not isinstance(existing, list):
+                        existing = []
+                except Exception:
+                    existing = []
+            existing.append(entry)
+            # Write to a temp file then atomically replace to avoid corruption
+            tmp = f.with_suffix(".tmp")
+            tmp.write_text(json.dumps(existing))
+            tmp.replace(f)
+            return cmd_id
+        except Exception as e:
+            logger.warning(f"[IPC] _send_command attempt {attempt + 1} failed: {e}")
+            time.sleep(0.05 * (attempt + 1))
+    logger.error(f"[IPC] _send_command failed after 5 attempts for cmd={cmd}")
+    return cmd_id
 
 
 async def _wait_for_result(account: int, cmd_id: str, timeout: float = 10.0) -> dict | None:
@@ -275,7 +289,9 @@ async def _wait_for_result(account: int, cmd_id: str, timeout: float = 10.0) -> 
                 results = json.loads(f.read_text())
                 if cmd_id in results:
                     result = results.pop(cmd_id)
-                    f.write_text(json.dumps(results))
+                    tmp = f.with_suffix(".tmp")
+                    tmp.write_text(json.dumps(results))
+                    tmp.replace(f)
                     return result
             except Exception:
                 pass
