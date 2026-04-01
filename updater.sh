@@ -22,10 +22,10 @@ if [ "$SOURCE" = "release" ]; then
         git checkout "$LATEST_TAG"
     else
         echo "No tags found, falling back to main..."
-        git pull origin main
+        git pull --rebase origin main
     fi
 else
-    git pull origin main
+    git pull --rebase origin main
 fi
 
 git stash pop 2>/dev/null || true
