@@ -1760,15 +1760,9 @@ class Management(commands.Cog):
                 await ctx.send("Provide a number or filename to delete. Use `,image ls` to see images.", delete_after=10)
                 return
             files = sorted([f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts])
-            # Accept just a number like "3" → IMG_3.jpg
-            if name.isdigit():
-                index = int(name)
-                matches = [f for f in files if os.path.splitext(f)[0] == f"IMG_{index}"]
-                if not matches:
-                    await ctx.send(f"No image with number `{index}` found. Use `,image ls` to see images.", delete_after=10)
-                    return
-                name = matches[0]
-            elif name.lower() == "all":
+
+            # "all" shortcut
+            if name.lower() == "all":
                 if not files:
                     await ctx.send("No images to delete.", delete_after=10)
                     return
@@ -1777,11 +1771,18 @@ class Management(commands.Cog):
                 clear_all_pictures_db()
                 await ctx.send(f"Deleted all {len(files)} image(s).", delete_after=10)
                 return
-            path = os.path.join(folder, name)
-            if os.path.exists(path):
-                os.remove(path)
-                delete_picture_db(name)
-                # Renumber remaining IMG_N files to fill the gap
+
+            # Resolve one token (number or filename) → filename or None
+            def resolve_token(token: str):
+                token = token.strip()
+                if token.isdigit():
+                    idx = int(token)
+                    matches = [f for f in files if os.path.splitext(f)[0] == f"IMG_{idx}"]
+                    return matches[0] if matches else None
+                return token if token in files else None
+
+            # Helper: renumber remaining IMG_N files to close gaps
+            def renumber_remaining():
                 remaining = sorted(
                     [f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in exts],
                     key=lambda f: int(os.path.splitext(f)[0][4:]) if os.path.splitext(f)[0].startswith("IMG_") and os.path.splitext(f)[0][4:].isdigit() else 99999
@@ -1792,9 +1793,49 @@ class Management(commands.Cog):
                         new_fname = f"IMG_{i}{ext}"
                         os.rename(os.path.join(folder, fname), os.path.join(folder, new_fname))
                         rename_picture_db(fname, new_fname)
-                await ctx.send(f"Deleted `{name}`.", delete_after=10)
+
+            # Batch: split on commas / spaces (e.g. "1, 2, 3" or "1 2 3" or "IMG_1.jpg, 2")
+            raw_tokens = [t.strip() for t in re.split(r"[,\s]+", name) if t.strip()]
+
+            if len(raw_tokens) > 1:
+                # --- Batch delete ---
+                deleted_names, not_found = [], []
+                for token in raw_tokens:
+                    resolved = resolve_token(token)
+                    if resolved:
+                        path = os.path.join(folder, resolved)
+                        if os.path.exists(path):
+                            os.remove(path)
+                            delete_picture_db(resolved)
+                            deleted_names.append(resolved)
+                        else:
+                            not_found.append(token)
+                    else:
+                        not_found.append(token)
+
+                renumber_remaining()
+
+                parts = []
+                if deleted_names:
+                    parts.append(f"Deleted {len(deleted_names)} image(s): `{'`, `'.join(deleted_names)}`.")
+                if not_found:
+                    parts.append(f"Not found: `{'`, `'.join(not_found)}`.")
+                await ctx.send(" ".join(parts), delete_after=15)
+
             else:
-                await ctx.send(f"Image `{name}` not found.", delete_after=10)
+                # --- Single delete (original behaviour) ---
+                resolved = resolve_token(raw_tokens[0])
+                if resolved is None:
+                    await ctx.send(f"No image `{raw_tokens[0]}` found. Use `,image ls` to see images.", delete_after=10)
+                    return
+                path = os.path.join(folder, resolved)
+                if os.path.exists(path):
+                    os.remove(path)
+                    delete_picture_db(resolved)
+                    renumber_remaining()
+                    await ctx.send(f"Deleted `{resolved}`.", delete_after=10)
+                else:
+                    await ctx.send(f"Image `{resolved}` not found.", delete_after=10)
 
         elif action == "vision":
             await ctx.send(
