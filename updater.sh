@@ -11,7 +11,7 @@ echo "Waiting for bot to shut down..."
 sleep 4
 
 echo "Pulling latest changes from GitHub..."
-git stash --include-untracked 2>/dev/null || true
+git stash 2>/dev/null || true
 
 if [ "$SOURCE" = "release" ]; then
     echo "Fetching latest release tag..."
