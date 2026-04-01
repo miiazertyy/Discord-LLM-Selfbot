@@ -32,14 +32,23 @@ if not exist bot-env (
 
 call .\bot-env\Scripts\activate.bat
 
-:: Launch Telegram controller in a separate window if token is configured
-findstr /i "TELEGRAM_BOT_TOKEN" config\.env >nul 2>&1
-if %errorlevel% equ 0 (
-    findstr /i "TELEGRAM_BOT_TOKEN=" config\.env | findstr /v "TELEGRAM_BOT_TOKEN=$" | findstr /v "TELEGRAM_BOT_TOKEN= " >nul 2>&1
-    if %errorlevel% equ 0 (
+:: Launch Telegram controller in a separate window if token AND owner ID are configured
+set TG_TOKEN=
+set TG_OWNER=
+for /f "tokens=2 delims==" %%A in ('findstr /i "^TELEGRAM_BOT_TOKEN=" config\.env 2^>nul') do set TG_TOKEN=%%A
+for /f "tokens=2 delims==" %%A in ('findstr /i "^TELEGRAM_OWNER_ID=" config\.env 2^>nul') do set TG_OWNER=%%A
+set TG_TOKEN=%TG_TOKEN: =%
+set TG_OWNER=%TG_OWNER: =%
+
+if defined TG_TOKEN if defined TG_OWNER (
+    if not "%TG_TOKEN%"=="" if not "%TG_OWNER%"=="" if not "%TG_OWNER%"=="0" (
         echo Starting Telegram controller...
         start "Telegram Controller" cmd /k "call .\bot-env\Scripts\activate.bat && python telegram_controller.py"
+    ) else (
+        echo Telegram controller not started ^(TELEGRAM_BOT_TOKEN or TELEGRAM_OWNER_ID not set^).
     )
+) else (
+    echo Telegram controller not started ^(TELEGRAM_BOT_TOKEN or TELEGRAM_OWNER_ID not set^).
 )
 
 echo Starting bot...
