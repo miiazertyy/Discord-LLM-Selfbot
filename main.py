@@ -1218,14 +1218,21 @@ async def _tg_ipc_loop():
                     import subprocess as _upd_sp
                     if sys.platform == "win32":
                         _upd_path = os.path.join(_upd_repo_dir, "updater.bat")
-                        _upd_sp.Popen(f'cmd /c start "" "{_upd_path}" {_upd_source}', shell=True)
+                        # Use 'start /d' to set the working directory for the new window.
+                        # Without this, cmd /c start launches from System32 and all
+                        # relative paths inside updater.bat (git, bot-env, etc.) fail.
+                        _upd_sp.Popen(
+                            f'cmd /c start "Updating AI Selfbot..." /d "{_upd_repo_dir}" "{_upd_path}" {_upd_source}',
+                            shell=True,
+                            cwd=_upd_repo_dir,
+                        )
                     else:
                         _upd_path = os.path.join(_upd_repo_dir, "updater.sh")
                         try:
                             os.chmod(_upd_path, 0o755)
                         except Exception:
                             pass
-                        _upd_sp.Popen(["bash", _upd_path, _upd_source], start_new_session=True)
+                        _upd_sp.Popen(["bash", _upd_path, _upd_source], start_new_session=True, cwd=_upd_repo_dir)
                     await asyncio.sleep(2)
                     # Flush the command file NOW (before exit) so the update entry
                     # is not re-processed on the next startup, causing an infinite loop.
