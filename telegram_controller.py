@@ -142,16 +142,21 @@ if not TG_TOKEN or not TG_OWNER_ID:
 
 logging.basicConfig(
     format="%(asctime)s [TG] %(levelname)s %(message)s",
-    level=logging.WARNING,
+    level=logging.INFO,  # INFO so we can see incoming updates
 )
+logger = logging.getLogger(__name__)
 
 
 # ── Auth guard ────────────────────────────────────────────────────────────────
 def owner_only(func):
-    """Decorator — silently ignores messages from anyone but the owner."""
-    @functools.wraps(func)  # FIX: preserve function name so CommandHandler can register it
+    """Decorator — rejects messages from anyone but the owner, with logging."""
+    @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if update.effective_user.id != TG_OWNER_ID:
+        user = update.effective_user
+        uid = user.id if user else None
+        logger.info(f"[CMD] /{func.__name__} from user_id={uid} (owner={TG_OWNER_ID})")
+        if uid != TG_OWNER_ID:
+            logger.warning(f"[AUTH] Rejected /{func.__name__} — user {uid} is not owner {TG_OWNER_ID}")
             return
         await func(update, context)
     return wrapper
@@ -1162,8 +1167,31 @@ async def cmd_shutdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Shutdown command sent.")
 
 
-@owner_only
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /start — sent automatically by Telegram when a user opens the bot.
+    Same as /help but does NOT require owner check so we can print the user ID
+    for first-time setup diagnostics.
+    """
+    user = update.effective_user
+    uid = user.id if user else None
+    logger.info(f"[START] /start from user_id={uid}, username={getattr(user, 'username', '?')}")
+
+    if uid != TG_OWNER_ID:
+        # Tell the user their ID so they can add it to .env — helpful for first setup
+        await update.message.reply_text(
+            f"⛔ You are not authorised.\n\n"
+            f"Your Telegram user ID is: `{uid}`\n"
+            f"Add `TELEGRAM_OWNER_ID={uid}` to your `config/.env` file, then restart the controller.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    # Owner — show the full help menu
+    await _send_help(update)
+
+
+async def _send_help(update: Update):
+    """Send the help menu. Shared by /start and /help."""
     help_text = """
 🤖 *AI Selfbot Telegram Controller*
 
@@ -1172,7 +1200,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /pauseuser <id> — stop responding to user
 /unpauseuser <id> — resume responding to user
 /wipe — clear conversation history
-/persona <id> <text|off|show> — manage per-user persona
+/persona <id> <text|off|show> — manage per\\-user persona
 /analyse <id> — psychological profile of a user
 
 *💬 Replies*
@@ -1197,7 +1225,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 *🎭 Behaviour*
 /mood — view current mood
-/mood <name> — set mood
+/mood <n> — set mood
 /ignore <id> — ignore/unignore user
 
 *🎙️ Profile & Status*
@@ -1237,12 +1265,22 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
 
 
+@owner_only
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _send_help(update)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    print(f"[TG Controller] Starting — owner ID: {TG_OWNER_ID}")
-    print(f"[TG Controller] IPC command file: {_CMD_FILE}")
+    print(f"[TG Controller] Starting")
+    print(f"[TG Controller] Owner ID  : {TG_OWNER_ID}  ← must match your Telegram user ID exactly")
+    print(f"[TG Controller] IPC file  : {_CMD_FILE}")
+    print(f"[TG Controller] Token     : {TG_TOKEN[:8]}...{TG_TOKEN[-4:]}")
 
     app = Application.builder().token(TG_TOKEN).build()
+
+    # /start has NO owner_only so it always responds and reveals your user ID
+    app.add_handler(CommandHandler("start",          cmd_start))
 
     # AI
     app.add_handler(CommandHandler("ping",              cmd_ping))
@@ -1252,7 +1290,7 @@ def main():
     app.add_handler(CommandHandler("wipe",              cmd_wipe))
     app.add_handler(CommandHandler("persona",           cmd_persona))
     app.add_handler(CommandHandler("analyse",           cmd_analyse))
-    app.add_handler(CommandHandler("analyze",           cmd_analyse))   # alias
+    app.add_handler(CommandHandler("analyze",           cmd_analyse))
 
     # Replies
     app.add_handler(CommandHandler("reply",             cmd_reply))
@@ -1301,11 +1339,11 @@ def main():
     app.add_handler(CommandHandler("shutdown",          cmd_shutdown))
     app.add_handler(CommandHandler("help",              cmd_help))
 
-    # File upload handlers
+    # File upload handlers (owner check inside each function)
     app.add_handler(MessageHandler(filters.Document.FileExtension("txt"), cmd_instructions_file))
     app.add_handler(MessageHandler(filters.Document.FileExtension("yaml"), cmd_setconfig))
 
-    print("[TG Controller] Running. Send /help to your bot on Telegram.")
+    print("[TG Controller] Running — send /start to your bot on Telegram.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
