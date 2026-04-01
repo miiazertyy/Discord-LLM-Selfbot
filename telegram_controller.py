@@ -1674,9 +1674,18 @@ async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     label = _account_label(account)
     source = "main" if (context.args and context.args[0].lower() == "main") else "release"
     label_str = "latest commit (main)" if source == "main" else "latest release"
-    _send_command(account, "update", {"source": source})
+
+    # Write a sentinel flag file directly — avoids polluting the JSON IPC channel
+    # which the error notification loop also reads, causing conflicts.
+    flag_path = _CONFIG_DIR / "update.flag"
+    try:
+        flag_path.write_text(source)
+    except Exception as e:
+        await update.message.reply_text(f"\u274c Failed to write update flag: {e}")
+        return
+
     await update.message.reply_text(
-        f"{label}🔄 Update command sent — pulling {label_str}. Bot will restart shortly."
+        f"{label}\U0001f504 Update flag written \u2014 pulling {label_str}. Bot will restart shortly."
     )
 
 
