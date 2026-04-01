@@ -414,14 +414,24 @@ class Management(commands.Cog):
 
         repo_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
 
+        # Write a sentinel flag file instead of using the JSON IPC channel.
+        # This avoids conflicts with the Telegram controller's polling loop.
+        flag_path = os.path.join(repo_dir, "config", "update.flag")
+        try:
+            os.makedirs(os.path.dirname(flag_path), exist_ok=True)
+            with open(flag_path, "w") as _f:
+                _f.write(source)
+        except Exception as e:
+            log_error("Update", f"Failed to write update flag: {e}")
+
         if sys.platform == "win32":
             updater_path = os.path.join(repo_dir, "updater.bat")
-            # Use 'start /d' to anchor the working directory so all relative
-            # paths inside updater.bat (git, bot-env, etc.) resolve correctly.
+            # Use start with explicit /d so the bat file always runs from the repo root.
             subprocess.Popen(
-                f'cmd /c start "Updating AI Selfbot..." /d "{repo_dir}" "{updater_path}" {source}',
+                f'cmd /c start "Updating AI Selfbot..." /d "{repo_dir}" /wait "{updater_path}" {source}',
                 shell=True,
                 cwd=repo_dir,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
         else:
             updater_path = os.path.join(repo_dir, "updater.sh")
