@@ -31,21 +31,21 @@ if not exist "bot-env" (
 
 call "bot-env\Scripts\activate.bat"
 
-:: Write the Telegram launcher helper
-echo @echo off > _tg_launch.bat
-echo cd /d "%~dp0" >> _tg_launch.bat
-echo call "bot-env\Scripts\activate.bat" >> _tg_launch.bat
-echo python telegram_controller.py >> _tg_launch.bat
+:: Read Telegram credentials directly from config/.env
+set TG_TOKEN=
+set TG_OWNER=
+for /f "tokens=1,* delims==" %%A in ('type config\.env 2^>nul ^| findstr /i "TELEGRAM_BOT_TOKEN"') do set TG_TOKEN=%%B
+for /f "tokens=1,* delims==" %%A in ('type config\.env 2^>nul ^| findstr /i "TELEGRAM_OWNER_ID"') do set TG_OWNER=%%B
 
-:: Write a Python helper script to check credentials (avoids cmd quoting issues with token values)
-echo import os, sys; f=open(os.path.join('config','.env')); d=dict(l.strip().split('=',1) for l in f if '=' in l); t=d.get('TELEGRAM_BOT_TOKEN','').strip(); o=d.get('TELEGRAM_OWNER_ID','0').strip(); sys.exit(0 if t and o and o!='0' else 1) > _tg_check.py
+:: Clean up any leftover temp files from old version
+if exist "_tg_check.py" del /f /q "_tg_check.py"
+if exist "_tg_launch.bat" del /f /q "_tg_launch.bat"
 
-python _tg_check.py
-if %errorlevel%==0 (
+if defined TG_TOKEN if defined TG_OWNER if not "%TG_OWNER%"=="0" (
     echo Starting Telegram controller...
-    start "Telegram Controller" cmd /k "_tg_launch.bat"
+    start "Telegram Controller" cmd /k "cd /d "%~dp0" && call bot-env\Scripts\activate.bat && python telegram_controller.py"
 ) else (
-    echo Telegram controller not started (TELEGRAM_BOT_TOKEN or TELEGRAM_OWNER_ID not set).
+    echo Telegram controller not started (TELEGRAM_BOT_TOKEN or TELEGRAM_OWNER_ID not set^).
 )
 
 echo Starting bot...
