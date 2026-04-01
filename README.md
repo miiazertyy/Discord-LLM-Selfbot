@@ -168,3 +168,90 @@ chmod +x run.sh updater.sh
 ## 💭 Customizing the Personality
 
 Edit `config/instructions.txt` to set the bot's personality, tone, and behavior. You can also update it live from Discord using `,instructions` (attach a `.txt` file) or `,prompt <text>`.
+
+---
+
+## 📱 Telegram Controller (Recommended)
+
+Instead of running commands directly on Discord (which creates selfbot-detectable activity on your account), you can control everything through a private Telegram bot. This is the safer and recommended approach.
+
+**Why use Telegram?**
+Using Discord commands from your own account is a red flag for Discord's anti-selfbot detection. The Telegram controller keeps 100% of management activity off Discord — you never touch your account to manage the bot.
+
+### Telegram Setup
+
+**Step 1 — Create a Telegram bot**
+1. Message [@BotFather](https://t.me/BotFather) on Telegram
+2. Send `/newbot` and follow the prompts
+3. Copy the bot token it gives you (looks like `123456:ABC-...`)
+
+**Step 2 — Get your Telegram user ID**
+1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
+2. It will reply with your numeric user ID
+
+**Step 3 — Add to your `.env`**
+```
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_OWNER_ID=your_telegram_user_id_here
+```
+
+**Step 4 — Run the controller**
+```bash
+python telegram_controller.py
+```
+Run this in a separate terminal alongside `main.py`. Both run at the same time.
+
+### Multi-Account Support
+
+If you run multiple Discord tokens (`DISCORD_TOKEN_1`, `DISCORD_TOKEN_2` ...), each selfbot instance gets its own IPC channel. Use `/account <n>` in Telegram to switch between them:
+
+```
+/account        — show which account is currently targeted
+/account 2      — switch to account #2
+```
+
+### Telegram Commands
+
+| Command | Description |
+|---|---|
+| `/account [n]` | Show or switch target Discord account |
+| `/pause` | Pause / unpause AI responses |
+| `/pauseuser <id>` | Stop responding to a user |
+| `/unpauseuser <id>` | Resume responding to a user |
+| `/wipe` | Clear conversation history |
+| `/persona <id> <text\|off\|show>` | Manage per-user persona |
+| `/analyse <id>` | Psychological profile of a Discord user |
+| `/reply check` | Show unreplied conversations |
+| `/reply all` | Respond to all unreplied users |
+| `/reply <id>` | Reply to a specific user |
+| `/config` | View full config |
+| `/config <key> <value>` | Edit a config value |
+| `/prompt [text\|clear]` | View or update instructions |
+| `/getconfig` | Download config.yaml |
+| `/setconfig` | Upload new config.yaml (attach file) |
+| `/instructions` | Upload new instructions.txt (attach file) |
+| `/getinstructions` | Download instructions.txt |
+| `/getdb` | Download bot_data.db |
+| `/reload` | Reload all cogs + instructions |
+| `/mood [name]` | View or set current mood |
+| `/ignore <id>` | Ignore / unignore a user |
+| `/status` | Show live bot status (paused, mood, channels) |
+| `/setstatus [emoji] [text]` | Set Discord custom status |
+| `/bio [text]` | Set profile bio |
+| `/pfp <url>` | Change profile picture |
+| `/toggledm` | Toggle DM responses |
+| `/togglegc` | Toggle group chat responses |
+| `/toggleserver` | Toggle server responses |
+| `/toggleactive <id>` | Toggle a channel as active |
+| `/join <id/link>` | Join a voice channel |
+| `/leave` | Leave voice channel |
+| `/autojoin <id/link>` | Set auto-join channel on startup |
+| `/imagels` | List all pictures |
+| `/imagedownload <n>` | Download image by number |
+| `/imagedelete <n>` | Delete image by number |
+| `/leaderboard [filter]` | Top users (e.g. `/leaderboard 7d`) |
+| `/addfriend <id>` | Send a Discord friend request |
+| `/restart` | Restart the selfbot |
+| `/shutdown` | Shut down the selfbot |
+| `/update [main]` | Update to latest release or commit |
+| `/ping` | Check controller latency |
