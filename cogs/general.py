@@ -1,11 +1,40 @@
 import discord
 import asyncio
 import os
+import json
+import time
+from pathlib import Path
 
 from discord.ext import commands
 from utils.ai import generate_response
 from utils.split_response import split_response
 from utils.error_notifications import webhook_log
+from utils.helpers import resource_path, load_config
+
+
+async def _notify_telegram_error(title: str, detail: str):
+    """Forward an error to Telegram if telegram_error_notifications is enabled in config."""
+    try:
+        cfg = load_config()
+        if not cfg.get("notifications", {}).get("telegram_error_notifications", False):
+            return
+        _cmd_file = Path(resource_path("config/tg_commands_1.json"))
+        entry = {
+            "id": f"err_{time.time()}",
+            "cmd": "send_error_notification",
+            "payload": {"title": title, "detail": str(detail)[:1500]},
+            "ts": time.time(),
+        }
+        existing = []
+        if _cmd_file.exists():
+            try:
+                existing = json.loads(_cmd_file.read_text())
+            except Exception:
+                pass
+        existing.append(entry)
+        _cmd_file.write_text(json.dumps(existing))
+    except Exception:
+        pass
 
 
 class General(commands.Cog):
@@ -35,66 +64,64 @@ class General(commands.Cog):
             "📋  Commands",
             "─────────────────────────────",
             "  🌙  AI",
-            f"  {p}pause                   pause / unpause AI responses",
-            f"  {p}pauseuser <user>         stop responding to a user",
-            f"  {p}unpauseuser <user>       resume responding to a user",
-            f"  {p}persona <user> [text]    set / clear / show a per-user persona",
-            f"  {p}wipe                     clear conversation history",
-            f"  {p}analyse <user>           psychological read of a user",
+            f"  {p}pause                    pause / unpause AI responses",
+            f"  {p}pauseuser <user>          stop responding to a user",
+            f"  {p}unpauseuser <user>        resume responding to a user",
+            f"  {p}persona <user> [text]     set / clear / show a per-user persona",
+            f"  {p}wipe                      clear conversation history",
+            f"  {p}analyse <user>            psychological read of a user",
             "─────────────────────────────",
             "  💬  Replies",
-            f"  {p}reply <user>             manually reply to a user's last message",
-            f"  {p}reply check              show users with unread messages",
-            f"  {p}reply all                respond to all users with unread messages",
-            f"  = [hint]                  priority reply — type = in any active channel",
+            f"  {p}reply <user>              manually reply to a user's last message",
+            f"  {p}reply check               show users with unread messages",
+            f"  {p}reply all                 respond to all users with unread messages",
             "─────────────────────────────",
             "  ⚙️   Instructions & Config",
-            f"  {p}prompt [text]            view / set / clear instructions inline (use 'clear' to wipe)",
-            f"  {p}instructions             upload a new instructions.txt (attach .txt file)",
-            f"  {p}getinstructions          download current instructions.txt",
-            f"  {p}config                   view full config (all sections)",
-            f"  {p}config <key> <value>     edit a config value using dot notation",
-            f"                             e.g. {p}config tts.voice diana",
-            f"  {p}getconfig                download config.yaml",
-            f"  {p}setconfig                upload a new config.yaml (attach .yaml file, bot restarts)",
+            f"  {p}prompt [text]             view / set / clear instructions (use 'clear' to wipe)",
+            f"  {p}instructions              upload a new instructions.txt (attach .txt file)",
+            f"  {p}getinstructions  (gi)     download current instructions.txt",
+            f"  {p}config                    view full config (all sections)",
+            f"  {p}config <key> <value>      edit a config value using dot notation",
+            f"  {p}getconfig  (gc)           download config.yaml",
+            f"  {p}setconfig                 upload a new config.yaml (attach .yaml, bot restarts)",
             "─────────────────────────────",
             "  📡  Channels",
-            f"  {p}toggleactive             toggle current channel as active",
-            f"  {p}toggleactive <id>        toggle a specific channel by ID",
-            f"  {p}toggledm                 toggle DM responses",
-            f"  {p}togglegc                 toggle group chat responses",
-            f"  {p}toggleserver             toggle server mention/reply responses",
-            f"  {p}ignore <user>            ignore / unignore a user",
+            f"  {p}toggleactive              toggle current channel as active",
+            f"  {p}toggleactive <id>         toggle a specific channel by ID",
+            f"  {p}toggledm                  toggle DM responses",
+            f"  {p}togglegc                  toggle group chat responses",
+            f"  {p}toggleserver              toggle server mention/reply responses",
+            f"  {p}ignore <user>             ignore / unignore a user",
             "─────────────────────────────",
             "  🎙️   Voice",
             f"  {p}join <id / link>          join a voice channel (muted & deafened)",
             f"  {p}leave                     leave the current voice channel",
-            f"  {p}autojoin <id / link>       auto-join a voice channel on startup",
-            f"  {p}autojoin off               disable auto-join",
+            f"  {p}autojoin <id / link>      auto-join a voice channel on startup",
+            f"  {p}autojoin off              disable auto-join",
             "─────────────────────────────",
             "  🖼️   Images",
-            f"  {p}image ls                 list all pictures with descriptions",
-            f"  {p}image upload             upload picture(s) (attach file — auto-analysed with vision)",
-            f"  {p}image download <n>       download a picture by number",
-            f"  {p}image delete <n>         delete a picture by number",
-            f"  {p}image delete all         delete all pictures",
+            f"  {p}image ls                  list all pictures with descriptions",
+            f"  {p}image upload              upload picture(s) (attach file — auto-analysed)",
+            f"  {p}image download <n>        download a picture by number",
+            f"  {p}image delete <n>          delete a picture by number",
+            f"  {p}image delete all          delete all pictures",
             "─────────────────────────────",
             "  🎭  Profile & Status",
-            f"  {p}status [emoji] [text]    set a custom status",
-            f"  {p}bio [text]               set profile bio",
-            f"  {p}pfp [url / attach]       change profile picture",
-            f"  {p}mood [name]              view or set current mood",
+            f"  {p}status [emoji] [text]     set a custom status",
+            f"  {p}bio [text]                set profile bio",
+            f"  {p}pfp [url / attach]        change profile picture",
+            f"  {p}mood [name]               view or set current mood",
             "─────────────────────────────",
             "  🛠️   System",
             f"  {p}addfriend <user_id>       send a friend request by user ID",
-            f"  {p}reload                   reload all cogs + instructions",
-            f"  {p}restart                  restart the bot",
-            f"  {p}shutdown                 shut down the bot",
-            f"  {p}update                   update to latest release",
-            f"  {p}update main              update to latest commit",
-            f"  {p}getdb                    download memory database",
-            f"  {p}leaderboard [filter]     show top users (e.g. {p}leaderboard 3d / 1w)",
-            f"  {p}ping                     show latency",
+            f"  {p}reload                    reload all cogs + instructions",
+            f"  {p}restart                   restart the bot",
+            f"  {p}shutdown                  shut down the bot",
+            f"  {p}update                    update to latest release",
+            f"  {p}update main               update to latest commit",
+            f"  {p}getdb                     download memory database",
+            f"  {p}leaderboard  (lb)  [f]    show top users (e.g. {p}lb 3d / 1w)",
+            f"  {p}ping                      show latency",
             "```",
         ]
         await ctx.send("\n".join(lines), delete_after=60)
@@ -146,6 +173,7 @@ class General(commands.Cog):
                 except Exception:
                     pass
                 await webhook_log(ctx.message, e)
+                await _notify_telegram_error("Analyse Error", str(e))
 
         asyncio.create_task(generate_response_in_thread(prompt))
 
