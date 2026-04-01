@@ -11,3 +11,4 @@ openai
 PyNaCl
 Pillow
 davey
+python-telegram-bot
