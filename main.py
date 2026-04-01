@@ -624,7 +624,7 @@ async def _tg_ipc_loop():
 
     _CMD_FILE    = _Path(resource_path(f"config/tg_commands_{_ACCOUNT_INDEX}.json"))
     _RESULT_FILE = _Path(resource_path(f"config/tg_results_{_ACCOUNT_INDEX}.json"))
-    _POLL_INTERVAL = 0.5
+    _POLL_INTERVAL = 2.0
 
     def _write_result(cmd_id: str, data: dict):
         results = {}
@@ -1364,6 +1364,48 @@ async def _tg_ipc_loop():
                     else:
                         _write_result(cmd_id, {"ok": False, "reason": f"Image `{_del_name}` not found."})
 
+                # ── image_delete_multi ───────────────────────────────────────
+                elif cmd == "image_delete_multi":
+                    from utils.helpers import resource_path as _rp_idm
+                    from utils.db import delete_picture_db as _dpdb_m, rename_picture_db as _rpdb_m
+                    _idm_folder = _rp_idm("config/pictures")
+                    _idm_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+                    _idm_names = payload.get("names", [])  # list of digit strings e.g. ["1","4","7"]
+                    _idm_files = sorted(
+                        [f for f in os.listdir(_idm_folder) if os.path.splitext(f)[1].lower() in _idm_exts],
+                        key=lambda f: int(os.path.splitext(f)[0][4:])
+                            if os.path.splitext(f)[0].startswith("IMG_") and os.path.splitext(f)[0][4:].isdigit()
+                            else 99999
+                    ) if os.path.exists(_idm_folder) else []
+                    _idm_deleted = []
+                    _idm_failed = []
+                    for _idm_n in _idm_names:
+                        _idm_matches = [f for f in _idm_files if os.path.splitext(f)[0] == f"IMG_{_idm_n}"]
+                        if _idm_matches:
+                            _idm_path = os.path.join(_idm_folder, _idm_matches[0])
+                            try:
+                                os.remove(_idm_path)
+                                _dpdb_m(_idm_matches[0])
+                                _idm_deleted.append(_idm_n)
+                            except Exception:
+                                _idm_failed.append(_idm_n)
+                        else:
+                            _idm_failed.append(_idm_n)
+                    # Renumber remaining files once after all deletes
+                    _idm_remaining = sorted(
+                        [f for f in os.listdir(_idm_folder) if os.path.splitext(f)[1].lower() in _idm_exts],
+                        key=lambda f: int(os.path.splitext(f)[0][4:])
+                            if os.path.splitext(f)[0].startswith("IMG_") and os.path.splitext(f)[0][4:].isdigit()
+                            else 99999
+                    ) if os.path.exists(_idm_folder) else []
+                    for _ri, _rfname in enumerate(_idm_remaining, start=1):
+                        _rstem, _rext = os.path.splitext(_rfname)
+                        if _rstem.startswith("IMG_") and _rstem[4:].isdigit() and int(_rstem[4:]) != _ri:
+                            _rnew = f"IMG_{_ri}{_rext}"
+                            os.rename(os.path.join(_idm_folder, _rfname), os.path.join(_idm_folder, _rnew))
+                            _rpdb_m(_rfname, _rnew)
+                    _write_result(cmd_id, {"ok": True, "deleted": _idm_deleted, "failed": _idm_failed})
+
                 # ── image_delete_all ──────────────────────────────────────────
                 elif cmd == "image_delete_all":
                     from utils.helpers import resource_path as _rp_imgd
@@ -1392,14 +1434,7 @@ async def _tg_ipc_loop():
                 log_error("TG IPC", f"cmd={cmd} error={_err}")
                 _write_result(cmd_id, {"ok": False, "error": str(_err)})
 
-        # Re-read before writing back to avoid wiping commands written during processing.
-        try:
-            _fresh = _json.loads(_CMD_FILE.read_text()) if _CMD_FILE.exists() else []
-        except Exception:
-            _fresh = []
-        _processed_ids = {e.get("id") for e in commands}
-        _new_entries = [e for e in _fresh if e.get("id") not in _processed_ids]
-        _CMD_FILE.write_text(_json.dumps(remaining + _new_entries))
+        _CMD_FILE.write_text(_json.dumps(remaining))
 
 
 @bot.event
