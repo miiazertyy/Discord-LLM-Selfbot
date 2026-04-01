@@ -26,6 +26,7 @@ COMMANDS AVAILABLE:
     /unpauseuser <id>   — resume responding to a user
     /wipe               — clear all conversation history
     /persona <id> <txt> — set persona for a user (/persona <id> off to clear)
+    /analyse <id>       — psychological profile of a user (last 200 msgs)
 
   💬 Replies
     /reply check        — show unreplied conversations
@@ -39,31 +40,54 @@ COMMANDS AVAILABLE:
     /prompt <text>      — set instructions inline
     /prompt clear       — clear instructions
     /getconfig          — download config.yaml
+    /setconfig          — upload a new config.yaml (attach .yaml file)
+    /instructions       — upload a new instructions.txt (attach .txt file)
+    /getinstructions    — download current instructions.txt
     /getdb              — download bot_data.db
+    /reload             — reload all cogs + instructions
 
   🎭 Behaviour
     /mood               — view current mood
-    /mood <name>        — set mood (chill/playful/busy/tired/annoyed/flirty)
+    /mood <n>           — set mood (chill/playful/busy/tired/annoyed/flirty)
     /ignore <id>        — ignore / unignore a user
+
+  🎙️ Profile & Status
+    /status             — show bot status (paused, mood, active channels)
+    /setstatus [emoji] [text] — set Discord custom status (or clear it)
+    /bio [text]         — set profile bio (omit text to clear)
+    /pfp <url>          — change profile picture by URL
 
   📡 Channels
     /toggledm           — toggle DM responses
     /togglegc           — toggle group chat responses
     /toggleserver       — toggle server responses
+    /toggleactive <id>  — toggle a channel as active by channel ID
+
+  🎙️ Voice
+    /join <id/link>     — join a voice channel (muted & deafened)
+    /leave              — leave the current voice channel
+    /autojoin <id/link> — auto-join a voice channel on startup
+    /autojoin off       — disable auto-join
 
   🖼️ Images
     /imagels            — list all pictures with descriptions
+    /imagedownload <n>  — download image by number
+    /imagedelete <n>    — delete image by number
+    /imagedeleteall     — delete all images
 
   🛠️ System
-    /status             — show bot status (paused, mood, active channels)
     /leaderboard        — top users by message count
     /leaderboard <filter> — e.g. /leaderboard 7d
+    /addfriend <id>     — send a friend request by user ID
     /restart            — restart the selfbot
     /shutdown           — shut down the selfbot
-    /ping               — check if the controller is running
+    /ping               — check if the controller is running (shows latency)
+    /update             — update to latest release
+    /update main        — update to latest commit
 """
 
 import asyncio
+import functools
 import json
 import os
 import sys
@@ -125,6 +149,7 @@ logging.basicConfig(
 # ── Auth guard ────────────────────────────────────────────────────────────────
 def owner_only(func):
     """Decorator — silently ignores messages from anyone but the owner."""
+    @functools.wraps(func)  # FIX: preserve function name so CommandHandler can register it
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_user.id != TG_OWNER_ID:
             return
@@ -207,7 +232,11 @@ def _escape(text: str) -> str:
 
 @owner_only
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🟢 Controller is running.")
+    """Check if the controller is running. Also shows Telegram bot latency."""
+    start = time.time()
+    msg = await update.message.reply_text("🟢 Controller is running — measuring latency...")
+    latency = (time.time() - start) * 1000
+    await msg.edit_text(f"🟢 Controller is running.\nLatency: `{latency:.0f} ms`", parse_mode=ParseMode.MARKDOWN)
 
 
 @owner_only
@@ -258,11 +287,13 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines = [
                 "```",
                 "⚙️  Bot Config",
-                "── General ──",
+                "─────────────────────────────",
+                "  🔧  General",
                 f"  prefix               {bot_cfg.get('prefix')}",
                 f"  trigger              {bot_cfg.get('trigger')}",
                 f"  priority_prefix      {bot_cfg.get('priority_prefix')}",
-                "── Responses ──",
+                "─────────────────────────────",
+                "  💬  Responses",
                 f"  allow_dm             {bot_cfg.get('allow_dm')}",
                 f"  allow_gc             {bot_cfg.get('allow_gc')}",
                 f"  allow_server         {bot_cfg.get('allow_server', True)}",
@@ -272,34 +303,43 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"  disable_mentions     {bot_cfg.get('disable_mentions')}",
                 f"  batch_messages       {bot_cfg.get('batch_messages')}",
                 f"  batch_wait_times     {wt_str}",
-                "── Behaviour ──",
+                "─────────────────────────────",
+                "  🎭  Behaviour",
                 f"  ignore_chance        {bot_cfg.get('ignore_chance')}",
                 f"  typo_chance          {bot_cfg.get('typo_chance')}",
                 f"  anti_age_ban         {bot_cfg.get('anti_age_ban')}",
-                "── Models ──",
+                "─────────────────────────────",
+                "  🤖  Models",
                 f"  groq_models          {', '.join(models) if isinstance(models, list) else models}",
                 f"  groq_image_model     {bot_cfg.get('groq_image_model')}",
                 f"  groq_whisper_model   {bot_cfg.get('groq_whisper_model')}",
-                "── TTS ──",
+                "─────────────────────────────",
+                "  🔊  TTS",
                 f"  tts.enabled          {tts.get('enabled')}",
                 f"  tts.voice            {tts.get('voice')}",
-                "── Mood ──",
+                "─────────────────────────────",
+                "  😶  Mood",
                 f"  mood.enabled         {mood.get('enabled')}",
                 f"  mood.moods           {mood_list}",
-                "── Status ──",
+                "─────────────────────────────",
+                "  🕐  Status",
                 f"  status.enabled       {status.get('enabled')}",
-                "── Late Reply ──",
+                "─────────────────────────────",
+                "  💬  Late Reply",
                 f"  late_reply.enabled   {late.get('enabled')}",
                 f"  late_reply.threshold {late.get('threshold')}",
-                "── Nudge ──",
+                "─────────────────────────────",
+                "  💤  Nudge",
                 f"  nudge.enabled        {nudge.get('enabled', False)}",
                 f"  nudge.threshold_days {nudge.get('threshold_days', 2)}",
                 f"  nudge.send_during    {nudge_hours[0]}:00–{nudge_hours[1]}:00",
-                "── Friend Requests ──",
+                "─────────────────────────────",
+                "  👥  Friend Requests",
                 f"  fr.enabled           {fr.get('enabled', True)}",
                 f"  fr.accept_delay_min  {fr.get('accept_delay_min', 120)}s",
                 f"  fr.accept_delay_max  {fr.get('accept_delay_max', 600)}s",
-                "── Notifications ──",
+                "─────────────────────────────",
+                "  🔔  Notifications",
                 f"  error_webhook        {'set' if notif.get('error_webhook') else 'not set'}",
                 f"  ratelimit_notifs     {notif.get('ratelimit_notifications')}",
                 "```",
@@ -374,6 +414,37 @@ async def cmd_getconfig(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @owner_only
+async def cmd_setconfig(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Upload a new config.yaml. Attach a .yaml file to this command."""
+    if not update.message.document:
+        await update.message.reply_text(
+            "📎 Attach a `.yaml` file to this command to update the config.\n"
+            "The selfbot will need to be restarted for all changes to take effect.\n"
+            "Example: send /setconfig with a config.yaml attached."
+        )
+        return
+    doc = update.message.document
+    if not doc.file_name.endswith(".yaml"):
+        await update.message.reply_text("❌ Only `.yaml` files are supported.")
+        return
+    try:
+        import yaml
+        tg_file = await doc.get_file()
+        content = await tg_file.download_as_bytearray()
+        text = content.decode("utf-8")
+        yaml.safe_load(text)  # validate
+    except UnicodeDecodeError:
+        await update.message.reply_text("❌ Could not read file — make sure it's valid UTF-8.")
+        return
+    except Exception as e:
+        await update.message.reply_text(f"❌ Invalid YAML: {e}")
+        return
+    _CONFIG_YAML.write_text(text, encoding="utf-8")
+    _send_command("restart")
+    await update.message.reply_text("✅ Config updated. Restart command sent to selfbot.")
+
+
+@owner_only
 async def cmd_getdb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _DB_PATH.exists():
         await update.message.reply_text("❌ bot_data.db not found.")
@@ -405,36 +476,44 @@ async def cmd_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args[0].lower() == "clear":
         _save_instructions("")
         _send_command("instructions_update", {"text": ""})
-        await update.message.reply_text("✅ Instructions cleared.")
+        await update.message.reply_text("🗑️ Instructions cleared.")
         return
 
     new_text = " ".join(args)
     _save_instructions(new_text)
     _send_command("instructions_update", {"text": new_text})
-    preview = new_text[:200] + ("..." if len(new_text) > 200 else "")
-    await update.message.reply_text(f"✅ Instructions updated:\n```\n{preview}\n```", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(f"✅ Instructions updated.")
+
+
+@owner_only
+async def cmd_getinstructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Download the current instructions.txt file."""
+    if not _INSTRUCTIONS_PATH.exists():
+        await update.message.reply_text("❌ instructions.txt not found.")
+        return
+    await update.message.reply_document(
+        document=open(_INSTRUCTIONS_PATH, "rb"),
+        filename="instructions.txt",
+        caption="📝 instructions.txt"
+    )
 
 
 @owner_only
 async def cmd_instructions_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle an uploaded .txt file to replace instructions."""
-    if not update.message.document:
-        await update.message.reply_text("Attach a .txt file to update instructions.")
+    """Handle a .txt file upload to set new instructions."""
+    doc = update.message.document
+    if not doc or not doc.file_name.endswith(".txt"):
         return
-    doc: Document = update.message.document
-    if not doc.file_name.endswith(".txt"):
-        await update.message.reply_text("❌ Only .txt files are supported.")
-        return
-    tg_file = await doc.get_file()
-    content = await tg_file.download_as_bytearray()
     try:
+        tg_file = await doc.get_file()
+        content = await tg_file.download_as_bytearray()
         text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        await update.message.reply_text("❌ File is not valid UTF-8.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Could not read file: {e}")
         return
     _save_instructions(text)
     _send_command("instructions_update", {"text": text})
-    await update.message.reply_text(f"✅ Instructions updated from file ({len(text)} chars).")
+    await update.message.reply_text("✅ Instructions updated from file!")
 
 
 @owner_only
@@ -497,6 +576,72 @@ async def cmd_imagels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
+
+
+@owner_only
+async def cmd_imagedownload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Download an image by number. Usage: /imagedownload <n>"""
+    if not context.args:
+        await update.message.reply_text("Usage: /imagedownload <number>\nUse /imagels to see images.")
+        return
+    name = context.args[0]
+    if not _PICTURES_DIR.exists():
+        await update.message.reply_text("No pictures folder found.")
+        return
+    exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    files = sorted([f for f in _PICTURES_DIR.iterdir() if f.suffix.lower() in exts])
+    target = None
+    if name.isdigit():
+        idx = int(name)
+        matches = [f for f in files if f.stem == f"IMG_{idx}"]
+        if matches:
+            target = matches[0]
+    if not target:
+        # Try name match
+        matches = [f for f in files if name.lower() in f.name.lower()]
+        if len(matches) == 1:
+            target = matches[0]
+        elif len(matches) > 1:
+            await update.message.reply_text(f"Multiple matches: {', '.join(f.name for f in matches)}. Be more specific.")
+            return
+    if not target or not target.exists():
+        await update.message.reply_text(f"❌ Image `{name}` not found.", parse_mode=ParseMode.MARKDOWN)
+        return
+    await update.message.reply_document(
+        document=open(target, "rb"),
+        filename=target.name,
+        caption=f"🖼️ {target.name}"
+    )
+
+
+@owner_only
+async def cmd_imagedelete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete an image by number. Usage: /imagedelete <n>"""
+    if not context.args:
+        await update.message.reply_text("Usage: /imagedelete <number>\nUse /imagels to see images.")
+        return
+    name = context.args[0]
+    cmd_id = _send_command("image_delete", {"name": name})
+    result = await _wait_for_result(cmd_id, timeout=10.0)
+    if result:
+        if result.get("ok"):
+            await update.message.reply_text(f"✅ Deleted `{name}`.", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+    else:
+        await update.message.reply_text("⚠️ Command sent, selfbot did not respond in time.")
+
+
+@owner_only
+async def cmd_imagedeleteall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete all images."""
+    cmd_id = _send_command("image_delete_all")
+    result = await _wait_for_result(cmd_id, timeout=10.0)
+    if result:
+        count = result.get("count", "?")
+        await update.message.reply_text(f"✅ Deleted all {count} image(s).")
+    else:
+        await update.message.reply_text("⚠️ Command sent, selfbot did not respond in time.")
 
 
 @owner_only
@@ -646,6 +791,49 @@ async def cmd_persona(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @owner_only
+async def cmd_analyse(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Psychological profile of a Discord user based on their recent messages.
+    Usage: /analyse <discord_user_id>
+    The selfbot will fetch messages from that user's DM channel and return a profile.
+    """
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /analyse <discord_user_id>\n"
+            "Example: /analyse 123456789012345678"
+        )
+        return
+    try:
+        user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID. Provide a numeric Discord user ID.")
+        return
+
+    await update.message.reply_text(f"🔍 Analysing user `{user_id}`... (waiting up to 60s)", parse_mode=ParseMode.MARKDOWN)
+    cmd_id = _send_command("analyse_user", {"user_id": user_id})
+    result = await _wait_for_result(cmd_id, timeout=60.0)
+
+    if not result:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time. Make sure the IPC bridge is running.")
+        return
+
+    if not result.get("ok"):
+        await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+        return
+
+    profile = result.get("profile", "")
+    if not profile:
+        await update.message.reply_text("❌ No profile was generated.")
+        return
+
+    # Split long responses
+    if len(profile) > 4000:
+        for i in range(0, len(profile), 4000):
+            await update.message.reply_text(profile[i:i+4000])
+    else:
+        await update.message.reply_text(profile)
+
+
+@owner_only
 async def cmd_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
@@ -735,6 +923,232 @@ async def cmd_toggleserver(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @owner_only
+async def cmd_toggleactive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle a Discord channel as active by its ID. Usage: /toggleactive <channel_id>"""
+    if not context.args:
+        await update.message.reply_text("Usage: /toggleactive <channel_id>")
+        return
+    try:
+        channel_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid channel ID.")
+        return
+    cmd_id = _send_command("toggle_active", {"channel_id": channel_id})
+    result = await _wait_for_result(cmd_id)
+    if result:
+        state = result.get("active")
+        await update.message.reply_text(
+            f"Channel `{channel_id}` is now {'✅ active' if state else '❌ inactive'}.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text("⚠️ Command sent to selfbot.")
+
+
+@owner_only
+async def cmd_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Join a Discord voice channel. Usage: /join <channel_id or discord link>"""
+    if not context.args:
+        await update.message.reply_text(
+            "Usage:\n"
+            "  /join <channel_id>\n"
+            "  /join <discord channel link>"
+        )
+        return
+    args_str = " ".join(context.args)
+    cmd_id = _send_command("voice_join", {"args": args_str})
+    await update.message.reply_text("⏳ Sending join command... (waiting up to 15s)")
+    result = await _wait_for_result(cmd_id, timeout=15.0)
+    if result:
+        if result.get("ok"):
+            await update.message.reply_text(f"✅ Joined **{result.get('channel', '?')}** in **{result.get('guild', '?')}**.")
+        else:
+            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+    else:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time.")
+
+
+@owner_only
+async def cmd_leave(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Leave the current Discord voice channel. Usage: /leave or /leave <guild_id>"""
+    guild_id = None
+    if context.args:
+        try:
+            guild_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid guild ID.")
+            return
+    cmd_id = _send_command("voice_leave", {"guild_id": guild_id})
+    result = await _wait_for_result(cmd_id, timeout=10.0)
+    if result:
+        if result.get("ok"):
+            await update.message.reply_text(f"✅ Left **{result.get('channel', '?')}** in **{result.get('guild', '?')}**.")
+        else:
+            await update.message.reply_text(f"❌ {result.get('reason', 'Not in a voice channel.')}")
+    else:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time.")
+
+
+@owner_only
+async def cmd_autojoin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set or disable voice channel auto-join on startup.
+    Usage: /autojoin <channel_id or link>  |  /autojoin off
+    """
+    if not context.args:
+        await update.message.reply_text(
+            "Usage:\n"
+            "  /autojoin <channel_id>        — set auto-join channel\n"
+            "  /autojoin <discord link>      — set via channel link\n"
+            "  /autojoin off                 — disable auto-join"
+        )
+        return
+    args_str = " ".join(context.args)
+    cmd_id = _send_command("voice_autojoin", {"args": args_str})
+    result = await _wait_for_result(cmd_id, timeout=10.0)
+    if result:
+        if result.get("ok"):
+            if result.get("disabled"):
+                await update.message.reply_text("✅ Auto-join disabled.")
+            else:
+                await update.message.reply_text(
+                    f"✅ Auto-join set to **{result.get('channel', '?')}** in **{result.get('guild', '?')}**."
+                )
+        else:
+            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+    else:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time.")
+
+
+@owner_only
+async def cmd_setstatus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set or clear the Discord custom status.
+    Usage: /setstatus [emoji] [text]   — both optional; omit both to clear
+    Example: /setstatus 🎮 gaming rn
+    """
+    emoji = None
+    text = None
+    if context.args:
+        # Heuristic: if first arg is a single emoji or short symbol, treat as emoji
+        first = context.args[0]
+        if len(first) <= 2 or (len(first) <= 4 and not first.isalpha()):
+            emoji = first
+            text = " ".join(context.args[1:]) or None
+        else:
+            text = " ".join(context.args)
+    cmd_id = _send_command("set_status", {"emoji": emoji, "text": text})
+    result = await _wait_for_result(cmd_id, timeout=10.0)
+    if result:
+        if text or emoji:
+            await update.message.reply_text("✅ Discord status updated.")
+        else:
+            await update.message.reply_text("✅ Discord status cleared.")
+    else:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time.")
+
+
+@owner_only
+async def cmd_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Set or clear the Discord profile bio.
+    Usage: /bio <text>   — set bio
+           /bio          — clear bio
+    """
+    text = " ".join(context.args) if context.args else ""
+    cmd_id = _send_command("set_bio", {"text": text})
+    result = await _wait_for_result(cmd_id, timeout=10.0)
+    if result:
+        if result.get("ok"):
+            await update.message.reply_text("✅ Bio updated." if text else "✅ Bio cleared.")
+        else:
+            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+    else:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time.")
+
+
+@owner_only
+async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Change the Discord profile picture.
+    Usage: /pfp <image_url>
+    Or send /pfp with an image attached.
+    """
+    url = None
+    if context.args:
+        url = context.args[0]
+    elif update.message.photo:
+        # Telegram photo attached
+        photo = update.message.photo[-1]
+        tg_file = await photo.get_file()
+        url = tg_file.file_path
+    elif update.message.document and update.message.document.mime_type.startswith("image/"):
+        tg_file = await update.message.document.get_file()
+        url = tg_file.file_path
+
+    if not url:
+        await update.message.reply_text(
+            "Usage: /pfp <image_url>\n"
+            "Or send /pfp with an image attached."
+        )
+        return
+
+    cmd_id = _send_command("set_pfp", {"url": url})
+    await update.message.reply_text("⏳ Updating profile picture...")
+    result = await _wait_for_result(cmd_id, timeout=20.0)
+    if result:
+        if result.get("ok"):
+            await update.message.reply_text("✅ Profile picture updated!")
+        else:
+            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+    else:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time.")
+
+
+@owner_only
+async def cmd_addfriend(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a Discord friend request by user ID. Usage: /addfriend <user_id>"""
+    if not context.args:
+        await update.message.reply_text("Usage: /addfriend <discord_user_id>")
+        return
+    try:
+        user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID.")
+        return
+    cmd_id = _send_command("add_friend", {"user_id": user_id})
+    await update.message.reply_text(f"⏳ Sending friend request to `{user_id}`...", parse_mode=ParseMode.MARKDOWN)
+    result = await _wait_for_result(cmd_id, timeout=15.0)
+    if result:
+        if result.get("ok"):
+            await update.message.reply_text(f"✅ Friend request sent to `{user_id}`.", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+    else:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time.")
+
+
+@owner_only
+async def cmd_reload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reload all cogs and instructions in the selfbot."""
+    cmd_id = _send_command("reload")
+    await update.message.reply_text("⏳ Reloading... (waiting up to 15s)")
+    result = await _wait_for_result(cmd_id, timeout=15.0)
+    if result:
+        await update.message.reply_text("✅ All cogs reloaded.")
+    else:
+        await update.message.reply_text("⚠️ Selfbot didn't respond in time.")
+
+
+@owner_only
+async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Update selfbot to latest release or commit.
+    Usage: /update         — latest release
+           /update main    — latest commit
+    """
+    source = "main" if (context.args and context.args[0].lower() == "main") else "release"
+    label = "latest commit (main)" if source == "main" else "latest release"
+    _send_command("update", {"source": source})
+    await update.message.reply_text(f"🔄 Update command sent — pulling {label}. Bot will restart shortly.")
+
+
+@owner_only
 async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔄 Sending restart command to selfbot...")
     _send_command("restart")
@@ -759,6 +1173,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /unpauseuser <id> — resume responding to user
 /wipe — clear conversation history
 /persona <id> <text|off|show> — manage per-user persona
+/analyse <id> — psychological profile of a user
 
 *💬 Replies*
 /reply check — show unreplied conversations
@@ -771,68 +1186,124 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /prompt — view instructions
 /prompt <text> — update instructions
 /prompt clear — clear instructions
-/getconfig — download config.yaml
-/getdb — download bot\\_data.db
+/getconfig — download config\\.yaml
+/setconfig — upload new config\\.yaml \\(attach file\\)
+/instructions — upload new instructions\\.txt \\(attach file\\)
+/getinstructions — download instructions\\.txt
+/getdb — download bot\\_data\\.db
+/reload — reload all cogs \\+ instructions
+/update — update to latest release
+/update main — update to latest commit
 
 *🎭 Behaviour*
 /mood — view current mood
 /mood <name> — set mood
 /ignore <id> — ignore/unignore user
 
+*🎙️ Profile & Status*
+/status — show bot status
+/setstatus \\[emoji\\] \\[text\\] — set Discord custom status
+/bio \\[text\\] — set profile bio \\(omit to clear\\)
+/pfp <url> — change profile picture
+
 *📡 Channels*
 /toggledm — toggle DM responses
 /togglegc — toggle group chat responses
 /toggleserver — toggle server responses
+/toggleactive <id> — toggle channel as active
+
+*🎙️ Voice*
+/join <id/link> — join voice channel
+/leave — leave voice channel
+/autojoin <id/link> — set auto\\-join channel
+/autojoin off — disable auto\\-join
 
 *🖼️ Images*
 /imagels — list all pictures
+/imagedownload <n> — download image by number
+/imagedelete <n> — delete image by number
+/imagedeleteall — delete all images
 
 *📊 Stats*
 /leaderboard — top users all time
-/leaderboard <filter> — e.g. /leaderboard 7d
-/status — show bot status
+/leaderboard <filter> — e\\.g\\. /leaderboard 7d
+/addfriend <id> — send friend request
 
 *🛠️ System*
 /restart — restart selfbot
 /shutdown — shut down selfbot
 /ping — check controller is running
 """
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN_V2)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"[TG Controller] Starting — owner ID: {TG_OWNER_ID}")
     print(f"[TG Controller] IPC command file: {_CMD_FILE}")
-    print(f"[TG Controller] Make sure to add the IPC bridge to main.py (see README section below)")
 
     app = Application.builder().token(TG_TOKEN).build()
 
-    app.add_handler(CommandHandler("ping",          cmd_ping))
-    app.add_handler(CommandHandler("status",        cmd_status))
-    app.add_handler(CommandHandler("help",          cmd_help))
-    app.add_handler(CommandHandler("config",        cmd_config))
-    app.add_handler(CommandHandler("getconfig",     cmd_getconfig))
-    app.add_handler(CommandHandler("getdb",         cmd_getdb))
-    app.add_handler(CommandHandler("prompt",        cmd_prompt))
-    app.add_handler(CommandHandler("leaderboard",   cmd_leaderboard))
-    app.add_handler(CommandHandler("imagels",       cmd_imagels))
-    app.add_handler(CommandHandler("mood",          cmd_mood))
-    app.add_handler(CommandHandler("pause",         cmd_pause))
-    app.add_handler(CommandHandler("wipe",          cmd_wipe))
-    app.add_handler(CommandHandler("ignore",        cmd_ignore))
-    app.add_handler(CommandHandler("pauseuser",     cmd_pauseuser))
-    app.add_handler(CommandHandler("unpauseuser",   cmd_unpauseuser))
-    app.add_handler(CommandHandler("persona",       cmd_persona))
-    app.add_handler(CommandHandler("reply",         cmd_reply))
-    app.add_handler(CommandHandler("toggledm",      cmd_toggledm))
-    app.add_handler(CommandHandler("togglegc",      cmd_togglegc))
-    app.add_handler(CommandHandler("toggleserver",  cmd_toggleserver))
-    app.add_handler(CommandHandler("restart",       cmd_restart))
-    app.add_handler(CommandHandler("shutdown",      cmd_shutdown))
+    # AI
+    app.add_handler(CommandHandler("ping",              cmd_ping))
+    app.add_handler(CommandHandler("pause",             cmd_pause))
+    app.add_handler(CommandHandler("pauseuser",         cmd_pauseuser))
+    app.add_handler(CommandHandler("unpauseuser",       cmd_unpauseuser))
+    app.add_handler(CommandHandler("wipe",              cmd_wipe))
+    app.add_handler(CommandHandler("persona",           cmd_persona))
+    app.add_handler(CommandHandler("analyse",           cmd_analyse))
+    app.add_handler(CommandHandler("analyze",           cmd_analyse))   # alias
 
-    # Handle .txt file uploads for /instructions
+    # Replies
+    app.add_handler(CommandHandler("reply",             cmd_reply))
+
+    # Config & Instructions
+    app.add_handler(CommandHandler("config",            cmd_config))
+    app.add_handler(CommandHandler("getconfig",         cmd_getconfig))
+    app.add_handler(CommandHandler("setconfig",         cmd_setconfig))
+    app.add_handler(CommandHandler("prompt",            cmd_prompt))
+    app.add_handler(CommandHandler("getinstructions",   cmd_getinstructions))
+    app.add_handler(CommandHandler("getdb",             cmd_getdb))
+    app.add_handler(CommandHandler("reload",            cmd_reload))
+    app.add_handler(CommandHandler("update",            cmd_update))
+
+    # Behaviour
+    app.add_handler(CommandHandler("mood",              cmd_mood))
+    app.add_handler(CommandHandler("ignore",            cmd_ignore))
+
+    # Profile & Status
+    app.add_handler(CommandHandler("status",            cmd_status))
+    app.add_handler(CommandHandler("setstatus",         cmd_setstatus))
+    app.add_handler(CommandHandler("bio",               cmd_bio))
+    app.add_handler(CommandHandler("pfp",               cmd_pfp))
+
+    # Channels
+    app.add_handler(CommandHandler("toggledm",          cmd_toggledm))
+    app.add_handler(CommandHandler("togglegc",          cmd_togglegc))
+    app.add_handler(CommandHandler("toggleserver",      cmd_toggleserver))
+    app.add_handler(CommandHandler("toggleactive",      cmd_toggleactive))
+
+    # Voice
+    app.add_handler(CommandHandler("join",              cmd_join))
+    app.add_handler(CommandHandler("leave",             cmd_leave))
+    app.add_handler(CommandHandler("autojoin",          cmd_autojoin))
+
+    # Images
+    app.add_handler(CommandHandler("imagels",           cmd_imagels))
+    app.add_handler(CommandHandler("imagedownload",     cmd_imagedownload))
+    app.add_handler(CommandHandler("imagedelete",       cmd_imagedelete))
+    app.add_handler(CommandHandler("imagedeleteall",    cmd_imagedeleteall))
+
+    # Stats & System
+    app.add_handler(CommandHandler("leaderboard",       cmd_leaderboard))
+    app.add_handler(CommandHandler("addfriend",         cmd_addfriend))
+    app.add_handler(CommandHandler("restart",           cmd_restart))
+    app.add_handler(CommandHandler("shutdown",          cmd_shutdown))
+    app.add_handler(CommandHandler("help",              cmd_help))
+
+    # File upload handlers
     app.add_handler(MessageHandler(filters.Document.FileExtension("txt"), cmd_instructions_file))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("yaml"), cmd_setconfig))
 
     print("[TG Controller] Running. Send /help to your bot on Telegram.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
