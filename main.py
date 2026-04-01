@@ -624,7 +624,7 @@ async def _tg_ipc_loop():
 
     _CMD_FILE    = _Path(resource_path(f"config/tg_commands_{_ACCOUNT_INDEX}.json"))
     _RESULT_FILE = _Path(resource_path(f"config/tg_results_{_ACCOUNT_INDEX}.json"))
-    _POLL_INTERVAL = 2.0
+    _POLL_INTERVAL = 0.5
 
     def _write_result(cmd_id: str, data: dict):
         results = {}
@@ -1318,7 +1318,7 @@ async def _tg_ipc_loop():
                                      ".gif": "image/gif", ".webp": "image/webp"}
                         _ia_mime = _mime_map.get(_ia_ext.lower(), "image/jpeg")
                         _ia_data_url = f"data:{_ia_mime};base64,{_ia_b64}"
-                        log_system(f"Analysing image: {_ia_name}")
+                        log_system(f"[image_analyse] Running vision on {_ia_name} using {_ia_model}")
                         _ia_resp = await _cic_ia(
                             _ia_model,
                             messages=[{
@@ -1331,7 +1331,7 @@ async def _tg_ipc_loop():
                         )
                         _ia_desc = _ia_resp.choices[0].message.content.strip()
                         _apd_ia(_ia_name, _ia_desc)
-                        log_system(f"Image analysed: {_ia_name}")
+                        log_system(f"[image_analyse] Done: {_ia_name} — {_ia_desc[:80]}")
                         _write_result(cmd_id, {"ok": True, "description": _ia_desc})
                     except Exception as _ia_e:
                         log_error("image_analyse", str(_ia_e))
@@ -1392,7 +1392,14 @@ async def _tg_ipc_loop():
                 log_error("TG IPC", f"cmd={cmd} error={_err}")
                 _write_result(cmd_id, {"ok": False, "error": str(_err)})
 
-        _CMD_FILE.write_text(_json.dumps(remaining))
+        # Re-read before writing back to avoid wiping commands written during processing.
+        try:
+            _fresh = _json.loads(_CMD_FILE.read_text()) if _CMD_FILE.exists() else []
+        except Exception:
+            _fresh = []
+        _processed_ids = {e.get("id") for e in commands}
+        _new_entries = [e for e in _fresh if e.get("id") not in _processed_ids]
+        _CMD_FILE.write_text(_json.dumps(remaining + _new_entries))
 
 
 @bot.event
