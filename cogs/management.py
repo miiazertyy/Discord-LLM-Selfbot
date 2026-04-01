@@ -416,14 +416,20 @@ class Management(commands.Cog):
 
         if sys.platform == "win32":
             updater_path = os.path.join(repo_dir, "updater.bat")
-            subprocess.Popen(f'cmd /c start "" "{updater_path}" {source}', shell=True)
+            # Use 'start /d' to anchor the working directory so all relative
+            # paths inside updater.bat (git, bot-env, etc.) resolve correctly.
+            subprocess.Popen(
+                f'cmd /c start "Updating AI Selfbot..." /d "{repo_dir}" "{updater_path}" {source}',
+                shell=True,
+                cwd=repo_dir,
+            )
         else:
             updater_path = os.path.join(repo_dir, "updater.sh")
             try:
                 os.chmod(updater_path, 0o755)
             except Exception:
                 pass
-            subprocess.Popen(["bash", updater_path, source], start_new_session=True)
+            subprocess.Popen(["bash", updater_path, source], start_new_session=True, cwd=repo_dir)
 
         # Give the subprocess time to actually start before we vanish
         await asyncio.sleep(2)
