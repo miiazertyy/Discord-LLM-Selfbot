@@ -659,7 +659,7 @@ async def _tg_ipc_loop():
                         f'cmd /c start "Updating AI Selfbot..." /d "{_upd_repo_dir}" "{_upd_path}" {_flag_source}',
                         shell=True,
                         cwd=_upd_repo_dir,
-                        creationflags=subprocess.CREATE_NEW_CONSOLE,
+                        creationflags=0x00000010,  # CREATE_NEW_CONSOLE
                     )
                 else:
                     _upd_path = os.path.join(_upd_repo_dir, "updater.sh")
