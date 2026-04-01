@@ -1031,12 +1031,15 @@ async def cmd_imagedeleteall(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"{label}⚠️ Command sent, selfbot did not respond in time.")
 
 
-@owner_only
 async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Upload an image to the selfbot's pictures folder.
-    Send /imageupload with a photo or image file attached.
-    The selfbot will run AI vision analysis on it automatically.
+    Triggered by: /imageupload command, any photo sent, or image document with /imageupload caption.
     """
+    # Auth check inline (not via @owner_only) so this works from MessageHandler too
+    user = update.effective_user
+    if not user or user.id != TG_OWNER_ID:
+        return
+
     account = _get_account(context)
     label = _account_label(account)
 
@@ -1078,7 +1081,7 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(
             "📎 To upload an image:\n"
             "• Send a photo directly (no caption needed)\n"
-            "• Send a file/document that is an image\n"
+            "• Send an image file with /imageupload caption\n"
             "• Reply to an existing photo with /imageupload"
         )
         return
@@ -1126,19 +1129,49 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # The file is already saved to the shared config/pictures/ folder, so the
     # selfbot reads it directly from disk using the filename.
     cmd_id = _send_command(account, "image_analyse", {"name": new_name, "b64": "", "ext": ext})
-    await status.edit_text(f"{label}⏳ Saved as `{new_name}` — running AI description... (up to 30s)")
-    result = await _wait_for_result(account, cmd_id, timeout=30.0)
+    await status.edit_text(f"{label}⏳ Saved as `{new_name}` — running AI vision analysis...")
+
+    # Poll with live countdown so user knows it's still working (vision can be slow).
+    _VISION_TIMEOUT = 90.0
+    _TICK = 15.0
+    result = None
+    f = _result_file(account)
+    deadline = time.time() + _VISION_TIMEOUT
+    while time.time() < deadline:
+        await asyncio.sleep(min(_TICK, max(0.3, deadline - time.time())))
+        if f.exists():
+            try:
+                results = json.loads(f.read_text())
+                if cmd_id in results:
+                    result = results.pop(cmd_id)
+                    f.write_text(json.dumps(results))
+                    break
+            except Exception:
+                pass
+        if time.time() < deadline:
+            remaining = int(deadline - time.time())
+            try:
+                await status.edit_text(
+                    f"{label}⏳ Saved as `{new_name}` — analysing image... (~{remaining}s left)"
+                )
+            except Exception:
+                pass
 
     if result and result.get("ok"):
         desc = result.get("description", "(no description)")
         short = desc[:300] + ("…" if len(desc) > 300 else "")
-        await status.edit_text(
-            f"{label}✅ Saved as `{new_name}`\n\n📝 {short}",
-        )
+        await status.edit_text(f"{label}✅ Saved as `{new_name}`\n\n📝 {short}")
     elif result:
-        await status.edit_text(f"{label}✅ Saved as `{new_name}` (vision analysis failed: {result.get('reason', '?')})")
+        err = result.get("reason", "unknown error")
+        await status.edit_text(
+            f"{label}✅ Image saved as `{new_name}` but vision analysis failed: {err}\n"
+            f"The image is stored — the bot just won't have a description for it."
+        )
     else:
-        await status.edit_text(f"{label}✅ Saved as `{new_name}` — selfbot didn't respond in time for description.")
+        await status.edit_text(
+            f"{label}✅ Image saved as `{new_name}`.\n"
+            f"⚠️ Vision timed out — selfbot may still be processing it. Check /imagels."
+        )
 
 
 # ── /mood — live state via IPC ────────────────────────────────────────────────
@@ -1984,11 +2017,11 @@ def main():
     app.add_handler(CommandHandler("imagedownload",   cmd_imagedownload))
     app.add_handler(CommandHandler("imagedelete",     cmd_imagedelete))
     app.add_handler(CommandHandler("imagedeleteall",  cmd_imagedeleteall))
-    # imageupload: CommandHandler only fires on plain text, NOT photo-with-caption.
-    # Add MessageHandlers so photos (compressed) and image documents are always caught.
-    app.add_handler(CommandHandler("imageupload",     cmd_imageupload))  # plain /imageupload (e.g. reply flow)
-    app.add_handler(MessageHandler(filters.PHOTO, cmd_imageupload))  # compressed photo, with or without caption
-    app.add_handler(MessageHandler(  # image file sent as document with /imageupload caption
+    # imageupload: CommandHandler only fires on plain text, NOT on photo-with-caption.
+    # Register MessageHandlers for all photo/image-document cases.
+    app.add_handler(CommandHandler("imageupload",     cmd_imageupload))  # plain /imageupload (reply-to flow)
+    app.add_handler(MessageHandler(filters.PHOTO, cmd_imageupload))  # any photo sent (with or without caption)
+    app.add_handler(MessageHandler(  # image sent as a file/document with /imageupload caption
         filters.Document.ALL & filters.Caption(["/imageupload"]),
         cmd_imageupload,
     ))
