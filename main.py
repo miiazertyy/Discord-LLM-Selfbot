@@ -688,17 +688,6 @@ async def _tg_ipc_loop():
                         _yaml.dump(cfg, _f, default_flow_style=False, allow_unicode=True)
                     _write_result(cmd_id, {"allow_server": bot.allow_server})
 
-                elif cmd == "toggle_commands":
-                    import yaml as _yaml_tc
-                    cfg_tc = load_config()
-                    new_tc = not cfg_tc["bot"].get("discord_commands_enabled", True)
-                    if "value" in payload:
-                        new_tc = bool(payload["value"])
-                    cfg_tc["bot"]["discord_commands_enabled"] = new_tc
-                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
-                        _yaml_tc.dump(cfg_tc, _f, default_flow_style=False, allow_unicode=True)
-                    _write_result(cmd_id, {"discord_commands_enabled": new_tc})
-
                 elif cmd == "ignore_add":
                     uid = int(payload["user_id"])
                     if uid not in bot.ignore_users:
