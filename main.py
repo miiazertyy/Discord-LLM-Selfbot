@@ -552,8 +552,14 @@ async def _nudge_loop():
 
 async def _shutdown_on_401():
     """Cancel all pending tasks and close the bot cleanly on 401."""
-    log_error("Auth", "Detected 401 Unauthorized — Discord invalidated the token. Shutting down cleanly.")
-    # Cancel all running background tasks except the current one
+    print(
+        f"\n{'='*60}\n"
+        f"  ✗  TOKEN INVALIDATED (401 Unauthorized)\n"
+        f"  →  Discord rejected the token mid-session — it may have been\n"
+        f"     reset, logged out, or flagged.\n"
+        f"  →  Update DISCORD_TOKEN in your .env file and restart.\n"
+        f"{'='*60}\n"
+    )
     current = asyncio.current_task()
     for task in asyncio.all_tasks():
         if task is not current and not task.done():
@@ -916,17 +922,42 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         f"Reply in {_lang_display} only, matching their casual tone and register.]"
     )
 
+    # Inject real France time so the AI always knows the current local time
+    try:
+        from datetime import timezone, timedelta
+        _fr_tz = timezone(timedelta(hours=1))  # CET (UTC+1); DST shifts to CEST (UTC+2) in summer
+        _now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+        # Determine if DST is active (last Sunday of March → last Sunday of October)
+        import calendar as _cal
+        _y, _m, _d = _now_utc.year, _now_utc.month, _now_utc.day
+        def _last_sunday(year, month):
+            last_day = _cal.monthrange(year, month)[1]
+            dt = datetime(year, month, last_day)
+            return last_day - dt.weekday() - 1 if dt.weekday() != 6 else last_day
+        _dst_start = datetime(_y, 3, _last_sunday(_y, 3), 2, tzinfo=timezone.utc)
+        _dst_end   = datetime(_y, 10, _last_sunday(_y, 10), 1, tzinfo=timezone.utc)
+        _offset = timedelta(hours=2) if _dst_start <= _now_utc < _dst_end else timedelta(hours=1)
+        _fr_now = _now_utc + _offset
+        _fr_time_str = _fr_now.strftime("%A %d %B %Y, %H:%M")
+        enriched_instructions += (
+            f"\n\n[CURRENT TIME: It is currently {_fr_time_str} in France (Paris time). "
+            f"Use this if someone asks what time or date it is, or if it's relevant to the conversation.]"
+        )
+    except Exception:
+        pass
+
     pics_cfg = config["bot"].get("pictures") or {}
     _available_pics = _get_random_picture() if pics_cfg.get("enabled", True) and _is_picture_request(prompt) else None
     if _available_pics:
         _peek_desc = _available_pics[0][2] if _available_pics else ""
     if _available_pics:
         enriched_instructions += (
-            "\n\n[IMPORTANT: You are sending the user a photo of yourself right now as part of this reply. "
+            "\n\n[IMPORTANT: You ARE sending the user a photo of yourself RIGHT NOW in this very reply. "
             + (f"The photo shows: {_peek_desc} " if _peek_desc else "")
-            + "React naturally like you just sent it — don't refuse, don't say you can't, don't act shy about it. "
-            "Do NOT describe the photo, do NOT write any caption or attachment text, do NOT say what is in the picture. "
-            "Just respond conversationally as a real person would after hitting send on a selfie.]"
+            + "The image is already attached and being sent. "
+            "NEVER say 'maybe later', 'not right now', 'later', 'next time', 'maybe another time', or anything that implies you are NOT sending a photo — you already are. "
+            "Do NOT describe or caption the photo. "
+            "Just react casually like a real person who just hit send on a selfie — short, natural, confident.]"
         )
 
     late_opener = ""
@@ -1108,27 +1139,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         except Exception as e:
             log_error("TTS Failed", str(e))
 
-    if len(response) > 80:
-        try:
-            split_instructions = (
-                "You are a message splitter. Split into 1-3 messages. Return ONLY a JSON array of strings."
-            )
-            split_resp = await generate_response(
-                "Split this: " + response,
-                split_instructions,
-                history=None,
-            )
-            import json as _json
-            split_resp = split_resp.strip()
-            if split_resp.startswith("["):
-                parsed = _json.loads(split_resp)
-                chunks = [s.strip() for s in parsed if s.strip()]
-            else:
-                chunks = split_response(response)
-        except Exception:
-            chunks = split_response(response)
-    else:
-        chunks = split_response(response)
+    chunks = split_response(response)
 
     if len(chunks) > 3:
         chunks = chunks[:3]
@@ -1521,7 +1532,20 @@ if __name__ == "__main__":
             b.event(on_relationship_add)
             b.event(on_relationship_remove)
             b.generate_response_and_reply = generate_response_and_reply
-        await b.start(token)
+        try:
+            await b.start(token)
+        except discord.errors.ConnectionClosed as e:
+            if e.code == 4004:
+                masked = token[:8] + "..." + token[-4:] if len(token) > 12 else "***"
+                print(
+                    f"\n{'='*60}\n"
+                    f"  ✗  INVALID OR EXPIRED TOKEN (token #{index + 1}: {masked})\n"
+                    f"  →  Discord rejected the token with code 4004.\n"
+                    f"  →  Go to your .env file and update DISCORD_TOKEN with a fresh token.\n"
+                    f"{'='*60}\n"
+                )
+            else:
+                raise
 
     async def _main():
         try:
