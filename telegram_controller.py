@@ -1033,9 +1033,8 @@ async def cmd_imagedeleteall(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Upload an image to the selfbot's pictures folder.
-    Triggered by: /imageupload command, any photo sent, or image document with /imageupload caption.
+    Triggered by: /imageupload command, any photo, or any document (mime checked inside).
     """
-    # Auth check inline (not via @owner_only) so this works from MessageHandler too
     user = update.effective_user
     if not user or user.id != TG_OWNER_ID:
         return
@@ -1080,8 +1079,8 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not tg_file:
         await msg.reply_text(
             "📎 To upload an image:\n"
-            "• Send a photo directly (no caption needed)\n"
-            "• Send an image file with /imageupload caption\n"
+            "• Send a photo directly\n"
+            "• Send an image file (png/jpg/etc)\n"
             "• Reply to an existing photo with /imageupload"
         )
         return
@@ -1131,7 +1130,6 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cmd_id = _send_command(account, "image_analyse", {"name": new_name, "b64": "", "ext": ext})
     await status.edit_text(f"{label}⏳ Saved as `{new_name}` — running AI vision analysis...")
 
-    # Poll with live countdown so user knows it's still working (vision can be slow).
     _VISION_TIMEOUT = 90.0
     _TICK = 15.0
     result = None
@@ -1170,7 +1168,7 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await status.edit_text(
             f"{label}✅ Image saved as `{new_name}`.\n"
-            f"⚠️ Vision timed out — selfbot may still be processing it. Check /imagels."
+            f"⚠️ Vision timed out — selfbot may still be processing. Check /imagels."
         )
 
 
@@ -2017,14 +2015,9 @@ def main():
     app.add_handler(CommandHandler("imagedownload",   cmd_imagedownload))
     app.add_handler(CommandHandler("imagedelete",     cmd_imagedelete))
     app.add_handler(CommandHandler("imagedeleteall",  cmd_imagedeleteall))
-    # imageupload: CommandHandler only fires on plain text, NOT on photo-with-caption.
-    # Register MessageHandlers for all photo/image-document cases.
     app.add_handler(CommandHandler("imageupload",     cmd_imageupload))  # plain /imageupload (reply-to flow)
-    app.add_handler(MessageHandler(filters.PHOTO, cmd_imageupload))  # any photo sent (with or without caption)
-    app.add_handler(MessageHandler(  # image sent as a file/document with /imageupload caption
-        filters.Document.ALL & filters.Caption(["/imageupload"]),
-        cmd_imageupload,
-    ))
+    app.add_handler(MessageHandler(filters.PHOTO, cmd_imageupload))  # any photo (with or without caption)
+    app.add_handler(MessageHandler(filters.Document.ALL, cmd_imageupload))  # any document — function checks mime
     app.add_handler(CallbackQueryHandler(_imagels_callback,     pattern=r"^imgls:"))
     app.add_handler(CallbackQueryHandler(_imagels_callback,     pattern=r"^imgdel:"))
     app.add_handler(CommandHandler("leaderboard",     cmd_leaderboard))
