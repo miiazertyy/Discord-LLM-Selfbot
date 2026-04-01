@@ -26,7 +26,7 @@ if /i "%SOURCE%"=="release" (
         git pull --rebase origin main
     )
 ) else (
-    git pull origin main
+    git pull --rebase origin main
 )
 if %errorlevel% neq 0 (
     echo ERROR: git operation failed. Check your internet connection or git setup.
