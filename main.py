@@ -567,6 +567,245 @@ async def _shutdown_on_401():
     await bot.close()
 
 
+async def _tg_ipc_loop():
+    """Poll for commands from the Telegram controller and execute them in-process."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    _CMD_FILE    = _Path(resource_path("config/tg_commands.json"))
+    _RESULT_FILE = _Path(resource_path("config/tg_results.json"))
+    _POLL_INTERVAL = 2.0
+
+    def _write_result(cmd_id: str, data: dict):
+        results = {}
+        if _RESULT_FILE.exists():
+            try:
+                results = _json.loads(_RESULT_FILE.read_text())
+            except Exception:
+                pass
+        results[cmd_id] = data
+        _RESULT_FILE.write_text(_json.dumps(results))
+
+    await bot.wait_until_ready()
+    log_system("Telegram IPC bridge started")
+
+    while not bot.is_closed():
+        await asyncio.sleep(_POLL_INTERVAL)
+        if not _CMD_FILE.exists():
+            continue
+        try:
+            raw = _CMD_FILE.read_text()
+            commands = _json.loads(raw)
+        except Exception:
+            continue
+        if not commands:
+            continue
+
+        remaining = []
+        for entry in commands:
+            cmd_id  = entry.get("id", "")
+            cmd     = entry.get("cmd", "")
+            payload = entry.get("payload", {})
+            try:
+                if cmd == "pause":
+                    bot.paused = not bot.paused
+                    _write_result(cmd_id, {"paused": bot.paused})
+
+                elif cmd == "wipe":
+                    bot.message_history.clear()
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "toggle_dm":
+                    bot.allow_dm = not bot.allow_dm
+                    cfg = load_config(); cfg["bot"]["allow_dm"] = bot.allow_dm
+                    import yaml as _yaml
+                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
+                        _yaml.dump(cfg, _f, default_flow_style=False, allow_unicode=True)
+                    _write_result(cmd_id, {"allow_dm": bot.allow_dm})
+
+                elif cmd == "toggle_gc":
+                    bot.allow_gc = not bot.allow_gc
+                    cfg = load_config(); cfg["bot"]["allow_gc"] = bot.allow_gc
+                    import yaml as _yaml
+                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
+                        _yaml.dump(cfg, _f, default_flow_style=False, allow_unicode=True)
+                    _write_result(cmd_id, {"allow_gc": bot.allow_gc})
+
+                elif cmd == "toggle_server":
+                    bot.allow_server = not getattr(bot, "allow_server", True)
+                    cfg = load_config(); cfg["bot"]["allow_server"] = bot.allow_server
+                    import yaml as _yaml
+                    with open(resource_path("config/config.yaml"), "w", encoding="utf-8") as _f:
+                        _yaml.dump(cfg, _f, default_flow_style=False, allow_unicode=True)
+                    _write_result(cmd_id, {"allow_server": bot.allow_server})
+
+                elif cmd == "ignore_add":
+                    uid = int(payload["user_id"])
+                    if uid not in bot.ignore_users:
+                        bot.ignore_users.append(uid)
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "ignore_remove":
+                    uid = int(payload["user_id"])
+                    if uid in bot.ignore_users:
+                        bot.ignore_users.remove(uid)
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "pauseuser":
+                    bot.paused_users.add(int(payload["user_id"]))
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "unpauseuser":
+                    bot.paused_users.discard(int(payload["user_id"]))
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "persona_set":
+                    from utils.memory import set_persona as _sp
+                    uid = int(payload["user_id"])
+                    _sp(uid, payload["persona"])
+                    bot._memory_cache.setdefault(uid, {})["__persona__"] = payload["persona"]
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "persona_clear":
+                    from utils.memory import clear_persona as _cp
+                    uid = int(payload["user_id"])
+                    _cp(uid)
+                    bot._memory_cache.get(uid, {}).pop("__persona__", None)
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "mood_set":
+                    import utils.mood as _mood_mod
+                    _mood_mod.current_mood = payload["mood"]
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "instructions_update":
+                    bot.instructions = payload["text"]
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "config_update":
+                    _live = {
+                        "allow_dm":          lambda v: setattr(bot, "allow_dm", v),
+                        "allow_gc":          lambda v: setattr(bot, "allow_gc", v),
+                        "allow_server":      lambda v: setattr(bot, "allow_server", v),
+                        "realistic_typing":  lambda v: setattr(bot, "realistic_typing", v),
+                        "batch_messages":    lambda v: setattr(bot, "batch_messages", v),
+                        "hold_conversation": lambda v: setattr(bot, "hold_conversation", v),
+                        "reply_ping":        lambda v: setattr(bot, "reply_ping", v),
+                        "disable_mentions":  lambda v: setattr(bot, "disable_mentions", v),
+                        "anti_age_ban":      lambda v: setattr(bot, "anti_age_ban", v),
+                    }
+                    leaf = payload.get("key", "").split(".")[-1]
+                    if leaf in _live:
+                        _live[leaf](payload.get("value"))
+                    _write_result(cmd_id, {"ok": True})
+
+                elif cmd == "reply_check":
+                    users_out = []
+                    for hk, history in bot.message_history.items():
+                        if not history or history[-1].get("role") != "user":
+                            continue
+                        try:
+                            uid = int(hk.split("-")[0])
+                            u = bot.get_user(uid)
+                            pending = [e for e in reversed(history) if e["role"] == "user"]
+                            last = pending[0]["content"] if pending else ""
+                            snippet = (last[:60] + "…") if len(last) > 60 else last
+                            users_out.append({"id": uid, "name": u.name if u else str(uid), "snippet": snippet, "count": len(pending)})
+                        except Exception:
+                            pass
+                    _write_result(cmd_id, {"users": users_out})
+
+                elif cmd == "reply_user":
+                    uid = int(payload["user_id"])
+                    u = bot.get_user(uid) or await bot.fetch_user(uid)
+                    if not u:
+                        _write_result(cmd_id, {"success": False, "reason": "user not found"}); continue
+                    target_msg = None; target_ch = None
+                    for hk in bot.message_history:
+                        if hk.startswith(f"{uid}-"):
+                            try:
+                                ch = bot.get_channel(int(hk.split("-")[1])) or await u.create_dm()
+                                async for msg in ch.history(limit=10):
+                                    if msg.author.id == uid:
+                                        target_msg = msg; target_ch = ch; break
+                            except Exception:
+                                pass
+                            break
+                    if not target_msg:
+                        try:
+                            dm = u.dm_channel or await u.create_dm()
+                            async for msg in dm.history(limit=10):
+                                if msg.author.id == uid:
+                                    target_msg = msg; target_ch = dm; break
+                        except Exception:
+                            pass
+                    if not target_msg:
+                        _write_result(cmd_id, {"success": False, "reason": "no recent message found"}); continue
+                    hk = f"{uid}-{target_ch.id}"
+                    history = bot.message_history.get(hk, [])
+                    combined = target_msg.content or "[attachment]"
+                    if not history or history[-1].get("content") != combined:
+                        history.append({"role": "user", "content": combined})
+                        bot.message_history[hk] = history
+                    resp = await generate_response_and_reply(target_msg, combined, history, bypass_cooldown=True, bypass_typing=True)
+                    if resp:
+                        bot.message_history[hk].append({"role": "assistant", "content": resp})
+                        _write_result(cmd_id, {"success": True})
+                    else:
+                        _write_result(cmd_id, {"success": False, "reason": "couldn't generate response"})
+
+                elif cmd == "reply_all":
+                    results_out = []; seen = set()
+                    for hk, history in list(bot.message_history.items()):
+                        if not history or history[-1].get("role") != "user":
+                            continue
+                        try:
+                            uid = int(hk.split("-")[0])
+                            if uid in seen: continue
+                            seen.add(uid)
+                            u = bot.get_user(uid) or await bot.fetch_user(uid)
+                            ch = bot.get_channel(int(hk.split("-")[1])) or await u.create_dm()
+                            target_msg = None
+                            async for msg in ch.history(limit=5):
+                                if msg.author.id == uid:
+                                    target_msg = msg; break
+                            if not target_msg:
+                                results_out.append({"id": uid, "name": u.name, "success": False, "reason": "no message"}); continue
+                            combined = "\n".join(e["content"] for e in history[-3:] if e["role"] == "user")
+                            resp = await generate_response_and_reply(target_msg, combined, history, bypass_cooldown=True, bypass_typing=True)
+                            if resp:
+                                bot.message_history[hk].append({"role": "assistant", "content": resp})
+                                results_out.append({"id": uid, "name": u.name, "success": True})
+                            else:
+                                results_out.append({"id": uid, "name": u.name, "success": False, "reason": "no response"})
+                        except Exception as _e:
+                            results_out.append({"id": 0, "name": "unknown", "success": False, "reason": str(_e)})
+                    _write_result(cmd_id, {"total": len(results_out), "results": results_out})
+
+                elif cmd == "restart":
+                    import atexit as _atexit
+                    log_system("Restart requested via Telegram")
+                    if getattr(sys, "frozen", False):
+                        _atexit.register(lambda: os.startfile(sys.executable))
+                    else:
+                        import subprocess as _sp
+                        _atexit.register(lambda: _sp.Popen([sys.executable] + sys.argv))
+                    await bot.close(); sys.exit(0)
+
+                elif cmd == "shutdown":
+                    log_system("Shutdown requested via Telegram")
+                    await bot.close(); sys.exit(0)
+
+                else:
+                    remaining.append(entry)
+
+            except Exception as _err:
+                log_error("TG IPC", f"cmd={cmd} error={_err}")
+                remaining.append(entry)
+
+        _CMD_FILE.write_text(_json.dumps(remaining))
+
+
 @bot.event
 async def on_ready():
     if config["bot"]["owner_id"] == 123456789012345678:
@@ -607,6 +846,7 @@ async def on_ready():
     if fr_cfg.get("enabled", False):
         asyncio.create_task(_friend_request_loop())
 
+    asyncio.create_task(_tg_ipc_loop())
 
 
 async def setup_hook():
