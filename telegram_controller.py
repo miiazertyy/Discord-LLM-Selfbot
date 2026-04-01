@@ -103,7 +103,6 @@ import os
 import sys
 import time
 import logging
-import uuid
 from pathlib import Path
 
 # ── Dependency check ─────────────────────────────────────────────────────────
@@ -134,6 +133,11 @@ _CONFIG_YAML = _CONFIG_DIR / "config.yaml"
 _INSTRUCTIONS_PATH = _CONFIG_DIR / "instructions.txt"
 _DB_PATH = _CONFIG_DIR / "bot_data.db"
 _PICTURES_DIR = _CONFIG_DIR / "pictures"
+
+# Buffer for collecting media-group (album) messages before processing them together.
+# Maps media_group_id -> list of (tg_file, filename_hint, arrival_time)
+_media_group_buffer: dict = {}
+_MEDIA_GROUP_WAIT = 1.2  # seconds to wait for all album messages to arrive
 
 load_dotenv(dotenv_path=_ENV_PATH, override=True)
 
@@ -239,7 +243,7 @@ def _save_instructions(text: str):
 def _send_command(account: int, cmd: str, payload: dict = None) -> str:
     """Write a command to the per-account IPC file."""
     entry = {
-        "id": str(uuid.uuid4()),
+        "id": str(time.time()),
         "cmd": cmd,
         "payload": payload or {},
         "ts": time.time(),
@@ -1007,17 +1011,52 @@ async def cmd_imagedelete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account = _get_account(context)
     label = _account_label(account)
     if not context.args:
-        await update.message.reply_text("Usage: /imagedelete <number>\nUse /imagels to see images.")
+        await update.message.reply_text(
+            "Usage: /imagedelete <n> [n2 n3 ...]\n"
+            "Examples: /imagedelete 3  |  /imagedelete 1 4 7\n"
+            "Use /imagels to see image numbers."
+        )
         return
-    cmd_id = _send_command(account, "image_delete", {"name": context.args[0]})
-    result = await _wait_for_result(account, cmd_id, timeout=10.0)
-    if result:
-        if result.get("ok"):
-            await update.message.reply_text(f"{label}✅ Deleted `{context.args[0]}`.", parse_mode=ParseMode.MARKDOWN)
+
+    # Parse all args — support "1,2,3", "1 2 3", or a mix
+    raw = " ".join(context.args).replace(",", " ").split()
+    nums = []
+    for token in raw:
+        token = token.strip()
+        if token.isdigit():
+            nums.append(token)
         else:
+            await update.message.reply_text(f"❌ Invalid number: `{token}`")
+            return
+
+    if len(nums) == 1:
+        # Single delete — use existing IPC command
+        cmd_id = _send_command(account, "image_delete", {"name": nums[0]})
+        result = await _wait_for_result(account, cmd_id, timeout=10.0)
+        if result and result.get("ok"):
+            await update.message.reply_text(f"{label}✅ Deleted image #{nums[0]}.")
+        elif result:
             await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+        else:
+            await update.message.reply_text(f"{label}⚠️ Selfbot did not respond in time.")
     else:
-        await update.message.reply_text(f"{label}⚠️ Command sent, selfbot did not respond in time.")
+        # Multi-delete — send as a batch
+        status = await update.message.reply_text(
+            f"{label}⏳ Deleting {len(nums)} images: {', '.join(f'#{n}' for n in nums)}..."
+        )
+        cmd_id = _send_command(account, "image_delete_multi", {"names": nums})
+        result = await _wait_for_result(account, cmd_id, timeout=15.0)
+        if result and result.get("ok"):
+            deleted = result.get("deleted", nums)
+            failed = result.get("failed", [])
+            lines = [f"{label}✅ Deleted {len(deleted)} image(s)."]
+            if failed:
+                lines.append(f"⚠️ Not found: {', '.join(f'#{n}' for n in failed)}")
+            await status.edit_text("\n".join(lines))
+        elif result:
+            await status.edit_text(f"❌ {result.get('reason', 'Unknown error')}")
+        else:
+            await status.edit_text(f"{label}⚠️ Selfbot did not respond in time.")
 
 
 @owner_only
@@ -1032,114 +1071,183 @@ async def cmd_imagedeleteall(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"{label}⚠️ Command sent, selfbot did not respond in time.")
 
 
-@owner_only
-async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Upload an image to the selfbot's pictures folder.
-    Send /imageupload with a photo or image file attached.
-    The selfbot will run AI vision analysis on it automatically.
-    """
-    account = _get_account(context)
-    label = _account_label(account)
-
-    msg = update.message
-    tg_file = None
-    filename_hint = None
-
-    # Telegram sends photo+caption as ONE message. When user sends a file with
-    # caption "/imageupload", msg.document is set. When compressed photo + caption,
-    # msg.photo is set. CommandHandler fires on caption in both cases.
-    if msg.photo:
-        # Compressed photo (with or without /imageupload caption)
-        tg_file = await msg.photo[-1].get_file()
-        filename_hint = "upload.jpg"
-    elif msg.document:
-        # File/document upload — accept any image mime type OR image file extension
-        doc = msg.document
-        fname = doc.file_name or ""
-        is_image_mime = bool(doc.mime_type and doc.mime_type.startswith("image/"))
-        is_image_ext = any(fname.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"))
-        if is_image_mime or is_image_ext:
-            tg_file = await doc.get_file()
-            filename_hint = fname or "upload.png"
-    elif msg.reply_to_message:
-        rep = msg.reply_to_message
-        if rep.photo:
-            tg_file = await rep.photo[-1].get_file()
-            filename_hint = "upload.jpg"
-        elif rep.document:
-            doc = rep.document
-            fname = doc.file_name or ""
-            is_image_mime = bool(doc.mime_type and doc.mime_type.startswith("image/"))
-            is_image_ext = any(fname.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"))
-            if is_image_mime or is_image_ext:
-                tg_file = await doc.get_file()
-                filename_hint = fname or "upload.png"
-
-    if not tg_file:
-        await msg.reply_text(
-            "📎 To upload an image:\n"
-            "• Send a photo directly\n"
-            "• Send an image file (png/jpg/etc)\n"
-            "• Reply to an existing photo with /imageupload"
-        )
-        return
-
-    status = await msg.reply_text(f"{label}⏳ Downloading and saving image...")
-
-    try:
-        image_bytes = await tg_file.download_as_bytearray()
-    except Exception as e:
-        await status.edit_text(f"❌ Failed to download image: {e}")
-        return
-
-    # Determine extension from filename or mime type
-    import mimetypes
-    ext = ".jpg"
-    if filename_hint:
-        _, e2 = os.path.splitext(filename_hint)
-        if e2.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
-            ext = e2.lower()
-
-    # Find next available index
+def _next_img_index() -> int:
+    """Return the next free IMG_N index in the pictures folder."""
+    valid_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
     if not _PICTURES_DIR.exists():
         _PICTURES_DIR.mkdir(parents=True, exist_ok=True)
-    valid_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-    existing = [f for f in _PICTURES_DIR.iterdir() if f.suffix.lower() in valid_exts]
     used = set()
-    for f in existing:
-        if f.stem.startswith("IMG_") and f.stem[4:].isdigit():
+    for f in _PICTURES_DIR.iterdir():
+        if f.suffix.lower() in valid_exts and f.stem.startswith("IMG_") and f.stem[4:].isdigit():
             used.add(int(f.stem[4:]))
     idx = 1
     while idx in used:
         idx += 1
-    new_name = f"IMG_{idx}{ext}"
-    dest = _PICTURES_DIR / new_name
+    return idx
 
-    try:
-        dest.write_bytes(image_bytes)
-    except Exception as e:
-        await status.edit_text(f"❌ Failed to save image: {e}")
+
+def _extract_tg_file_info(msg):
+    """Return (tg_file_coro_getter, filename_hint) for a message, or (None, None)."""
+    valid_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+    if msg.photo:
+        return msg.photo[-1], "upload.jpg"
+    elif msg.document:
+        doc = msg.document
+        fname = doc.file_name or ""
+        is_img = (doc.mime_type and doc.mime_type.startswith("image/")) or                  any(fname.lower().endswith(e) for e in valid_exts)
+        if is_img:
+            return doc, fname or "upload.png"
+    return None, None
+
+
+async def _process_images(account, label, msg, file_infos):
+    """Download, save, and analyse a list of (tg_obj, filename_hint) tuples.
+    Sends a single status message that is updated per image."""
+    total = len(file_infos)
+    status = await msg.reply_text(f"{label}⏳ Uploading {total} image{'s' if total > 1 else ''}...")
+
+    saved = []   # (new_name, ext)
+    for i, (tg_obj, filename_hint) in enumerate(file_infos, 1):
+        if total > 1:
+            try:
+                await status.edit_text(f"{label}⏳ Downloading image {i}/{total}...")
+            except Exception:
+                pass
+        try:
+            image_bytes = await tg_obj.get_file().download_as_bytearray()                 if hasattr(tg_obj, "get_file") else await (await tg_obj.get_file()).download_as_bytearray()
+        except Exception:
+            # Try alternate form
+            try:
+                tg_file = await tg_obj.get_file()
+                image_bytes = await tg_file.download_as_bytearray()
+            except Exception as e:
+                await status.edit_text(f"❌ Failed to download image {i}: {e}")
+                return
+
+        ext = ".jpg"
+        if filename_hint:
+            _, e2 = os.path.splitext(filename_hint)
+            if e2.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+                ext = e2.lower()
+
+        idx = _next_img_index()
+        new_name = f"IMG_{idx}{ext}"
+        dest = _PICTURES_DIR / new_name
+        try:
+            dest.write_bytes(bytes(image_bytes))
+        except Exception as e:
+            await status.edit_text(f"❌ Failed to save image {i}: {e}")
+            return
+        saved.append((new_name, ext))
+
+    # Now run vision analysis on each saved image sequentially
+    results_text = []
+    for i, (new_name, ext) in enumerate(saved, 1):
+        if total > 1:
+            try:
+                await status.edit_text(
+                    f"{label}⏳ Analysing image {i}/{total}: `{new_name}`..."
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                await status.edit_text(f"{label}⏳ Saved as `{new_name}` — running AI vision analysis...")
+            except Exception:
+                pass
+
+        cmd_id = _send_command(account, "image_analyse", {"name": new_name, "b64": "", "ext": ext})
+        _VISION_TIMEOUT = 90.0
+        _TICK = 15.0
+        result = None
+        f = _result_file(account)
+        deadline = time.time() + _VISION_TIMEOUT
+        while time.time() < deadline:
+            await asyncio.sleep(min(_TICK, max(0.3, deadline - time.time())))
+            if f.exists():
+                try:
+                    res_data = json.loads(f.read_text())
+                    if cmd_id in res_data:
+                        result = res_data.pop(cmd_id)
+                        f.write_text(json.dumps(res_data))
+                        break
+                except Exception:
+                    pass
+            if time.time() < deadline:
+                remaining_s = int(deadline - time.time())
+                try:
+                    await status.edit_text(
+                        f"{label}⏳ Analysing {i}/{total}: `{new_name}`... (~{remaining_s}s left)"
+                    )
+                except Exception:
+                    pass
+
+        if result and result.get("ok"):
+            desc = result.get("description", "(no description)")
+            short = desc[:200] + ("…" if len(desc) > 200 else "")
+            results_text.append(f"✅ `{new_name}` — {short}")
+        elif result:
+            results_text.append(f"✅ `{new_name}` — vision failed: {result.get('reason', '?')}")
+        else:
+            results_text.append(f"✅ `{new_name}` — vision timed out")
+
+    summary = f"{label}Done! {total} image{'s' if total > 1 else ''} uploaded:\n\n" + "\n\n".join(results_text)
+    # Telegram message limit is 4096 chars
+    if len(summary) > 4000:
+        summary = summary[:3997] + "…"
+    await status.edit_text(summary)
+
+
+async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Upload one or multiple images. Send photos/files directly or reply to a photo."""
+    user = update.effective_user
+    if not user or user.id != TG_OWNER_ID:
         return
 
-    # Tell the selfbot to run vision analysis via IPC.
-    # Do NOT embed the full base64 in the JSON — for images > ~500 KB the IPC
-    # file becomes too large to parse reliably and /imageupload silently fails.
-    # The file is already saved to the shared config/pictures/ folder, so the
-    # selfbot reads it directly from disk using the filename.
-    cmd_id = _send_command(account, "image_analyse", {"name": new_name, "b64": "", "ext": ext})
-    await status.edit_text(f"{label}⏳ Saved as `{new_name}` — running AI description... (up to 30s)")
-    result = await _wait_for_result(account, cmd_id, timeout=30.0)
+    account = _get_account(context)
+    label = _account_label(account)
+    msg = update.message
 
-    if result and result.get("ok"):
-        desc = result.get("description", "(no description)")
-        short = desc[:300] + ("…" if len(desc) > 300 else "")
-        await status.edit_text(
-            f"{label}✅ Saved as `{new_name}`\n\n📝 {short}",
+    # ── Media group (album) handling ──────────────────────────────────────────
+    # Telegram sends each photo in an album as a separate message with the same
+    # media_group_id. We buffer them for _MEDIA_GROUP_WAIT seconds then process all.
+    if msg.media_group_id:
+        mgid = msg.media_group_id
+        tg_obj, filename_hint = _extract_tg_file_info(msg)
+        if tg_obj is None:
+            return  # not an image in this album slot
+        if mgid not in _media_group_buffer:
+            _media_group_buffer[mgid] = {"files": [], "account": account, "label": label, "msg": msg}
+        _media_group_buffer[mgid]["files"].append((tg_obj, filename_hint))
+
+        async def _flush_after_wait(group_id):
+            await asyncio.sleep(_MEDIA_GROUP_WAIT)
+            group = _media_group_buffer.pop(group_id, None)
+            if not group or not group["files"]:
+                return
+            await _process_images(group["account"], group["label"], group["msg"], group["files"])
+
+        # Only the first message in the group starts the flush timer
+        if len(_media_group_buffer[mgid]["files"]) == 1:
+            asyncio.create_task(_flush_after_wait(mgid))
+        return
+
+    # ── Single image or reply ─────────────────────────────────────────────────
+    tg_obj, filename_hint = _extract_tg_file_info(msg)
+
+    if tg_obj is None and msg.reply_to_message:
+        tg_obj, filename_hint = _extract_tg_file_info(msg.reply_to_message)
+
+    if tg_obj is None:
+        await msg.reply_text(
+            "📎 To upload image(s):\n"
+            "• Send one or more photos directly (album supported)\n"
+            "• Send image files as documents\n"
+            "• Reply to an existing photo with /imageupload"
         )
-    elif result:
-        await status.edit_text(f"{label}✅ Saved as `{new_name}` (vision analysis failed: {result.get('reason', '?')})")
-    else:
-        await status.edit_text(f"{label}✅ Saved as `{new_name}` — selfbot didn't respond in time for description.")
+        return
+
+    await _process_images(account, label, msg, [(tg_obj, filename_hint)])
 
 
 # ── /mood — live state via IPC ────────────────────────────────────────────────
