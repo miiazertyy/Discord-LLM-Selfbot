@@ -23,7 +23,7 @@ if /i "%SOURCE%"=="release" (
         git checkout %LATEST_TAG%
     ) else (
         echo No tags found, falling back to main...
-        git pull --no-edit origin main
+        git pull --rebase origin main
     )
 ) else (
     git pull origin main
