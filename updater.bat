@@ -1,6 +1,7 @@
 @echo off
 title Updating AI Selfbot...
 
+:: Always anchor to the script's own directory
 cd /d "%~dp0"
 
 set SOURCE=%~1
@@ -9,17 +10,19 @@ if "%SOURCE%"=="" set SOURCE=main
 echo Waiting for bot to shut down...
 timeout /t 4 /nobreak > nul
 
+:: Clean up the update flag so the bot doesn't re-trigger on restart
+if exist "config\update.flag" del /f /q "config\update.flag"
+
 echo Pulling latest changes from GitHub...
 git stash --include-untracked 2>nul
 
 if /i "%SOURCE%"=="release" (
     echo Fetching latest release tag...
     git fetch --tags origin
+    set LATEST_TAG=
     for /f "delims=" %%T in ('git tag --sort=-version:refname') do (
-        set LATEST_TAG=%%T
-        goto :got_tag
+        if not defined LATEST_TAG set LATEST_TAG=%%T
     )
-    :got_tag
     if defined LATEST_TAG (
         echo Checking out release %LATEST_TAG%...
         git checkout %LATEST_TAG%
@@ -30,6 +33,7 @@ if /i "%SOURCE%"=="release" (
 ) else (
     git pull --rebase origin main
 )
+
 if %errorlevel% neq 0 (
     echo ERROR: git operation failed. Check your internet connection or git setup.
     pause
@@ -38,13 +42,19 @@ if %errorlevel% neq 0 (
 git stash pop 2>nul
 
 echo Deleting bot-env...
-rmdir /s /q bot-env
+rmdir /s /q "%~dp0bot-env"
 
 echo Reinstalling...
 python -m venv "%~dp0bot-env"
+if %errorlevel% neq 0 (
+    echo ERROR: Failed to create virtual environment. Is Python installed and in PATH?
+    pause
+    exit /b 1
+)
+
 call "%~dp0bot-env\Scripts\activate.bat"
-pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+pip install -r "%~dp0requirements.txt"
 pip install -U davey curl_cffi python-telegram-bot
 
 echo Checking for ffmpeg...
@@ -62,4 +72,4 @@ if %errorlevel% neq 0 (
 )
 
 echo Update complete. Relaunching...
-start "AI Selfbot" cmd /k "cd /d "%~dp0" && call "%~dp0bot-env\Scripts\activate.bat" && python main.py"
+start "AI Selfbot" cmd /k "cd /d "%~dp0" && call "%~dp0bot-env\Scripts\activate.bat" && python "%~dp0main.py""
