@@ -60,6 +60,25 @@ fi
 
 source bot-env/bin/activate
 
+# Launch Telegram controller in a separate terminal if token is configured
+if [ -f "config/.env" ]; then
+    TG_TOKEN=$(grep -i "TELEGRAM_BOT_TOKEN" config/.env | cut -d'=' -f2 | tr -d '[:space:]')
+    if [ -n "$TG_TOKEN" ] && [ "$TG_TOKEN" != "" ]; then
+        echo "Starting Telegram controller..."
+        if command -v gnome-terminal >/dev/null 2>&1; then
+            gnome-terminal -- bash -c "source bot-env/bin/activate && python3 telegram_controller.py; exec bash"
+        elif command -v xterm >/dev/null 2>&1; then
+            xterm -title "Telegram Controller" -e "source bot-env/bin/activate && python3 telegram_controller.py; exec bash" &
+        elif command -v konsole >/dev/null 2>&1; then
+            konsole --new-tab -e bash -c "source bot-env/bin/activate && python3 telegram_controller.py; exec bash" &
+        else
+            # No GUI terminal — run in background and log to file
+            source bot-env/bin/activate
+            python3 telegram_controller.py > logs/telegram_controller.log 2>&1 &
+            echo "Telegram controller started in background (logs/telegram_controller.log)"
+        fi
+    fi
+fi
+
 echo "Starting bot..."
 python3 main.py
-
