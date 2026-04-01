@@ -1869,77 +1869,66 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
             "/account \\<n\\> \u2014 switch to account n\n"
         )
 
-    help_text = f"""
-\U0001f916 *AI Selfbot Telegram Controller*
-\U0001f4a1 _Using Telegram is safer than Discord commands \u2014 no selfbot activity on your account\\._{account_section}
-*\U0001f916 AI*
-/pause \u2014 toggle pause AI responses
-/pauseuser \\<id\\> \u2014 stop responding to user
-/unpauseuser \\<id\\> \u2014 resume responding to user
-/wipe \u2014 clear conversation history
-/persona \\<id\\> \\<text\\|off\\|show\\> \u2014 manage per\\-user persona
-/analyse \\<id\\> \u2014 psychological profile of a user
-
-*\U0001f4ac Replies*
-/reply check \u2014 show unreplied conversations
-/reply all \u2014 respond to all unreplied
-/reply \\<id\\> \u2014 respond to specific user \\(also: /response\\)
-
-*\u2699 Config & Instructions*
-/config \u2014 view full config
-/config \\<key\\> \\<value\\> \u2014 edit a value
-/prompt \u2014 view instructions
-/prompt \\<text\\> \u2014 update instructions
-/prompt clear \u2014 clear instructions
-/getconfig \u2014 download config\\.yaml
-/setconfig \u2014 upload new config\\.yaml \\(attach file\\)
-/instructions \u2014 upload new instructions\\.txt \\(attach file\\)
-/getinstructions \u2014 download instructions\\.txt
-/getdb \u2014 download bot\\_data\\.db
-/reload \u2014 reload all cogs \\+ instructions
-/update \u2014 update to latest release
-/update main \u2014 update to latest commit
-
-*\U0001f3ad Behaviour*
-/mood \u2014 view current mood \\(live\\)
-/mood \\<n\\> \u2014 set mood
-/ignore \\<id\\> \u2014 ignore\\/unignore user
-
-*\U0001f399 Profile & Status*
-/status \u2014 show bot status
-/setstatus \\[emoji\\] \\[text\\] \u2014 set Discord custom status
-/bio \\[text\\] \u2014 set profile bio \\(omit to clear\\)
-/pfp \\<url\\> \u2014 change profile picture
-
-*\U0001f4e1 Channels*
-/toggledm \u2014 toggle DM responses
-/togglegc \u2014 toggle group chat responses
-/toggleserver \u2014 toggle server responses
-/toggleactive \\<id\\> \u2014 toggle channel as active
-
-*\U0001f399 Voice*
-/join \\<id\\/link\\> \u2014 join voice channel
-/leave \u2014 leave voice channel
-/autojoin \\<id\\/link\\> \u2014 set auto\\-join channel
-/autojoin off \u2014 disable auto\\-join
-
-*\U0001f5bc Images*
-/imagels /imagelist \u2014 browse pictures with full descriptions
-/imageupload \u2014 upload a new image \\(attach photo or send one\\)
-/imagedownload /imagedl \\<n\\> \u2014 download image by number
-/imagedelete \\<n\\> \u2014 delete image by number
-/imagedeleteall \u2014 delete all images
-
-*\U0001f4ca Stats*
-/leaderboard \u2014 top users all time
-/leaderboard \\<filter\\> \u2014 e\\.g\\. /leaderboard 7d
-/addfriend \\<id\\> \u2014 send friend request
-
-*\U0001f6e0 System*
-/restart \u2014 restart selfbot
-/shutdown \u2014 shut down selfbot
-/ping \u2014 check controller is running
-/clear \u2014 delete this bot's recent messages
+    help_text = f"""📋 *Commands*{account_section}
+`─────────────────────────────`
+  🌙  *AI*
+  /pause \u2014 pause / unpause AI responses
+  /pauseuser \\<user\\> \u2014 stop responding to a user
+  /unpauseuser \\<user\\> \u2014 resume responding to a user
+  /persona \\<user\\> \\[text\\] \u2014 set / clear / show a per\\-user persona
+  /wipe \u2014 clear conversation history
+  /analyse \\<user\\> \u2014 psychological read of a user
+`─────────────────────────────`
+  💬  *Replies*
+  /reply \\<user\\> \u2014 manually reply to a user \\(also: /response\\)
+  /reply check \u2014 show users with unread messages
+  /reply all \u2014 respond to all users with unread messages
+`─────────────────────────────`
+  ⚙️  *Instructions & Config*
+  /prompt \\[text\\] \u2014 view / set / clear instructions
+  /instructions \u2014 upload a new instructions\\.txt
+  /getinstructions \u2014 download current instructions\\.txt
+  /config \u2014 view full config \\(all sections\\)
+  /config \\<key\\> \\<value\\> \u2014 edit a config value
+  /getconfig \u2014 download config\\.yaml
+  /setconfig \u2014 upload a new config\\.yaml
+`─────────────────────────────`
+  📡  *Channels*
+  /toggleactive \\<id\\> \u2014 toggle a channel as active
+  /toggledm \u2014 toggle DM responses
+  /togglegc \u2014 toggle group chat responses
+  /toggleserver \u2014 toggle server mention\\/reply responses
+  /ignore \\<user\\> \u2014 ignore / unignore a user
+`─────────────────────────────`
+  🎙️  *Voice*
+  /join \\<id\\/link\\> \u2014 join a voice channel
+  /leave \u2014 leave the current voice channel
+  /autojoin \\<id\\/link\\> \u2014 auto\\-join a voice channel on startup
+  /autojoin off \u2014 disable auto\\-join
+`─────────────────────────────`
+  🖼️  *Images*
+  /imagels /imagelist \u2014 list all pictures with descriptions
+  /imageupload \u2014 upload picture\\(s\\) \\(attach file \u2014 auto\\-analysed\\)
+  /imagedownload /imagedl \\<n\\> \u2014 download a picture by number
+  /imagedelete \\<n\\> \u2014 delete a picture by number
+  /imagedeleteall \u2014 delete all pictures
+`─────────────────────────────`
+  🎭  *Profile & Status*
+  /setstatus \\[emoji\\] \\[text\\] \u2014 set a custom status
+  /bio \\[text\\] \u2014 set profile bio
+  /pfp \\<url\\> \u2014 change profile picture
+  /mood \\[name\\] \u2014 view or set current mood
+`─────────────────────────────`
+  🛠️  *System*
+  /addfriend \\<user\\_id\\> \u2014 send a friend request by user ID
+  /reload \u2014 reload all cogs \\+ instructions
+  /restart \u2014 restart the bot
+  /shutdown \u2014 shut down the bot
+  /update \u2014 update to latest release
+  /update main \u2014 update to latest commit
+  /getdb \u2014 download memory database
+  /leaderboard \\[f\\] \u2014 show top users \\(e\\.g\\. /leaderboard 3d / 1w\\)
+  /ping \u2014 check controller is running
 """
     # Retry up to 3 times on transient network errors, fall back to plain text
     from telegram.error import NetworkError as TGNetworkError
