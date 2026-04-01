@@ -195,6 +195,13 @@ def owner_only(func):
         uid = user.id if user else None
         if uid != TG_OWNER_ID:
             logger.warning(f"[AUTH] Rejected /{func.__name__} — uid={uid}")
+            await update.message.reply_text(
+                f"⛔ Not authorised.\n\n"
+                f"Your Telegram user ID is: `{uid}`\n"
+                f"Configured TELEGRAM\\_OWNER\\_ID is: `{TG_OWNER_ID}`\n\n"
+                f"If these don't match, update `TELEGRAM_OWNER_ID={uid}` in your `config/.env` and restart the controller.",
+                parse_mode=ParseMode.MARKDOWN
+            )
             return
         await func(update, context)
     return wrapper
@@ -1314,9 +1321,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if uid != TG_OWNER_ID:
         await update.message.reply_text(
-            f"⛔ You are not authorised.\n\n"
+            f"⛔ Not authorised.\n\n"
             f"Your Telegram user ID is: `{uid}`\n"
-            f"Add `TELEGRAM_OWNER_ID={uid}` to your `config/.env` file, then restart.",
+            f"Configured TELEGRAM\\_OWNER\\_ID is: `{TG_OWNER_ID}`\n\n"
+            f"If these don't match, update `TELEGRAM_OWNER_ID={uid}` in your `config/.env` and restart the controller.",
             parse_mode=ParseMode.MARKDOWN
         )
         return
