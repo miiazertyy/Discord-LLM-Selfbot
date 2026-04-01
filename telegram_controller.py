@@ -1106,10 +1106,12 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status.edit_text(f"❌ Failed to save image: {e}")
         return
 
-    # Tell the selfbot to run vision analysis on it via IPC
-    import base64 as _b64
-    b64_data = _b64.b64encode(bytes(image_bytes)).decode()
-    cmd_id = _send_command(account, "image_analyse", {"name": new_name, "b64": b64_data, "ext": ext})
+    # Tell the selfbot to run vision analysis via IPC.
+    # Do NOT embed the full base64 in the JSON — for images > ~500 KB the IPC
+    # file becomes too large to parse reliably and /imageupload silently fails.
+    # The file is already saved to the shared config/pictures/ folder, so the
+    # selfbot reads it directly from disk using the filename.
+    cmd_id = _send_command(account, "image_analyse", {"name": new_name, "b64": "", "ext": ext})
     await status.edit_text(f"{label}⏳ Saved as `{new_name}` — running AI description... (up to 30s)")
     result = await _wait_for_result(account, cmd_id, timeout=30.0)
 
