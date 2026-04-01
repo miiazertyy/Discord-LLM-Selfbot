@@ -8,7 +8,13 @@ set SOURCE=%~1
 if "%SOURCE%"=="" set SOURCE=main
 
 echo Waiting for bot to shut down...
-timeout /t 4 /nobreak > nul
+timeout /t 5 /nobreak > nul
+
+:: Kill any lingering Python processes holding bot-env files open
+echo Killing any lingering Python processes...
+taskkill /f /im python.exe >nul 2>&1
+taskkill /f /im pythonw.exe >nul 2>&1
+timeout /t 2 /nobreak > nul
 
 :: Clean up the update flag so the bot doesn't re-trigger on restart
 if exist "config\update.flag" del /f /q "config\update.flag"
@@ -42,7 +48,13 @@ if %errorlevel% neq 0 (
 git stash pop 2>nul
 
 echo Deleting bot-env...
-rmdir /s /q "%~dp0bot-env"
+:delete_retry
+rmdir /s /q "%~dp0bot-env" 2>nul
+if exist "%~dp0bot-env" (
+    echo bot-env still locked, retrying in 3s...
+    timeout /t 3 /nobreak > nul
+    goto delete_retry
+)
 
 echo Reinstalling...
 python -m venv "%~dp0bot-env"
