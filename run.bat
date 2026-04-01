@@ -37,24 +37,10 @@ echo cd /d "%~dp0" >> _tg_launch.bat
 echo call "bot-env\Scripts\activate.bat" >> _tg_launch.bat
 echo python telegram_controller.py >> _tg_launch.bat
 
-:: Use Python to safely check the credentials — avoids all cmd quoting issues with token values
-python -c "
-import os, sys
-env_path = os.path.join(os.getcwd(), 'config', '.env')
-if not os.path.exists(env_path):
-    sys.exit(1)
-vals = {}
-for line in open(env_path):
-    line = line.strip()
-    if '=' in line:
-        k, _, v = line.partition('=')
-        vals[k.strip()] = v.strip()
-token = vals.get('TELEGRAM_BOT_TOKEN', '')
-owner = vals.get('TELEGRAM_OWNER_ID', '0')
-if token and owner and owner != '0':
-    sys.exit(0)
-sys.exit(1)
-"
+:: Write a Python helper script to check credentials (avoids cmd quoting issues with token values)
+echo import os, sys; f=open(os.path.join('config','.env')); d=dict(l.strip().split('=',1) for l in f if '=' in l); t=d.get('TELEGRAM_BOT_TOKEN','').strip(); o=d.get('TELEGRAM_OWNER_ID','0').strip(); sys.exit(0 if t and o and o!='0' else 1) > _tg_check.py
+
+python _tg_check.py
 if %errorlevel%==0 (
     echo Starting Telegram controller...
     start "Telegram Controller" cmd /k "_tg_launch.bat"
