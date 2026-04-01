@@ -1460,31 +1460,6 @@ async def cmd_toggleserver(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @owner_only
-async def cmd_togglecommands(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Toggle or set discord_commands_enabled. Usage: /togglecommands [true|false]"""
-    account = _get_account(context)
-    label = _account_label(account)
-    payload = {}
-    if context.args:
-        v = context.args[0].lower()
-        if v in ("true", "1", "on", "yes"):
-            payload["value"] = True
-        elif v in ("false", "0", "off", "no"):
-            payload["value"] = False
-        else:
-            await update.message.reply_text("Usage: /togglecommands [true|false]")
-            return
-    cmd_id = _send_command(account, "toggle_commands", payload)
-    result = await _wait_for_result(account, cmd_id)
-    if result:
-        await update.message.reply_text(
-            f"{label}Discord commands are now {'✅ enabled' if result.get('discord_commands_enabled') else '❌ disabled'}."
-        )
-    else:
-        await update.message.reply_text(f"{label}⚠️ Command sent to selfbot.")
-
-
-@owner_only
 async def cmd_toggleactive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account = _get_account(context)
     label = _account_label(account)
@@ -1798,8 +1773,6 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 /toggledm \u2014 toggle DM responses
 /togglegc \u2014 toggle group chat responses
 /toggleserver \u2014 toggle server responses
-/togglecommands \u2014 toggle Discord command responses
-/togglecommands \\<true\\|false\\> \u2014 set explicitly
 /toggleactive \\<id\\> \u2014 toggle channel as active
 
 *\U0001f399 Voice*
@@ -1971,7 +1944,6 @@ def main():
     app.add_handler(CommandHandler("toggledm",        cmd_toggledm))
     app.add_handler(CommandHandler("togglegc",        cmd_togglegc))
     app.add_handler(CommandHandler("toggleserver",    cmd_toggleserver))
-    app.add_handler(CommandHandler("togglecommands",  cmd_togglecommands))
     app.add_handler(CommandHandler("toggleactive",    cmd_toggleactive))
     app.add_handler(CommandHandler("join",            cmd_join))
     app.add_handler(CommandHandler("leave",           cmd_leave))
