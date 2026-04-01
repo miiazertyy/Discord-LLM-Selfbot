@@ -139,6 +139,7 @@ bot:
     accept_delay_min: 120  # minimum seconds before accepting (2 min)
     accept_delay_max: 600  # maximum seconds before accepting (10 min)
 
+  # --- Nudge system ---
   nudge:
     enabled: false          # flip to true to activate
     threshold_days: 2       # how long before a nudge fires
@@ -148,6 +149,6 @@ bot:
       - 22                  # don't nudge after 10pm
 
 notifications:
-  error_webhook: "" 
+  error_webhook: ""
   ratelimit_notifications: true
-  notifications.telegram_error_notifications: true
+  telegram_error_notifications: true
