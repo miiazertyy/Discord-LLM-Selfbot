@@ -8,7 +8,7 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 
 > ⚠️ **Disclaimer**
 > Using this on a user account violates [Discord's Terms of Service](https://discord.com/terms) and may result in your account being banned. Only use this on an account you're willing to lose. I take no responsibility for any actions taken against your account.
-
+> It is highly recommended to use a Telegram Bot for commands to prevent banning
 ---
 
 ## ☮️ Features
@@ -38,8 +38,6 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 ---
 
 ## 📋 Commands
-
-> Prefix: `,` by default (configurable)
 
 ### 🌙 AI
 | Command | Description |
