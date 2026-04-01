@@ -1,5 +1,3 @@
-notifications.telegram_error_notifications: true
-
 bot:
   # Owner ID of your account (can't be same as bot's ID)
   owner_id: 272402839874174976
@@ -152,3 +150,4 @@ bot:
 notifications:
   error_webhook: "" 
   ratelimit_notifications: true
+  notifications.telegram_error_notifications: true
