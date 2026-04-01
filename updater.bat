@@ -84,4 +84,4 @@ if %errorlevel% neq 0 (
 )
 
 echo Update complete. Relaunching...
-start "AI Selfbot" cmd /k "cd /d "%~dp0" && call "%~dp0bot-env\Scripts\activate.bat" && python "%~dp0main.py""
+start "AI Selfbot" cmd /k "cd /d "%~dp0" && call "%~dp0run.bat""
