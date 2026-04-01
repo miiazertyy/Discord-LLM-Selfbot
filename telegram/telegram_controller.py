@@ -128,6 +128,10 @@ from dotenv import load_dotenv
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # telegram_controller.py lives in telegram/ — one level below the project root.
 _BASE = Path(__file__).resolve().parent.parent
+# Make the project root importable so `from utils.db import ...` works regardless
+# of which directory Python is invoked from.
+if str(_BASE) not in sys.path:
+    sys.path.insert(0, str(_BASE))
 _CONFIG_DIR = _BASE / "config"
 _ENV_PATH = _CONFIG_DIR / ".env"
 _CONFIG_YAML = _CONFIG_DIR / "config.yaml"
