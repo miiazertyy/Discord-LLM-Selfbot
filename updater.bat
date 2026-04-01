@@ -1,6 +1,8 @@
 @echo off
 title Updating AI Selfbot...
 
+cd /d "%~dp0"
+
 set SOURCE=%~1
 if "%SOURCE%"=="" set SOURCE=main
 
@@ -39,8 +41,8 @@ echo Deleting bot-env...
 rmdir /s /q bot-env
 
 echo Reinstalling...
-python -m venv bot-env
-call .\bot-env\Scripts\activate.bat
+python -m venv "%~dp0bot-env"
+call "%~dp0bot-env\Scripts\activate.bat"
 pip install --upgrade pip
 pip install -r requirements.txt
 pip install -U davey curl_cffi python-telegram-bot
@@ -60,4 +62,4 @@ if %errorlevel% neq 0 (
 )
 
 echo Update complete. Relaunching...
-start "AI Selfbot" cmd /k call run.bat
+start "AI Selfbot" cmd /k "cd /d "%~dp0" && call "%~dp0bot-env\Scripts\activate.bat" && python main.py"
