@@ -1127,19 +1127,55 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # The file is already saved to the shared config/pictures/ folder, so the
     # selfbot reads it directly from disk using the filename.
     cmd_id = _send_command(account, "image_analyse", {"name": new_name, "b64": "", "ext": ext})
-    await status.edit_text(f"{label}⏳ Saved as `{new_name}` — running AI description... (up to 30s)")
-    result = await _wait_for_result(account, cmd_id, timeout=30.0)
+    await status.edit_text(f"{label}\u23f3 Saved as `{new_name}` \u2014 running AI vision analysis...")
+
+    # Poll with live countdown updates so the user knows it's still working.
+    # Vision models can be slow; give up to 90s total before giving up.
+    _VISION_TIMEOUT = 90.0
+    _TICK = 15.0
+    result = None
+    f = _result_file(account)
+    deadline = time.time() + _VISION_TIMEOUT
+    while time.time() < deadline:
+        await asyncio.sleep(min(_TICK, max(0.3, deadline - time.time())))
+        # Check if result has arrived
+        if f.exists():
+            try:
+                results = json.loads(f.read_text())
+                if cmd_id in results:
+                    result = results.pop(cmd_id)
+                    f.write_text(json.dumps(results))
+                    break
+            except Exception:
+                pass
+        # Still waiting — update status so Telegram knows it's alive
+        if time.time() < deadline:
+            remaining = int(deadline - time.time())
+            try:
+                await status.edit_text(
+                    f"{label}\u23f3 Saved as `{new_name}` \u2014 analysing image... (~{remaining}s left)"
+                )
+            except Exception:
+                pass
 
     if result and result.get("ok"):
         desc = result.get("description", "(no description)")
-        short = desc[:300] + ("…" if len(desc) > 300 else "")
+        short = desc[:300] + ("\u2026" if len(desc) > 300 else "")
         await status.edit_text(
-            f"{label}✅ Saved as `{new_name}`\n\n📝 {short}",
+            f"{label}\u2705 Saved as `{new_name}`\n\n\U0001f4dd {short}",
         )
     elif result:
-        await status.edit_text(f"{label}✅ Saved as `{new_name}` (vision analysis failed: {result.get('reason', '?')})")
+        err = result.get("reason", "unknown error")
+        await status.edit_text(
+            f"{label}\u2705 Image saved as `{new_name}` but vision analysis failed: {err}\n"
+            f"The image is stored \u2014 the bot just won\u2019t have a description for it."
+        )
     else:
-        await status.edit_text(f"{label}✅ Saved as `{new_name}` — selfbot didn't respond in time for description.")
+        await status.edit_text(
+            f"{label}\u2705 Image saved as `{new_name}`.\n"
+            f"\u26a0\ufe0f Vision analysis timed out \u2014 the selfbot may still be processing it in the background, "
+            f"or the IPC bridge may not be running. Check with /imagels to confirm the description appears."
+        )
 
 
 # ── /mood — live state via IPC ────────────────────────────────────────────────
