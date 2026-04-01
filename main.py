@@ -942,33 +942,48 @@ async def _tg_ipc_loop():
 
                     # ── Reply to every discovered candidate ───────────────────
                     _ra_ignored = set(getattr(bot, "ignore_users", []))
-                    for _ra_uid, _ra_cid, _ra_hk in _ra_candidates:
-                        if _ra_uid in _ra_ignored:
-                            continue
-                        try:
-                            _ra_u = bot.get_user(_ra_uid) or await bot.fetch_user(_ra_uid)
-                            _ra_ch2 = bot.get_channel(_ra_cid) or await _ra_u.create_dm()
-                            _ra_target = None
-                            async for _ra_m in _ra_ch2.history(limit=10):
-                                if _ra_m.author.id == _ra_uid:
-                                    _ra_target = _ra_m; break
-                            if not _ra_target:
-                                results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": False, "reason": "no message"}); continue
-                            _ra_hk2 = _ra_hk or f"{_ra_uid}-{_ra_cid}"
-                            history = bot.message_history.get(_ra_hk2, [])
-                            combined = "\n".join(e["content"] for e in history[-3:] if e["role"] == "user") or (_ra_target.content or "[attachment]")
-                            if not history or history[-1].get("content") != combined:
-                                history.append({"role": "user", "content": combined})
-                                bot.message_history[_ra_hk2] = history
-                            resp = await generate_response_and_reply(_ra_target, combined, history, bypass_cooldown=True, bypass_typing=True)
-                            if resp:
-                                bot.message_history[_ra_hk2].append({"role": "assistant", "content": resp})
-                                results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": True})
-                            else:
-                                results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": False, "reason": "no response"})
-                        except Exception as _ra_e:
-                            results_out.append({"id": _ra_uid, "name": str(_ra_uid), "success": False, "reason": str(_ra_e)})
-                    _write_result(cmd_id, {"total": len(results_out), "results": results_out})
+                    _ra_filtered = [(u, c, h) for u, c, h in _ra_candidates if u not in _ra_ignored]
+
+                    if not _ra_filtered:
+                        _write_result(cmd_id, {"total": 0, "results": []})
+                    else:
+                        for _ra_uid, _ra_cid, _ra_hk in _ra_filtered:
+                            try:
+                                _ra_u = bot.get_user(_ra_uid) or await bot.fetch_user(_ra_uid)
+                                _ra_ch2 = bot.get_channel(_ra_cid)
+                                if _ra_ch2 is None:
+                                    try:
+                                        _ra_ch2 = await _ra_u.create_dm()
+                                    except Exception:
+                                        results_out.append({"id": _ra_uid, "name": _ra_u.name if _ra_u else str(_ra_uid), "success": False, "reason": "could not open DM"})
+                                        continue
+                                _ra_target = None
+                                async for _ra_m in _ra_ch2.history(limit=15):
+                                    if _ra_m.author.id == _ra_uid:
+                                        _ra_target = _ra_m; break
+                                if not _ra_target:
+                                    results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": False, "reason": "no recent message found"})
+                                    continue
+                                _ra_hk2 = _ra_hk or f"{_ra_uid}-{_ra_cid}"
+                                _ra_hist = bot.message_history.get(_ra_hk2, [])
+                                _ra_combined = "\n".join(e["content"] for e in _ra_hist[-3:] if e["role"] == "user") or (_ra_target.content or "[attachment]")
+                                if not _ra_hist or _ra_hist[-1].get("content") != _ra_combined:
+                                    _ra_hist.append({"role": "user", "content": _ra_combined})
+                                    bot.message_history[_ra_hk2] = _ra_hist
+                                resp = await generate_response_and_reply(_ra_target, _ra_combined, _ra_hist, bypass_cooldown=True, bypass_typing=True)
+                                if resp:
+                                    bot.message_history[_ra_hk2].append({"role": "assistant", "content": resp})
+                                    results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": True})
+                                else:
+                                    results_out.append({"id": _ra_uid, "name": _ra_u.name, "success": False, "reason": "no response generated"})
+                            except Exception as _ra_e:
+                                _ra_name = str(_ra_uid)
+                                try:
+                                    _ra_name = (bot.get_user(_ra_uid) or await bot.fetch_user(_ra_uid)).name
+                                except Exception:
+                                    pass
+                                results_out.append({"id": _ra_uid, "name": _ra_name, "success": False, "reason": str(_ra_e)})
+                        _write_result(cmd_id, {"total": len(results_out), "results": results_out})
 
                 elif cmd == "restart":
                     import atexit as _atexit
@@ -1303,6 +1318,7 @@ async def _tg_ipc_loop():
                                      ".gif": "image/gif", ".webp": "image/webp"}
                         _ia_mime = _mime_map.get(_ia_ext.lower(), "image/jpeg")
                         _ia_data_url = f"data:{_ia_mime};base64,{_ia_b64}"
+                        log_system(f"[image_analyse] Running vision on {_ia_name} using {_ia_model}")
                         _ia_resp = await _cic_ia(
                             _ia_model,
                             messages=[{
@@ -1315,8 +1331,10 @@ async def _tg_ipc_loop():
                         )
                         _ia_desc = _ia_resp.choices[0].message.content.strip()
                         _apd_ia(_ia_name, _ia_desc)
+                        log_system(f"[image_analyse] Done: {_ia_name} — {_ia_desc[:80]}")
                         _write_result(cmd_id, {"ok": True, "description": _ia_desc})
                     except Exception as _ia_e:
+                        log_error("image_analyse", str(_ia_e))
                         _write_result(cmd_id, {"ok": False, "reason": str(_ia_e)})
 
                 # ── image_delete ──────────────────────────────────────────────
