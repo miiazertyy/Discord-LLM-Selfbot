@@ -586,11 +586,14 @@ async def _tg_ipc_loop():
     await bot.wait_until_ready()
 
     # Determine which account index this bot instance is (1-based).
-    # Must run after wait_until_ready so bot._connection.http.token is populated.
-    _my_token = bot._connection.http.token if bot._connection else None
+    # Must run after wait_until_ready so bot.http.token is populated.
+    try:
+        _my_token = bot.http.token.strip()
+    except Exception:
+        _my_token = None
     _ACCOUNT_INDEX = 1
     for _i, _t in enumerate(TOKENS, start=1):
-        if _t.get("token") == _my_token:
+        if _t.get("token", "").strip() == _my_token:
             _ACCOUNT_INDEX = _i
             break
 
@@ -1053,7 +1056,7 @@ async def _tg_ipc_loop():
                 elif cmd == "add_friend":
                     _af_uid = int(payload["user_id"])
                     try:
-                        _af_token = bot._connection.http.token
+                        _af_token = bot.http.token
                         async with AsyncSession(impersonate="chrome") as _af_s:
                             _af_r = await _af_s.put(
                                 f"https://discord.com/api/v9/users/@me/relationships/{_af_uid}",
@@ -1076,7 +1079,7 @@ async def _tg_ipc_loop():
 
             except Exception as _err:
                 log_error("TG IPC", f"cmd={cmd} error={_err}")
-                remaining.append(entry)
+                _write_result(cmd_id, {"ok": False, "error": str(_err)})
 
         _CMD_FILE.write_text(_json.dumps(remaining))
 
