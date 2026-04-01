@@ -1853,34 +1853,5 @@ class Management(commands.Cog):
             delete_after=8,
         )
 
-    @commands.command(name="togglecommands", aliases=["togglecmds"], description="Enable or disable Discord command responses. Usage: ,togglecommands [true|false]")
-    async def togglecommands(self, ctx, value: str = None):
-        """Toggle or explicitly set discord_commands_enabled in config.
-        Usage:
-            ,togglecommands          — toggle current value
-            ,togglecommands true     — enable
-            ,togglecommands false    — disable
-        """
-        if ctx.author.id != self.bot.owner_id:
-            return
-        config = load_config()
-        current = config["bot"].get("discord_commands_enabled", True)
-        if value is None:
-            new_val = not current
-        elif value.lower() in ("true", "1", "on", "yes"):
-            new_val = True
-        elif value.lower() in ("false", "0", "off", "no"):
-            new_val = False
-        else:
-            await ctx.send(f"Usage: `,togglecommands [true|false]`", delete_after=10)
-            return
-        config["bot"]["discord_commands_enabled"] = new_val
-        self.save_config(config)
-        await ctx.send(
-            f"Discord commands are now {'✅ enabled' if new_val else '❌ disabled'}.",
-            delete_after=15,
-        )
-
-
 async def setup(bot):
     await bot.add_cog(Management(bot))
