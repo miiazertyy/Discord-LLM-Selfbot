@@ -43,7 +43,7 @@ set TG_OWNER=%TG_OWNER: =%
 if defined TG_TOKEN if defined TG_OWNER (
     if not "%TG_TOKEN%"=="" if not "%TG_OWNER%"=="" if not "%TG_OWNER%"=="0" (
         echo Starting Telegram controller...
-        start "Telegram Controller" cmd /k "call .\bot-env\Scripts\activate.bat && python telegram_controller.py"
+        start "Telegram Controller" cmd /k call .\bot-env\Scripts\activate.bat ^&^& python telegram_controller.py
     ) else (
         echo Telegram controller not started ^(TELEGRAM_BOT_TOKEN or TELEGRAM_OWNER_ID not set^).
     )
