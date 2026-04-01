@@ -1318,7 +1318,7 @@ async def _tg_ipc_loop():
                                      ".gif": "image/gif", ".webp": "image/webp"}
                         _ia_mime = _mime_map.get(_ia_ext.lower(), "image/jpeg")
                         _ia_data_url = f"data:{_ia_mime};base64,{_ia_b64}"
-                        log_system(f"[image_analyse] Running vision on {_ia_name} using {_ia_model}")
+                        log_system(f"Analysing image: {_ia_name}")
                         _ia_resp = await _cic_ia(
                             _ia_model,
                             messages=[{
@@ -1331,7 +1331,7 @@ async def _tg_ipc_loop():
                         )
                         _ia_desc = _ia_resp.choices[0].message.content.strip()
                         _apd_ia(_ia_name, _ia_desc)
-                        log_system(f"[image_analyse] Done: {_ia_name} — {_ia_desc[:80]}")
+                        log_system(f"Image analysed: {_ia_name} — {_ia_desc[:80]}")
                         _write_result(cmd_id, {"ok": True, "description": _ia_desc})
                     except Exception as _ia_e:
                         log_error("image_analyse", str(_ia_e))
