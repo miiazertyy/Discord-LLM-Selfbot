@@ -1044,10 +1044,12 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_file = None
     filename_hint = None
 
+    # Check the message itself first, then its caption context (Telegram sends
+    # photos with captions as a single message, but commands with photos attached
+    # may arrive as caption="/imageupload" on the photo message).
     if msg.photo:
-        # Highest-resolution version
         tg_file = await msg.photo[-1].get_file()
-        filename_hint = f"upload.jpg"
+        filename_hint = "upload.jpg"
     elif msg.document:
         doc = msg.document
         if doc.mime_type and doc.mime_type.startswith("image/"):
@@ -1065,7 +1067,7 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not tg_file:
         await msg.reply_text(
             "📎 Send /imageupload with a photo or image file attached.\n"
-            "You can also reply to an existing photo with /imageupload."
+            "Or just send a photo directly — it will be saved automatically."
         )
         return
 
@@ -1384,16 +1386,23 @@ async def cmd_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif keyword == "all":
         cmd_id = _send_command(account, "reply_all")
-        await update.message.reply_text(f"{label}⏳ Sending reply all command... (waiting up to 30s)")
-        result = await _wait_for_result(account, cmd_id, timeout=30.0)
+        await update.message.reply_text(
+            f"{label}⏳ Replying to all unreplied users... (waiting up to 120s)"
+        )
+        result = await _wait_for_result(account, cmd_id, timeout=120.0)
         if result:
-            lines = [f"{label}✅ Done — {result.get('total', 0)} user(s):"]
-            for r in result.get("results", []):
-                icon = "✅" if r["success"] else "❌"
-                lines.append(f"{icon} {r['name']} (`{r['id']}`)" + ("" if r["success"] else f" — {r.get('reason', '')}"))
-            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+            total = result.get('total', 0)
+            if total == 0:
+                await update.message.reply_text(f"{label}✅ No unreplied users found.")
+            else:
+                lines = [f"{label}✅ Done — replied to {total} user(s):"]
+                for r in result.get("results", []):
+                    icon = "✅" if r["success"] else "❌"
+                    name = _escape(r['name'])
+                    lines.append(f"{icon} {name} (`{r['id']}`)" + ("" if r["success"] else f" — {r.get('reason', '')}"))
+                await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
         else:
-            await update.message.reply_text(f"{label}⚠️ Selfbot didn't respond in time.")
+            await update.message.reply_text(f"{label}⚠️ Selfbot didn't respond in time. It may still be replying — check Discord.")
 
     else:
         try:
