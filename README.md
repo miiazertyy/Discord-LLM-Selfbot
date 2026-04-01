@@ -1,6 +1,6 @@
 # 🌙 Discord LLM Selfbot
 
-A fully AI-powered Discord selfbot using the Groq API — **completely free**.
+A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 
 > **Need help?** Join the Discord: https://discord.gg/connard
 
