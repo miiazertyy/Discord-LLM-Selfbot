@@ -1076,14 +1076,10 @@ async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not tg_file:
         await msg.reply_text(
-            "📎 To upload an image:
-"
-            "• Send a photo with caption /imageupload
-"
-            "• Send a file with caption /imageupload
-"
-            "• Reply to an existing photo with /imageupload
-"
+            "📎 To upload an image:\n"
+            "• Send a photo with caption /imageupload\n"
+            "• Send a file with caption /imageupload\n"
+            "• Reply to an existing photo with /imageupload\n"
             "• Or just send a photo directly (no command needed)"
         )
         return
