@@ -21,6 +21,32 @@ from utils.helpers import (
 
 from utils.db import init_db, get_channels, get_ignored_users, add_unresponded, mark_responded, mark_nudge_sent, get_pending_nudges, get_picture_description, record_user_message, get_cached_profile, set_cached_profile
 from utils.error_notifications import webhook_log
+
+async def _notify_telegram_error(title: str, detail: str):
+    """Forward an error to the Telegram controller if telegram_error_notifications is enabled."""
+    try:
+        cfg = load_config()
+        if not cfg.get("notifications", {}).get("telegram_error_notifications", False):
+            return
+        import json as _j
+        from pathlib import Path as _P
+        _cmd_file = _P(resource_path("config/tg_commands_1.json"))
+        entry = {
+            "id": f"err_{time.time()}",
+            "cmd": "send_error_notification",
+            "payload": {"title": title, "detail": str(detail)[:1500]},
+            "ts": time.time(),
+        }
+        _existing = []
+        if _cmd_file.exists():
+            try:
+                _existing = _j.loads(_cmd_file.read_text())
+            except Exception:
+                pass
+        _existing.append(entry)
+        _cmd_file.write_text(_j.dumps(_existing))
+    except Exception:
+        pass
 from colorama import init, Fore, Style
 
 from utils.logger import (
@@ -1073,6 +1099,92 @@ async def _tg_ipc_loop():
                                 _write_result(cmd_id, {"ok": False, "reason": _af_msg})
                     except Exception as _e:
                         _write_result(cmd_id, {"ok": False, "reason": str(_e)})
+
+                # ── update ───────────────────────────────────────────────────
+                elif cmd == "update":
+                    _upd_source = payload.get("source", "release")
+                    if _upd_source not in ("release", "main"):
+                        _upd_source = "release"
+                    log_system(f"Update ({_upd_source}) requested via Telegram")
+                    _upd_repo_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+                    import subprocess as _upd_sp
+                    if sys.platform == "win32":
+                        _upd_path = os.path.join(_upd_repo_dir, "updater.bat")
+                        _upd_sp.Popen(f'cmd /c start "" "{_upd_path}" {_upd_source}', shell=True)
+                    else:
+                        _upd_path = os.path.join(_upd_repo_dir, "updater.sh")
+                        try:
+                            os.chmod(_upd_path, 0o755)
+                        except Exception:
+                            pass
+                        _upd_sp.Popen(["bash", _upd_path, _upd_source], start_new_session=True)
+                    await asyncio.sleep(2)
+                    await bot.close()
+                    sys.exit(0)
+
+                # ── reload ────────────────────────────────────────────────────
+                elif cmd == "reload":
+                    import sys as _sys_r
+                    _cogs_dir = os.path.join(getattr(_sys_r, "_MEIPASS", os.path.abspath(".")), "cogs")
+                    _reload_errors = []
+                    if os.path.exists(_cogs_dir):
+                        for _fname in os.listdir(_cogs_dir):
+                            if _fname.endswith(".py"):
+                                try:
+                                    await bot.unload_extension(f"cogs.{_fname[:-3]}")
+                                    await bot.load_extension(f"cogs.{_fname[:-3]}")
+                                except Exception as _re:
+                                    _reload_errors.append(str(_re))
+                    bot.instructions = load_instructions()
+                    _write_result(cmd_id, {"ok": True, "errors": _reload_errors})
+
+                # ── image_delete ──────────────────────────────────────────────
+                elif cmd == "image_delete":
+                    from utils.helpers import resource_path as _rp_img
+                    from utils.db import delete_picture_db as _dpdb, rename_picture_db as _rpdb
+                    _img_folder = _rp_img("config/pictures")
+                    _img_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+                    _del_name = payload.get("name", "")
+                    _img_files = sorted([f for f in os.listdir(_img_folder) if os.path.splitext(f)[1].lower() in _img_exts]) if os.path.exists(_img_folder) else []
+                    if _del_name.isdigit():
+                        _matches = [f for f in _img_files if os.path.splitext(f)[0] == f"IMG_{_del_name}"]
+                        _del_name = _matches[0] if _matches else _del_name
+                    _del_path = os.path.join(_img_folder, _del_name)
+                    if os.path.exists(_del_path):
+                        os.remove(_del_path)
+                        _dpdb(_del_name)
+                        _remaining = sorted([f for f in os.listdir(_img_folder) if os.path.splitext(f)[1].lower() in _img_exts],
+                                            key=lambda f: int(os.path.splitext(f)[0][4:]) if os.path.splitext(f)[0].startswith("IMG_") and os.path.splitext(f)[0][4:].isdigit() else 99999)
+                        for _ri, _rfname in enumerate(_remaining, start=1):
+                            _rstem, _rext = os.path.splitext(_rfname)
+                            if _rstem.startswith("IMG_") and _rstem[4:].isdigit() and int(_rstem[4:]) != _ri:
+                                _rnew = f"IMG_{_ri}{_rext}"
+                                os.rename(os.path.join(_img_folder, _rfname), os.path.join(_img_folder, _rnew))
+                                _rpdb(_rfname, _rnew)
+                        _write_result(cmd_id, {"ok": True})
+                    else:
+                        _write_result(cmd_id, {"ok": False, "reason": f"Image `{_del_name}` not found."})
+
+                # ── image_delete_all ──────────────────────────────────────────
+                elif cmd == "image_delete_all":
+                    from utils.helpers import resource_path as _rp_imgd
+                    from utils.db import clear_all_pictures_db as _capdb
+                    _imgd_folder = _rp_imgd("config/pictures")
+                    _imgd_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+                    if os.path.exists(_imgd_folder):
+                        _imgd_files = [f for f in os.listdir(_imgd_folder) if os.path.splitext(f)[1].lower() in _imgd_exts]
+                        for _f in _imgd_files:
+                            os.remove(os.path.join(_imgd_folder, _f))
+                        _capdb()
+                        _write_result(cmd_id, {"ok": True, "count": len(_imgd_files)})
+                    else:
+                        _write_result(cmd_id, {"ok": True, "count": 0})
+
+                # ── send_error_notification ───────────────────────────────────
+                # This is a passthrough — the TG controller reads this from the
+                # commands file directly; we just acknowledge it.
+                elif cmd == "send_error_notification":
+                    _write_result(cmd_id, {"ok": True})
 
                 else:
                     remaining.append(entry)
