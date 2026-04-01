@@ -814,9 +814,11 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _bot_message_ids.append(note.message_id)
 
 
-# ── /imagels — direct file access ────────────────────────────────────────────
+# ── /imagels — browse images as photos with full descriptions ─────────────────
 @owner_only
 async def cmd_imagels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send images one by one as actual photos with their full AI description as caption."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     try:
         from utils.db import get_picture_description
         if not _PICTURES_DIR.exists():
@@ -827,16 +829,143 @@ async def cmd_imagels(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not files:
             await update.message.reply_text("No images saved yet.")
             return
-        lines = [f"🖼️ *Pictures* ({len(files)} total)\n"]
-        for f in files:
-            desc = get_picture_description(f.name) or "*(no description)*"
-            short_desc = desc[:80] + ("…" if len(desc) > 80 else "")
-            # Escape the description to avoid Markdown entity errors
-            safe_desc = short_desc.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
-            lines.append(f"`{f.name}` — {safe_desc}")
-        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+        total = len(files)
+
+        # Store browse state in context so navigation callbacks can use it
+        # We'll send page 0 and attach ◀ ▶ buttons
+        def _build_nav(index: int):
+            buttons = []
+            if index > 0:
+                buttons.append(InlineKeyboardButton("◀ Prev", callback_data=f"imgls:{index-1}"))
+            if index < total - 1:
+                buttons.append(InlineKeyboardButton("Next ▶", callback_data=f"imgls:{index+1}"))
+            buttons.append(InlineKeyboardButton(f"🗑 Delete", callback_data=f"imgdel:{index}"))
+            return InlineKeyboardMarkup([buttons]) if buttons else None
+
+        async def _send_image(idx: int, reply_to=None):
+            f = files[idx]
+            desc = get_picture_description(f.name) or "(no description)"
+            caption = f"🖼 `{f.name}` — {idx+1}/{total}\n\n{desc}"
+            # Truncate to Telegram's 1024-char caption limit
+            if len(caption) > 1024:
+                caption = caption[:1021] + "…"
+            kb = _build_nav(idx)
+            try:
+                if reply_to:
+                    return await reply_to.reply_photo(
+                        photo=open(f, "rb"),
+                        caption=caption,
+                        reply_markup=kb,
+                    )
+                else:
+                    return await update.message.reply_photo(
+                        photo=open(f, "rb"),
+                        caption=caption,
+                        reply_markup=kb,
+                    )
+            except Exception:
+                # Fallback: send as document if photo fails (e.g. webp)
+                cap2 = caption[:1024]
+                if reply_to:
+                    return await reply_to.reply_document(
+                        document=open(f, "rb"),
+                        filename=f.name,
+                        caption=cap2,
+                        reply_markup=kb,
+                    )
+                return await update.message.reply_document(
+                    document=open(f, "rb"),
+                    filename=f.name,
+                    caption=cap2,
+                    reply_markup=kb,
+                )
+
+        await _send_image(0)
+
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
+
+
+async def _imagels_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle ◀/▶ navigation and 🗑 delete for /imagels."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    query = update.callback_query
+    if not query:
+        return
+    if not query.from_user or query.from_user.id != TG_OWNER_ID:
+        await query.answer("Not authorised.")
+        return
+    await query.answer()
+
+    data = query.data
+    if not (data.startswith("imgls:") or data.startswith("imgdel:")):
+        return
+
+    try:
+        from utils.db import get_picture_description, delete_picture_db, rename_picture_db, clear_all_pictures_db
+        exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+        if data.startswith("imgdel:"):
+            idx = int(data.split(":")[1])
+            files = sorted([f for f in _PICTURES_DIR.iterdir() if f.suffix.lower() in exts])
+            if idx >= len(files):
+                await query.edit_message_caption(caption="❌ Image not found (already deleted?)")
+                return
+            target = files[idx]
+            target.unlink(missing_ok=True)
+            delete_picture_db(target.name)
+            # Renumber remaining
+            remaining = sorted(
+                [f for f in _PICTURES_DIR.iterdir() if f.suffix.lower() in exts],
+                key=lambda f: int(f.stem[4:]) if f.stem.startswith("IMG_") and f.stem[4:].isdigit() else 99999
+            )
+            for i, rf in enumerate(remaining, start=1):
+                if rf.stem.startswith("IMG_") and rf.stem[4:].isdigit() and int(rf.stem[4:]) != i:
+                    new_name = f"IMG_{i}{rf.suffix}"
+                    rf.rename(_PICTURES_DIR / new_name)
+                    rename_picture_db(rf.name, new_name)
+            await query.edit_message_caption(caption=f"🗑 Deleted `{target.name}`.")
+            return
+
+        # Navigation
+        idx = int(data.split(":")[1])
+        files = sorted([f for f in _PICTURES_DIR.iterdir() if f.suffix.lower() in exts])
+        total = len(files)
+        if not files or idx >= total:
+            await query.edit_message_caption(caption="No more images.")
+            return
+
+        f = files[idx]
+        desc = get_picture_description(f.name) or "(no description)"
+        caption = f"🖼 `{f.name}` — {idx+1}/{total}\n\n{desc}"
+        if len(caption) > 1024:
+            caption = caption[:1021] + "…"
+
+        buttons = []
+        if idx > 0:
+            buttons.append(InlineKeyboardButton("◀ Prev", callback_data=f"imgls:{idx-1}"))
+        if idx < total - 1:
+            buttons.append(InlineKeyboardButton("Next ▶", callback_data=f"imgls:{idx+1}"))
+        buttons.append(InlineKeyboardButton("🗑 Delete", callback_data=f"imgdel:{idx}"))
+        kb = InlineKeyboardMarkup([buttons]) if buttons else None
+
+        # Edit the existing message — replace the photo
+        try:
+            from telegram import InputMediaPhoto
+            await query.edit_message_media(
+                media=InputMediaPhoto(media=open(f, "rb"), caption=caption),
+                reply_markup=kb,
+            )
+        except Exception:
+            # Fallback: send a new message
+            await query.message.reply_photo(photo=open(f, "rb"), caption=caption, reply_markup=kb)
+
+    except Exception as e:
+        try:
+            await query.edit_message_caption(caption=f"❌ Error: {e}")
+        except Exception:
+            pass
 
 
 @owner_only
@@ -900,6 +1029,100 @@ async def cmd_imagedeleteall(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"{label}✅ Deleted all {result.get('count', '?')} image(s).")
     else:
         await update.message.reply_text(f"{label}⚠️ Command sent, selfbot did not respond in time.")
+
+
+@owner_only
+async def cmd_imageupload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Upload an image to the selfbot's pictures folder.
+    Send /imageupload with a photo or image file attached.
+    The selfbot will run AI vision analysis on it automatically.
+    """
+    account = _get_account(context)
+    label = _account_label(account)
+
+    msg = update.message
+    tg_file = None
+    filename_hint = None
+
+    if msg.photo:
+        # Highest-resolution version
+        tg_file = await msg.photo[-1].get_file()
+        filename_hint = f"upload.jpg"
+    elif msg.document:
+        doc = msg.document
+        if doc.mime_type and doc.mime_type.startswith("image/"):
+            tg_file = await doc.get_file()
+            filename_hint = doc.file_name or "upload.jpg"
+    elif msg.reply_to_message:
+        rep = msg.reply_to_message
+        if rep.photo:
+            tg_file = await rep.photo[-1].get_file()
+            filename_hint = "upload.jpg"
+        elif rep.document and rep.document.mime_type and rep.document.mime_type.startswith("image/"):
+            tg_file = await rep.document.get_file()
+            filename_hint = rep.document.file_name or "upload.jpg"
+
+    if not tg_file:
+        await msg.reply_text(
+            "📎 Send /imageupload with a photo or image file attached.\n"
+            "You can also reply to an existing photo with /imageupload."
+        )
+        return
+
+    status = await msg.reply_text(f"{label}⏳ Downloading and saving image...")
+
+    try:
+        image_bytes = await tg_file.download_as_bytearray()
+    except Exception as e:
+        await status.edit_text(f"❌ Failed to download image: {e}")
+        return
+
+    # Determine extension from filename or mime type
+    import mimetypes
+    ext = ".jpg"
+    if filename_hint:
+        _, e2 = os.path.splitext(filename_hint)
+        if e2.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+            ext = e2.lower()
+
+    # Find next available index
+    if not _PICTURES_DIR.exists():
+        _PICTURES_DIR.mkdir(parents=True, exist_ok=True)
+    valid_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    existing = [f for f in _PICTURES_DIR.iterdir() if f.suffix.lower() in valid_exts]
+    used = set()
+    for f in existing:
+        if f.stem.startswith("IMG_") and f.stem[4:].isdigit():
+            used.add(int(f.stem[4:]))
+    idx = 1
+    while idx in used:
+        idx += 1
+    new_name = f"IMG_{idx}{ext}"
+    dest = _PICTURES_DIR / new_name
+
+    try:
+        dest.write_bytes(image_bytes)
+    except Exception as e:
+        await status.edit_text(f"❌ Failed to save image: {e}")
+        return
+
+    # Tell the selfbot to run vision analysis on it via IPC
+    import base64 as _b64
+    b64_data = _b64.b64encode(bytes(image_bytes)).decode()
+    cmd_id = _send_command(account, "image_analyse", {"name": new_name, "b64": b64_data, "ext": ext})
+    await status.edit_text(f"{label}⏳ Saved as `{new_name}` — running AI description... (up to 30s)")
+    result = await _wait_for_result(account, cmd_id, timeout=30.0)
+
+    if result and result.get("ok"):
+        desc = result.get("description", "(no description)")
+        short = desc[:300] + ("…" if len(desc) > 300 else "")
+        await status.edit_text(
+            f"{label}✅ Saved as `{new_name}`\n\n📝 {short}",
+        )
+    elif result:
+        await status.edit_text(f"{label}✅ Saved as `{new_name}` (vision analysis failed: {result.get('reason', '?')})")
+    else:
+        await status.edit_text(f"{label}✅ Saved as `{new_name}` — selfbot didn't respond in time for description.")
 
 
 # ── /mood — live state via IPC ────────────────────────────────────────────────
@@ -1586,7 +1809,8 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
 /autojoin off \u2014 disable auto\\-join
 
 *\U0001f5bc Images*
-/imagels \u2014 list all pictures
+/imagels \u2014 browse pictures with full descriptions
+/imageupload \u2014 upload a new image \\(attach photo or send one\\)
 /imagedownload \\<n\\> \u2014 download image by number
 /imagedelete \\<n\\> \u2014 delete image by number
 /imagedeleteall \u2014 delete all images
@@ -1756,6 +1980,9 @@ def main():
     app.add_handler(CommandHandler("imagedownload",   cmd_imagedownload))
     app.add_handler(CommandHandler("imagedelete",     cmd_imagedelete))
     app.add_handler(CommandHandler("imagedeleteall",  cmd_imagedeleteall))
+    app.add_handler(CommandHandler("imageupload",     cmd_imageupload))
+    app.add_handler(CallbackQueryHandler(_imagels_callback,     pattern=r"^imgls:"))
+    app.add_handler(CallbackQueryHandler(_imagels_callback,     pattern=r"^imgdel:"))
     app.add_handler(CommandHandler("leaderboard",     cmd_leaderboard))
     app.add_handler(CommandHandler("addfriend",       cmd_addfriend))
     app.add_handler(CommandHandler("restart",         cmd_restart))
@@ -1765,6 +1992,7 @@ def main():
     app.add_handler(CallbackQueryHandler(_leaderboard_callback, pattern=r"^lb:"))
     app.add_handler(MessageHandler(filters.Document.FileExtension("txt"),  cmd_instructions_file))
     app.add_handler(MessageHandler(filters.Document.FileExtension("yaml"), cmd_setconfig))
+    app.add_handler(MessageHandler(filters.PHOTO, cmd_imageupload))
     app.add_error_handler(_error_handler)
 
     async def _post_init(application):
