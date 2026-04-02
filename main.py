@@ -1254,6 +1254,29 @@ async def _tg_ipc_loop():
                     except Exception as _e:
                         _write_result(cmd_id, {"ok": False, "reason": str(_e)})
 
+                # ── set_banner ────────────────────────────────────────────────
+                elif cmd == "set_banner":
+                    _banner_url = payload.get("url", "")
+                    _banner_b64 = payload.get("b64", "")
+                    try:
+                        if _banner_b64:
+                            import base64 as _b64mod
+                            _banner_data = _b64mod.b64decode(_banner_b64)
+                        elif _banner_url:
+                            async with AsyncSession(impersonate="chrome") as _banner_s:
+                                _banner_r = await _banner_s.get(_banner_url)
+                                if _banner_r.status_code != 200:
+                                    _write_result(cmd_id, {"ok": False, "reason": f"Failed to fetch image (status {_banner_r.status_code})."})
+                                    continue
+                                _banner_data = _banner_r.content
+                        else:
+                            _write_result(cmd_id, {"ok": False, "reason": "No image URL or data provided."})
+                            continue
+                        await bot.user.edit(banner=_banner_data)
+                        _write_result(cmd_id, {"ok": True})
+                    except Exception as _e:
+                        _write_result(cmd_id, {"ok": False, "reason": str(_e)})
+
                 # ── add_friend ────────────────────────────────────────────────
                 elif cmd == "add_friend":
                     _af_uid = int(payload["user_id"])
