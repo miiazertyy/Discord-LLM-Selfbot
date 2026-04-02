@@ -521,7 +521,7 @@ async def _nudge_loop():
         send_hour_start = nudge_cfg.get("send_during_hours", [10, 22])[0]
         send_hour_end = nudge_cfg.get("send_during_hours", [10, 22])[1]
 
-        current_hour = datetime.now().hour
+        current_hour = datetime.now().astimezone().hour
         if send_hour_start <= current_hour < send_hour_end:
             threshold_seconds = threshold_days * 86400
             pending = get_pending_nudges(threshold_seconds)
@@ -1798,7 +1798,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     try:
         from datetime import timezone, timedelta
         _fr_tz = timezone(timedelta(hours=1))  # CET (UTC+1); DST shifts to CEST (UTC+2) in summer
-        _now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+        _now_utc = datetime.now(timezone.utc)
         # Determine if DST is active (last Sunday of March → last Sunday of October)
         import calendar as _cal
         _y, _m, _d = _now_utc.year, _now_utc.month, _now_utc.day
@@ -1820,8 +1820,7 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
 
     pics_cfg = config["bot"].get("pictures") or {}
     _available_pics = _get_random_picture() if pics_cfg.get("enabled", True) and _is_picture_request(prompt) else None
-    if _available_pics:
-        _peek_desc = _available_pics[0][2] if _available_pics else ""
+    _peek_desc = _available_pics[0][2] if _available_pics else ""
     if _available_pics:
         enriched_instructions += (
             "\n\n[IMPORTANT: You ARE sending the user a photo of yourself RIGHT NOW in this very reply. "
