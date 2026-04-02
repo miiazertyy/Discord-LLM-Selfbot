@@ -66,6 +66,7 @@ COMMANDS AVAILABLE:
     /setstatus [emoji] [text] — set Discord custom status (or clear it)
     /bio [text]         — set profile bio (omit text to clear)
     /pfp <url>          — change profile picture by URL
+    /banner <url>       — change profile banner by URL
 
   📡 Channels
     /toggledm           — toggle DM responses
@@ -1824,6 +1825,64 @@ async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"{label}⚠️ Selfbot didn't respond in time.")
 
 
+# ── /banner — change profile banner ──────────────────────────────────────────
+@owner_only
+async def cmd_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    account = _get_account(context)
+    label = _account_label(account)
+    url = None
+    image_b64 = None
+    _valid_img_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+
+    async def _tg_obj_from_msg(msg):
+        """Return (tg_file_obj, ext) from a message's photo or document, or (None, None)."""
+        if msg.photo:
+            return msg.photo[-1], ".jpg"
+        if msg.document:
+            doc = msg.document
+            _mime = doc.mime_type or ""
+            _fname = doc.file_name or ""
+            _ext = os.path.splitext(_fname)[1].lower() or ".png"
+            if _mime.startswith("image/") or any(_fname.lower().endswith(e) for e in _valid_img_exts):
+                return doc, _ext
+        return None, None
+
+    if context.args:
+        url = context.args[0]
+    else:
+        tg_obj, ext = await _tg_obj_from_msg(update.message)
+        if tg_obj is None and update.message.reply_to_message:
+            tg_obj, ext = await _tg_obj_from_msg(update.message.reply_to_message)
+        if tg_obj is not None:
+            try:
+                import base64 as _b64
+                tg_file = await tg_obj.get_file()
+                img_bytes = await tg_file.download_as_bytearray()
+                image_b64 = _b64.b64encode(bytes(img_bytes)).decode()
+            except Exception as e:
+                await update.message.reply_text(f"❌ Failed to download image: {e}")
+                return
+
+    if not url and not image_b64:
+        await update.message.reply_text(
+            "Usage: /banner <image_url>\n"
+            "Or attach an image (as photo or document) and send /banner,\n"
+            "or reply to an image with /banner."
+        )
+        return
+
+    cmd_id = _send_command(account, "set_banner", {"url": url, "b64": image_b64})
+    await update.message.reply_text(f"{label}⏳ Updating profile banner...")
+    result = await _wait_for_result(account, cmd_id, timeout=20.0)
+    if result:
+        if result.get("ok"):
+            await update.message.reply_text(f"{label}✅ Profile banner updated!")
+        else:
+            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+    else:
+        await update.message.reply_text(f"{label}⚠️ Selfbot didn't respond in time.")
+
+
 @owner_only
 async def cmd_addfriend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account = _get_account(context)
@@ -1985,6 +2044,7 @@ async def _send_help(update: Update, context: ContextTypes.DEFAULT_TYPE = None):
   /setstatus \\[emoji\\] \\[text\\] \u2014 set a custom status
   /bio \\[text\\] \u2014 set profile bio
   /pfp \\<url\\> \u2014 change profile picture
+  /banner \\<url\\> \u2014 change profile banner
   /mood \\[name\\] \u2014 view or set current mood
 `─────────────────────────────`
   🛠️  *System*
@@ -2141,6 +2201,7 @@ def main():
     app.add_handler(CommandHandler("setstatus",       cmd_setstatus))
     app.add_handler(CommandHandler("bio",             cmd_bio))
     app.add_handler(CommandHandler("pfp",             cmd_pfp))
+    app.add_handler(CommandHandler("banner",          cmd_banner))
     app.add_handler(CommandHandler("toggledm",        cmd_toggledm))
     app.add_handler(CommandHandler("togglegc",        cmd_togglegc))
     app.add_handler(CommandHandler("toggleserver",    cmd_toggleserver))
@@ -2166,7 +2227,13 @@ def main():
     app.add_handler(CallbackQueryHandler(_leaderboard_callback, pattern=r"^lb:"))
     app.add_handler(MessageHandler(filters.Document.FileExtension("txt"),  cmd_instructions_file))
     app.add_handler(MessageHandler(filters.Document.FileExtension("yaml"), cmd_setconfig))
-    app.add_handler(MessageHandler(filters.PHOTO, cmd_imageupload))
+    # Photos/image-documents sent with /pfp or /banner captions are routed to their own handlers.
+    # All other photos and image documents fall through to cmd_imageupload.
+    _pfp_banner_caption = filters.Regex(r"^/(pfp|banner)(\s|$)")
+    app.add_handler(MessageHandler(filters.PHOTO & _pfp_banner_caption, cmd_pfp))
+    app.add_handler(MessageHandler(filters.Document.IMAGE & _pfp_banner_caption, cmd_pfp))
+    app.add_handler(MessageHandler(filters.PHOTO & ~_pfp_banner_caption, cmd_imageupload))
+    app.add_handler(MessageHandler(filters.Document.IMAGE & ~_pfp_banner_caption, cmd_imageupload))
     app.add_error_handler(_error_handler)
 
     async def _post_init(application):
