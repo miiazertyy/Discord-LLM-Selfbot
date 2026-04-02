@@ -1857,9 +1857,7 @@ async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cmd_id = _send_command(account, "set_pfp", {"url": url, "b64": image_b64})
     await update.message.reply_text(f"{label}⏳ Updating profile picture...")
-    # Timeout is 90s to allow the captcha_handler to solve a Discord captcha
-    # transparently (up to 60s solve + network overhead) before the result arrives.
-    result = await _wait_for_result(account, cmd_id, timeout=90.0)
+    result = await _wait_for_result(account, cmd_id, timeout=20.0)
     if result:
         if result.get("ok"):
             await update.message.reply_text(f"{label}✅ Profile picture updated!")
@@ -1929,9 +1927,7 @@ async def cmd_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cmd_id = _send_command(account, "set_banner", {"url": url, "b64": image_b64})
     await update.message.reply_text(f"{label}⏳ Updating profile banner...")
-    # Timeout is 90s to allow the captcha_handler to solve a Discord captcha
-    # transparently (up to 60s solve + network overhead) before the result arrives.
-    result = await _wait_for_result(account, cmd_id, timeout=90.0)
+    result = await _wait_for_result(account, cmd_id, timeout=20.0)
     if result:
         if result.get("ok"):
             await update.message.reply_text(f"{label}✅ Profile banner updated!")
