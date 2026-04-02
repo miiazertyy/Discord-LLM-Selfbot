@@ -110,6 +110,7 @@ class General(commands.Cog):
             f"  {p}status [emoji] [text]     set a custom status",
             f"  {p}bio [text]                set profile bio",
             f"  {p}pfp [url / attach]        change profile picture",
+            f"  {p}banner [url / attach]     change profile banner",
             f"  {p}mood [name]               view or set current mood",
             "─────────────────────────────",
             "  🛠️   System",
