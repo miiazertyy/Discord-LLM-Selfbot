@@ -67,6 +67,7 @@ from utils.memory import init_memory, get_memory, set_memory, delete_memory, for
 from utils.tts import generate_voice_message
 from utils.tts_trigger import is_tts_request
 from utils.voice_send import send_voice_message
+from utils.captcha import init_captcha, solve_hcaptcha
 
 
 init()
@@ -96,6 +97,7 @@ load_dotenv(dotenv_path=env_path, override=True)
 init_db()
 init_ai()
 init_memory()
+init_captcha()
 
 TOKENS = load_tokens()
 PREFIX = config["bot"]["prefix"]
@@ -2268,6 +2270,30 @@ async def on_message(message):
     is_trigger = await is_trigger_message(message)
 
     if (is_trigger or (is_followup and bot.hold_conversation)) and not bot.paused:
+        # ── hCaptcha auto-solve ───────────────────────────────────────────────
+        # If the message contains an image attachment that looks like a captcha,
+        # solve it with Gemini and prepend the answer to the user's prompt so the
+        # AI can reference it in its reply.
+        _captcha_cfg = config["bot"].get("captcha") or {}
+        if _captcha_cfg.get("enabled", False) and message.attachments:
+            for _att in message.attachments:
+                if _att.content_type and _att.content_type.startswith("image/"):
+                    try:
+                        _captcha_answer = await solve_hcaptcha(_att.url)
+                        if _captcha_answer:
+                            log_system(f"hCaptcha solved for {message.author.name}: {_captcha_answer}")
+                            # Patch the message content so the rest of the pipeline
+                            # sees the captcha answer inline with the original text.
+                            _extra = f"[captcha answer: {_captcha_answer}]"
+                            message.content = (
+                                f"{message.content} {_extra}".strip()
+                                if message.content
+                                else _extra
+                            )
+                    except Exception as _ce:
+                        log_error("Captcha Auto-Solve", str(_ce))
+                    break  # only process the first image attachment
+        # ─────────────────────────────────────────────────────────────────────
         if random.random() < IGNORE_CHANCE and not message.content.startswith(PREFIX) and not message.content.startswith(PRIORITY_PREFIX):
             log_system(f"Ignored message from {message.author.name} (chance skip)")
             return
