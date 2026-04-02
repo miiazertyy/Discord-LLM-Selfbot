@@ -469,12 +469,19 @@ async def _friend_request_loop():
             pending = [r for r in relationships if r.get("type") == 3]
             log_system(f"Friend requests: found {len(pending)} pending on startup")
 
+            # Distribute accepts in random bursts across a 6-hour window,
+            # mimicking a human who opens Discord a few times and clears requests.
+            # Split requests into 2-3 bursts, each with tight internal spacing.
+            num_bursts = random.randint(2, 3)
+            burst_offsets = sorted(random.uniform(0, 21600) for _ in range(num_bursts))  # 6h window
             for i, rel in enumerate(pending):
                 user_id = int(rel["id"])
                 username = rel.get("user", {}).get("username", str(user_id))
-                spread = random.randint(i * 60, i * 60 + random.randint(120, 480))
-                actual_delay = delay + spread
-                log_system(f"Pending friend request from {username} — accepting in {actual_delay}s")
+                # Assign this request to a burst, with small intra-burst jitter (10-90s apart)
+                burst_base = burst_offsets[i % num_bursts]
+                intra_jitter = random.uniform(10, 90) * (i // num_bursts)
+                actual_delay = delay + burst_base + intra_jitter
+                log_system(f"Pending friend request from {username} — accepting in {int(actual_delay)}s")
 
                 async def _accept(uid=user_id, uname=username, d=actual_delay):
                     await asyncio.sleep(d)
@@ -1872,10 +1879,16 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
     response = None
     _was_rate_limited = False
 
-    # Simulate Discord "seen" receipt: the bot has opened the DM and is reading
-    # before it starts typing. Only applies to DMs where read receipts are visible.
-    if isinstance(message.channel, discord.DMChannel) and bot.realistic_typing:
-        _read_delay = random.uniform(1.0, 3.0) if bypass_typing else random.uniform(2.5, 8.0)
+    # Simulate the bot "reading" the message before it starts typing.
+    # DMs get a longer read delay (read receipts are visible there).
+    # Group chats and server channels get a shorter one to feel natural.
+    if bot.realistic_typing:
+        if isinstance(message.channel, discord.DMChannel):
+            _read_delay = random.uniform(1.0, 3.0) if bypass_typing else random.uniform(2.5, 8.0)
+        elif isinstance(message.channel, discord.GroupChannel):
+            _read_delay = random.uniform(0.8, 3.5) if bypass_typing else random.uniform(1.5, 5.0)
+        else:
+            _read_delay = random.uniform(0.5, 2.0) if bypass_typing else random.uniform(1.0, 4.0)
         await asyncio.sleep(_read_delay)
 
     for attempt in range(max_retries):
@@ -1896,6 +1909,8 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
                 log_error("AI Refusal", "Model refused to respond, trying next model...")
                 # Rotate to the next model before retrying — different models refuse differently
                 fallback_model()
+                # Random delay before retry so the refusal loop doesn't fire instantly
+                await asyncio.sleep(random.uniform(1.5, 4.0))
                 response = None
 
             if response:
@@ -2024,6 +2039,9 @@ async def generate_response_and_reply(message, prompt, history, image_url=None, 
         if _time_since_last < _inter_user_gap:
             await asyncio.sleep(_inter_user_gap - _time_since_last)
 
+    # Small random pre-lock jitter: prevents perfectly serialized sends from
+    # looking mechanical when multiple users are active at the same time.
+    await asyncio.sleep(random.uniform(0.1, 1.2))
     async with bot.global_send_lock:
         pics_cfg = config["bot"].get("pictures") or {}
         if _available_pics and pics_cfg.get("enabled", True):
@@ -2314,8 +2332,10 @@ async def process_message_queue(batch_key):
                     if not priority:
                         await asyncio.sleep(wait_time)
 
-                    # Keep collecting messages until the user stops sending for 2.5-4.5s
-                    BATCH_TAIL_WAIT = random.uniform(2.5, 4.5)
+                    # Keep collecting messages until the user stops sending.
+                    # High variance mimics real human pause patterns (quick replies
+                    # vs thinking before continuing) — fixed ranges look mechanical.
+                    BATCH_TAIL_WAIT = random.uniform(1.5, 7.0)
                     BATCH_POLL_INTERVAL = 0.3
                     last_received = time.time()
                     while True:
@@ -2454,14 +2474,6 @@ if __name__ == "__main__":
                 raise
 
     async def _main():
-        try:
-            async with AsyncSession(impersonate="chrome") as s:
-                r = await s.get("https://tls.browserleaks.com/json")
-                print("TLS Fingerprint test:", r.json().get("ja3", "N/A"))
-                print("JA4:", r.json().get("ja4", "N/A"))
-        except Exception as e:
-            log_error("Fingerprint Test", str(e))
-
         print(f"Starting {len(TOKENS)} instance(s)...")
         await asyncio.gather(*[_run_token(t["token"], i) for i, t in enumerate(TOKENS)])
 
