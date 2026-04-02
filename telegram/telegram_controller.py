@@ -417,87 +417,96 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             models = bot_cfg.get("groq_models", [])
             tts_tones = tts.get('tones', [])
             status_statuses = status.get('statuses', [])
+            SEP = "`─────────────────────────────`"
+
+            def e(text: str) -> str:
+                """Escape a plain string for MarkdownV2."""
+                for ch in r"\_*[]()~`>#+-=|{}.!":
+                    text = text.replace(ch, f"\\{ch}")
+                return text
+
             def row(key: str, val) -> str:
-                """One config row: monospace key, escaped value."""
-                val_str = _escape(str(val)) if val is not None else "_not set_"
-                return f"`{key}` — {val_str}"
+                """key in monospace — plain escaped value."""
+                v = str(val) if val is not None else "not set"
+                return f"  `{key}` \u2014 {e(v)}"
 
-            def bool_row(key: str, val) -> str:
+            def brow(key: str, val) -> str:
+                """key in monospace — ✅/❌ for booleans."""
                 icon = "✅" if val else "❌"
-                return f"`{key}` — {icon}"
+                return f"  `{key}` \u2014 {icon}"
 
-            title_suffix = f" — {_escape(label.strip())}" if label else ""
+            title_label = f" \u2014 {e(label.strip())}" if label else ""
             lines = [
-                f"⚙️ *Bot Config{title_suffix}*",
-                "",
-                "*🔧 General*",
-                row("prefix", bot_cfg.get("prefix")),
-                row("trigger", bot_cfg.get("trigger")),
-                row("owner\\_id", bot_cfg.get("owner_id")),
-                row("priority\\_prefix", bot_cfg.get("priority_prefix")),
-                "",
-                "*💬 Responses*",
-                bool_row("allow\\_dm", bot_cfg.get("allow_dm")),
-                bool_row("allow\\_gc", bot_cfg.get("allow_gc")),
-                bool_row("allow\\_server", bot_cfg.get("allow_server", True)),
-                bool_row("discord\\_commands\\_enabled", bot_cfg.get("discord_commands_enabled", True)),
-                bool_row("hold\\_conversation", bot_cfg.get("hold_conversation")),
-                bool_row("realistic\\_typing", bot_cfg.get("realistic_typing")),
-                bool_row("reply\\_ping", bot_cfg.get("reply_ping")),
-                bool_row("disable\\_mentions", bot_cfg.get("disable_mentions")),
-                bool_row("batch\\_messages", bot_cfg.get("batch_messages")),
-                row("batch\\_wait\\_times", wt_str or "not set"),
-                "",
-                "*🎭 Behaviour*",
-                row("ignore\\_chance", bot_cfg.get("ignore_chance")),
-                row("typo\\_chance", bot_cfg.get("typo_chance")),
-                bool_row("anti\\_age\\_ban", bot_cfg.get("anti_age_ban")),
-                "",
-                "*🤖 Models*",
-                row("groq\\_models", ", ".join(models) if isinstance(models, list) else models),
-                row("groq\\_image\\_model", bot_cfg.get("groq_image_model")),
-                row("groq\\_whisper\\_model", bot_cfg.get("groq_whisper_model")),
-                "",
-                "*🔊 TTS*",
-                bool_row("tts\\.enabled", tts.get("enabled")),
-                row("tts\\.voice", tts.get("voice")),
-                row("tts\\.tones", ", ".join(tts_tones) if isinstance(tts_tones, list) else tts_tones),
-                "",
-                "*😶 Mood*",
-                bool_row("mood\\.enabled", mood.get("enabled")),
-                row("mood\\.shift\\_interval\\_min", mood.get("shift_interval_min")),
-                row("mood\\.shift\\_interval\\_max", mood.get("shift_interval_max")),
-                row("mood\\.moods", mood_list or "none"),
-                "",
-                "*🕐 Status*",
-                bool_row("status\\.enabled", status.get("enabled")),
-                row("status\\.change\\_interval\\_min", status.get("change_interval_min")),
-                row("status\\.change\\_interval\\_max", status.get("change_interval_max")),
-                row("status\\.statuses", ", ".join(status_statuses) if isinstance(status_statuses, list) else status_statuses),
-                "",
-                "*💬 Late Reply*",
-                bool_row("late\\_reply\\.enabled", late.get("enabled")),
-                row("late\\_reply\\.threshold", late.get("threshold")),
-                "",
-                "*💤 Nudge*",
-                bool_row("nudge\\.enabled", nudge.get("enabled", False)),
-                row("nudge\\.threshold\\_days", nudge.get("threshold_days", 2)),
-                row("nudge\\.check\\_interval\\_hours", nudge.get("check_interval_hours", 6)),
-                row("nudge\\.send\\_during\\_hours", f"{nudge_hours[0]}:00–{nudge_hours[1]}:00"),
-                "",
-                "*👥 Friend Requests*",
-                bool_row("friend\\_requests\\.enabled", fr.get("enabled", True)),
-                row("friend\\_requests\\.accept\\_delay\\_min", f"{fr.get('accept_delay_min', 120)}s"),
-                row("friend\\_requests\\.accept\\_delay\\_max", f"{fr.get('accept_delay_max', 600)}s"),
-                "",
-                "*🔔 Notifications*",
-                row("error\\_webhook", "set" if notif.get("error_webhook") else "not set"),
-                bool_row("ratelimit\\_notifications", notif.get("ratelimit_notifications")),
-                bool_row("telegram\\_error\\_notifications", notif.get("telegram_error_notifications", False)),
-                "",
-                "✏️ `/config key value` to edit",
+                f"⚙️ *Bot Config{title_label}*",
+                SEP,
+                "  🔧  *General*",
+                row("prefix",          bot_cfg.get("prefix")),
+                row("trigger",         bot_cfg.get("trigger")),
+                row("owner_id",        bot_cfg.get("owner_id")),
+                row("priority_prefix", bot_cfg.get("priority_prefix")),
+                SEP,
+                "  💬  *Responses*",
+                brow("allow_dm",                  bot_cfg.get("allow_dm")),
+                brow("allow_gc",                  bot_cfg.get("allow_gc")),
+                brow("allow_server",               bot_cfg.get("allow_server", True)),
+                brow("discord_commands_enabled",   bot_cfg.get("discord_commands_enabled", True)),
+                brow("hold_conversation",          bot_cfg.get("hold_conversation")),
+                brow("realistic_typing",           bot_cfg.get("realistic_typing")),
+                brow("reply_ping",                 bot_cfg.get("reply_ping")),
+                brow("disable_mentions",           bot_cfg.get("disable_mentions")),
+                brow("batch_messages",             bot_cfg.get("batch_messages")),
+                row("batch_wait_times",            wt_str or "not set"),
+                SEP,
+                "  🎭  *Behaviour*",
+                row("ignore_chance",  bot_cfg.get("ignore_chance")),
+                row("typo_chance",    bot_cfg.get("typo_chance")),
+                brow("anti_age_ban", bot_cfg.get("anti_age_ban")),
+                SEP,
+                "  🤖  *Models*",
+                row("groq_models",         ", ".join(models) if isinstance(models, list) else str(models)),
+                row("groq_image_model",    bot_cfg.get("groq_image_model")),
+                row("groq_whisper_model",  bot_cfg.get("groq_whisper_model")),
+                SEP,
+                "  🔊  *TTS*",
+                brow("tts.enabled", tts.get("enabled")),
+                row("tts.voice",    tts.get("voice")),
+                row("tts.tones",    ", ".join(tts_tones) if isinstance(tts_tones, list) else str(tts_tones)),
+                SEP,
+                "  😶  *Mood*",
+                brow("mood.enabled",            mood.get("enabled")),
+                row("mood.shift_interval_min",  mood.get("shift_interval_min")),
+                row("mood.shift_interval_max",  mood.get("shift_interval_max")),
+                row("mood.moods",               mood_list or "none"),
+                SEP,
+                "  🕐  *Status*",
+                brow("status.enabled",             status.get("enabled")),
+                row("status.change_interval_min",  status.get("change_interval_min")),
+                row("status.change_interval_max",  status.get("change_interval_max")),
+                row("status.statuses",             ", ".join(status_statuses) if isinstance(status_statuses, list) else str(status_statuses)),
+                SEP,
+                "  💬  *Late Reply*",
+                brow("late_reply.enabled",    late.get("enabled")),
+                row("late_reply.threshold",   late.get("threshold")),
+                SEP,
+                "  💤  *Nudge*",
+                brow("nudge.enabled",              nudge.get("enabled", False)),
+                row("nudge.threshold_days",        nudge.get("threshold_days", 2)),
+                row("nudge.check_interval_hours",  nudge.get("check_interval_hours", 6)),
+                row("nudge.send_during_hours",     f"{nudge_hours[0]}:00\u2013{nudge_hours[1]}:00"),
+                SEP,
+                "  👥  *Friend Requests*",
+                brow("friend_requests.enabled",          fr.get("enabled", True)),
+                row("friend_requests.accept_delay_min",  f"{fr.get('accept_delay_min', 120)}s"),
+                row("friend_requests.accept_delay_max",  f"{fr.get('accept_delay_max', 600)}s"),
+                SEP,
+                "  🔔  *Notifications*",
+                row("error_webhook",                  "set" if notif.get("error_webhook") else "not set"),
+                brow("ratelimit_notifications",        notif.get("ratelimit_notifications")),
+                brow("telegram_error_notifications",   notif.get("telegram_error_notifications", False)),
+                SEP,
+                "✏️ /config `key` `value` to edit",
             ]
-            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN_V2)
         except Exception as e:
             await update.message.reply_text(f"❌ Error reading config: {e}")
         return
