@@ -38,7 +38,7 @@ A fully AI-powered Discord selfbot using the Groq API — **completely free**.
 
 ---
 
-## 📱 Telegram Controller (Recommended)
+## 🌐 Telegram Controller (Recommended)
 
 Instead of running commands directly on Discord, control everything through a private Telegram bot. This is the **safer and recommended approach** — 100% of management activity stays off Discord.
 
