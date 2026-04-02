@@ -133,6 +133,12 @@ bot:
       - "mdrr"
       - "ptdr"
 
+  # --- Abandon Reply ---
+  stale_reply:
+    enabled: true
+    max_messages: 10
+    min_age: 120
+
   # --- Friend Requests ---
   friend_requests:
     enabled: true
@@ -148,7 +154,8 @@ bot:
       - 10                  # don't nudge before 10am
       - 22                  # don't nudge after 10pm
 
-notifications:
-  error_webhook: ""
-  ratelimit_notifications: true
-  telegram_error_notifications: true
+  # --- Error Webhook ---
+  notifications:
+    error_webhook: ""
+    ratelimit_notifications: true
+    telegram_error_notifications: true
