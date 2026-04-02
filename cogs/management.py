@@ -1269,6 +1269,48 @@ class Management(commands.Cog):
         except Exception as e:
             await ctx.send(f"Error: {e}", delete_after=10)
 
+    @commands.command(name="banner", description="Change the bot's profile banner. Attach an image or provide a URL.")
+    async def banner(self, ctx, url: str = None):
+        if ctx.author.id != self.bot.owner_id:
+            return
+
+        image_data = None
+
+        if ctx.message.attachments:
+            attachment = ctx.message.attachments[0]
+            _img_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+            _ext = os.path.splitext(attachment.filename)[1].lower()
+            _ct = attachment.content_type or ""
+            if not (_ct.startswith("image/") or _ext in _img_exts):
+                await ctx.send("Please attach a valid image file (.jpg, .jpeg, .png, .gif, .webp).", delete_after=10)
+                return
+            image_data = await attachment.read()
+        elif url:
+            try:
+                async with AsyncSession(impersonate="chrome") as session:
+                    resp = await session.get(url)
+                    if resp.status_code != 200:
+                        await ctx.send(f"Failed to fetch image (status {resp.status_code}).", delete_after=10)
+                        return
+                    image_data = resp.content
+            except Exception as e:
+                await ctx.send(f"Error fetching image: {e}", delete_after=10)
+                return
+        else:
+            await ctx.send("Please attach an image or provide a URL.", delete_after=10)
+            return
+
+        try:
+            await self.bot.user.edit(banner=image_data)
+            await ctx.send("Profile banner updated!", delete_after=10)
+        except discord.errors.HTTPException as e:
+            if "rate" in str(e).lower():
+                await ctx.send("You're being rate limited on banner changes. Try again later.", delete_after=15)
+            else:
+                await ctx.send(f"Failed to update banner: {e}", delete_after=10)
+        except Exception as e:
+            await ctx.send(f"Error: {e}", delete_after=10)
+
     @commands.command(name="bio", description="Change the bot's profile bio.")
     async def bio(self, ctx, *, text: str = None):
         if ctx.author.id != self.bot.owner_id:
