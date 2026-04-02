@@ -98,6 +98,11 @@ bot:
       - idle
       - dnd
 
+  # --- Captcha solver ---
+  captcha:
+    enabled: true
+    gemini_model: "gemini-2.0-flash"
+
   # --- Late reply openers ---
   late_reply:
     enabled: true
