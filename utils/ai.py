@@ -213,7 +213,7 @@ async def _prepare_image_url(image_url: str) -> str:
         async with aiohttp.ClientSession() as session:
             async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
-                    return image_url
+                    raise Exception(f"Image fetch failed with HTTP {resp.status}")
                 content_type = resp.content_type or "image/jpeg"
                 data = await resp.read()
 
@@ -246,7 +246,7 @@ async def _prepare_image_url(image_url: str) -> str:
         return f"data:image/jpeg;base64,{b64}"
 
     except Exception:
-        return image_url  # Any failure — fall back to original URL
+        raise  # Propagate so generate_response_image can fall back to text-only
 
 
 async def generate_response_image(prompt, instructions, image_url, history=None):
@@ -255,7 +255,12 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
     try:
         _cfg = load_config()
         _image_model = _cfg["bot"].get("groq_image_model", "meta-llama/llama-4-scout-17b-16e-instruct")
-        image_url = await _prepare_image_url(image_url)
+        try:
+            prepared_url = await _prepare_image_url(image_url)
+        except Exception as img_err:
+            print(f"[AI] Image preparation failed ({img_err}), falling back to text-only response")
+            return await generate_response(prompt, instructions, history)
+
         image_response = await _create_image_completion(
             _image_model,
             messages=[
@@ -266,7 +271,7 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
                             "type": "text",
                             "text": f"Describe / Explain in detail this image sent by a Discord user to an AI who will be responding to the message '{prompt}' based on your output as the AI cannot see the image. So make sure to tell the AI any key details about the image that you think are important to include in the response, especially any text on screen that the AI should be aware of.",
                         },
-                        {"type": "image_url", "image_url": {"url": image_url}},
+                        {"type": "image_url", "image_url": {"url": prepared_url}},
                     ],
                 }
             ],
@@ -295,7 +300,6 @@ async def generate_response_image(prompt, instructions, image_url, history=None)
         return response.choices[0].message.content
     except Exception as e:
         print_error("AI image Error", e)
-        await webhook_log(None, e)
         raise
 
 
