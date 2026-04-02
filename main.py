@@ -113,6 +113,7 @@ CONVERSATION_TIMEOUT = 150.0
 
 _MOOD_CFG = config["bot"]["mood"]
 _LATE_CFG = config["bot"]["late_reply"]
+_STALE_CFG = config["bot"].get("stale_reply") or {}
 
 REFUSAL_PHRASES = [
     "i'm sorry, but i can't",
@@ -2360,7 +2361,38 @@ async def process_message_queue(batch_key):
             if len(bot.message_history[key]) > MAX_HISTORY * 2:
                 bot.message_history[key] = bot.message_history[key][-(MAX_HISTORY * 2):]
             history = bot.message_history[key]
-            
+
+            # ── Stale reply guard (servers & group chats only) ────────────────
+            # If the channel has moved on significantly since the triggering message
+            # (too many newer messages AND enough time has passed), skip the reply
+            # so the bot doesn't resurface a buried conversation awkwardly.
+            _is_public = isinstance(message_to_reply_to.channel, (
+                discord.TextChannel, discord.Thread, discord.ForumChannel,
+                discord.StageChannel, discord.GroupChannel,
+            ))
+            if _is_public and _STALE_CFG.get("enabled", False):
+                _stale_max_msgs = _STALE_CFG.get("max_messages", 10)
+                _stale_min_age  = _STALE_CFG.get("min_age", 120)
+                _msg_age = time.time() - message_to_reply_to.created_at.timestamp()
+                if _msg_age >= _stale_min_age:
+                    try:
+                        _newer_count = 0
+                        async for _m in message_to_reply_to.channel.history(limit=_stale_max_msgs + 1):
+                            if _m.id == message_to_reply_to.id:
+                                break
+                            _newer_count += 1
+                        if _newer_count >= _stale_max_msgs:
+                            channel_name, guild_name = get_channel_context(message_to_reply_to)
+                            log_system(
+                                f"Skipped stale reply to {message_to_reply_to.author.name} "
+                                f"in {channel_name} — {_newer_count} newer messages, "
+                                f"message was {int(_msg_age)}s old"
+                            )
+                            continue
+                    except Exception:
+                        pass
+            # ─────────────────────────────────────────────────────────────────
+
             response = await generate_response_and_reply(message_to_reply_to, combined_content, history, image_url, wait_time=(wait_time + message_age))
             if response:
                 bot.message_history[key].append({"role": "assistant", "content": response})
