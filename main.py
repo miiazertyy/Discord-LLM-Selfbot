@@ -67,7 +67,7 @@ from utils.memory import init_memory, get_memory, set_memory, delete_memory, for
 from utils.tts import generate_voice_message
 from utils.tts_trigger import is_tts_request
 from utils.voice_send import send_voice_message
-from utils.captcha import init_captcha, solve_hcaptcha, solve_discord_captcha
+from utils.captcha import init_captcha, solve_hcaptcha
 
 
 init()
@@ -168,14 +168,7 @@ REFUSAL_PHRASES = [
 
 def create_bot() -> commands.Bot:
     """Instantiate a fully configured bot. Called once per token."""
-
-    async def _discord_captcha_handler(exc: discord.CaptchaRequired, b: commands.Bot) -> str:
-        token = await solve_discord_captcha(exc)
-        if token is None:
-            raise exc  # re-raise so discord.py-self surfaces the error normally
-        return token
-
-    b = commands.Bot(command_prefix=PREFIX, help_command=None, mobile=True, captcha_handler=_discord_captcha_handler)
+    b = commands.Bot(command_prefix=PREFIX, help_command=None, mobile=True)
     b.retry_queue = deque()
     b.owner_id = OWNER_ID
     b.active_channels = set(get_channels())
