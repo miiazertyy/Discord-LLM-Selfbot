@@ -1046,6 +1046,7 @@ class Management(commands.Cog):
             late = bot_cfg.get("late_reply") or {}
             nudge = bot_cfg.get("nudge") or {}
             fr = bot_cfg.get("friend_requests") or {}
+            stale = bot_cfg.get("stale_reply") or {}
 
             status = bot_cfg.get("status") or {}
             notif = config.get("notifications") or {}
@@ -1107,6 +1108,11 @@ class Management(commands.Cog):
                 "  💬  **Late Reply**",
                 f"  `late_reply.enabled`    {late.get('enabled')}",
                 f"  `late_reply.threshold`  {late.get('threshold')}",
+                "─────────────────────────────",
+                "  🗑️  **Stale Reply** *(servers & GCs only)*",
+                f"  `stale_reply.enabled`       {stale.get('enabled', False)}",
+                f"  `stale_reply.max_messages`  {stale.get('max_messages', 10)}",
+                f"  `stale_reply.min_age`       {stale.get('min_age', 120)}s",
                 "─────────────────────────────",
                 "  💤  **Nudge**",
                 f"  `nudge.enabled`              {nudge.get('enabled', False)}",
