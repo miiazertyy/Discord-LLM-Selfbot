@@ -41,6 +41,13 @@ _gemini_api_key: str | None = None
 _gemini_model: str = "gemini-1.5-flash"
 _initialized: bool = False
 
+_hcaptchasolver_api_key: str | None = None
+
+_HCAPTCHASOLVER_CREATE_URL = "https://hcaptchasolver.com/api/createTask"
+_HCAPTCHASOLVER_RESULT_URL = "https://hcaptchasolver.com/api/getTaskResult"
+_HCAPTCHASOLVER_POLL_INTERVAL = 3   # seconds between polls
+_HCAPTCHASOLVER_TIMEOUT = 60        # max seconds to wait for a solution
+
 _GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models"
     "/{model}:generateContent?key={key}"
@@ -55,14 +62,20 @@ _TIMEOUT = 20  # seconds — captchas need to be fast
 # ---------------------------------------------------------------------------
 
 def init_captcha() -> None:
-    """Load API key and model from .env / config.yaml. Call once at startup."""
-    global _gemini_api_key, _gemini_model, _initialized
+    """Load API keys and model from .env / config.yaml. Call once at startup."""
+    global _gemini_api_key, _gemini_model, _initialized, _hcaptchasolver_api_key
 
     load_dotenv(dotenv_path=get_env_path(), override=True)
     _gemini_api_key = getenv("GEMINI_API_KEY")
+    _hcaptchasolver_api_key = getenv("HCAPTCHASOLVER_API_KEY")
+
+    if _hcaptchasolver_api_key:
+        log_system("Discord captcha solver ready (hcaptchasolver.com)")
+    else:
+        log_error("Captcha Solver", "HCAPTCHASOLVER_API_KEY not set in .env — Discord captcha solving disabled.")
 
     if not _gemini_api_key:
-        log_error("Captcha Solver", "GEMINI_API_KEY not set in .env — captcha solving disabled.")
+        log_error("Captcha Solver", "GEMINI_API_KEY not set in .env — hCaptcha image solving disabled.")
         return
 
     cfg = load_config()
@@ -313,6 +326,116 @@ async def solve_hcaptcha(
                 await asyncio.sleep(1.0)
 
     log_error("Captcha Solver", "All retry attempts exhausted.")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Discord CaptchaRequired solver (hcaptchasolver.com)
+# ---------------------------------------------------------------------------
+
+async def solve_discord_captcha(exc) -> str | None:
+    """
+    Solve a ``discord.CaptchaRequired`` exception via hcaptchasolver.com.
+
+    Parameters
+    ----------
+    exc:
+        The ``discord.CaptchaRequired`` exception raised by discord.py-self.
+        Must expose ``.sitekey`` and optionally ``.rqdata``.
+
+    Returns
+    -------
+    str | None
+        The ``gRecaptchaResponse`` token string on success, or ``None`` on failure.
+    """
+    _ensure_init()
+
+    if not _hcaptchasolver_api_key:
+        log_error("Discord Captcha", "HCAPTCHASOLVER_API_KEY not set — cannot solve Discord captcha.")
+        return None
+
+    sitekey = getattr(exc, "sitekey", None)
+    rqdata = getattr(exc, "rqdata", None) or None  # normalise empty string → None
+
+    if not sitekey:
+        log_error("Discord Captcha", "CaptchaRequired exception has no sitekey — cannot solve.")
+        return None
+
+    # ── Build task payload ───────────────────────────────────────────────────
+    task: dict = {
+        "type": "PopularCaptchaTaskProxyless",
+        "websiteURL": "https://discord.com/channels/@me",
+        "websiteKey": sitekey,
+    }
+    if rqdata:
+        task["rqdata"] = rqdata
+
+    create_payload = {
+        "clientKey": _hcaptchasolver_api_key,
+        "task": task,
+    }
+
+    # ── Submit task ──────────────────────────────────────────────────────────
+    task_id: str | None = None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                _HCAPTCHASOLVER_CREATE_URL,
+                json=create_payload,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                data = await resp.json()
+                if resp.status != 200 or data.get("errorId", 0) != 0:
+                    err_desc = data.get("errorDescription") or data.get("errorCode") or str(data)
+                    log_error("Discord Captcha", f"createTask failed: {err_desc}")
+                    return None
+                task_id = data.get("taskId")
+    except Exception as e:
+        log_error("Discord Captcha", f"createTask request error: {e}")
+        return None
+
+    if not task_id:
+        log_error("Discord Captcha", "createTask returned no taskId.")
+        return None
+
+    log_system(f"Discord captcha task created (id={task_id}), polling for result…")
+
+    # ── Poll for result ──────────────────────────────────────────────────────
+    result_payload = {"clientKey": _hcaptchasolver_api_key, "taskId": task_id}
+    deadline = asyncio.get_event_loop().time() + _HCAPTCHASOLVER_TIMEOUT
+
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(_HCAPTCHASOLVER_POLL_INTERVAL)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    _HCAPTCHASOLVER_RESULT_URL,
+                    json=result_payload,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    data = await resp.json()
+
+                    if data.get("errorId", 0) != 0:
+                        err_desc = data.get("errorDescription") or data.get("errorCode") or str(data)
+                        log_error("Discord Captcha", f"getTaskResult error: {err_desc}")
+                        return None
+
+                    status = data.get("status")
+                    if status == "ready":
+                        solution = data.get("solution", {})
+                        token = solution.get("gRecaptchaResponse")
+                        if token:
+                            log_system("Discord captcha solved successfully.")
+                            return token
+                        else:
+                            log_error("Discord Captcha", f"Task ready but no gRecaptchaResponse in solution: {solution}")
+                            return None
+                    # status == "processing" — keep polling
+        except Exception as e:
+            log_error("Discord Captcha", f"getTaskResult request error: {e}")
+            return None
+
+    log_error("Discord Captcha", f"Timed out after {_HCAPTCHASOLVER_TIMEOUT}s waiting for captcha solution.")
     return None
 
 
