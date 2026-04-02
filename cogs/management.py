@@ -1261,8 +1261,19 @@ class Management(commands.Cog):
         try:
             await self.bot.user.edit(avatar=image_data)
             await ctx.send("Profile picture updated!", delete_after=10)
+        except discord.CaptchaRequired:
+            await ctx.send(
+                "⚠️ Discord is requiring a captcha for this profile change. "
+                "This happens when you change your picture too frequently. "
+                "Wait 10–15 minutes and try again.", delete_after=30
+            )
         except discord.errors.HTTPException as e:
-            if "Too many users" in str(e) or "rate" in str(e).lower():
+            if "captcha" in str(e).lower() or getattr(e, "code", None) == -1:
+                await ctx.send(
+                    "⚠️ Discord is requiring a captcha for this profile change. "
+                    "Wait 10–15 minutes and try again.", delete_after=30
+                )
+            elif "Too many users" in str(e) or "rate" in str(e).lower():
                 await ctx.send("You're being rate limited on avatar changes. Try again later.", delete_after=15)
             else:
                 await ctx.send(f"Failed to update avatar: {e}", delete_after=10)
@@ -1303,8 +1314,19 @@ class Management(commands.Cog):
         try:
             await self.bot.user.edit(banner=image_data)
             await ctx.send("Profile banner updated!", delete_after=10)
+        except discord.CaptchaRequired:
+            await ctx.send(
+                "⚠️ Discord is requiring a captcha for this profile change. "
+                "This happens when you change your banner too frequently. "
+                "Wait 10–15 minutes and try again.", delete_after=30
+            )
         except discord.errors.HTTPException as e:
-            if "rate" in str(e).lower():
+            if "captcha" in str(e).lower() or getattr(e, "code", None) == -1:
+                await ctx.send(
+                    "⚠️ Discord is requiring a captcha for this profile change. "
+                    "Wait 10–15 minutes and try again.", delete_after=30
+                )
+            elif "rate" in str(e).lower():
                 await ctx.send("You're being rate limited on banner changes. Try again later.", delete_after=15)
             else:
                 await ctx.send(f"Failed to update banner: {e}", delete_after=10)
