@@ -8,7 +8,8 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 
 > ⚠️ **Disclaimer**
 > Using this on a user account violates [Discord's Terms of Service](https://discord.com/terms) and may result in your account being banned. Only use this on an account you're willing to lose. I take no responsibility for any actions taken against your account.
-> It is highly recommended to use a Telegram Bot for commands to prevent banning
+> It is **strongly recommended** to control the bot exclusively through the Telegram controller — running commands directly on Discord creates selfbot-detectable activity on your account.
+
 ---
 
 ## ☮️ Features
@@ -28,16 +29,55 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 - Responds to trigger words, mentions, and replies — server-aware
 - Holds conversations naturally in DMs and group chats
 - Auto-accepts friend requests with a configurable delay
-- Late reply openers when responding after a long pause — woven in naturally by the AI, not bolted on
+- Late reply openers when responding after a long pause — woven in naturally by the AI
 - Global send lock prevents two responses from sending simultaneously
 - Anti-spam cooldown per user
 - Random status cycling on a configurable schedule
 - All credentials stored securely in `.env`
-- Everything configurable in `config.yaml` — editable live from Discord
+- Everything configurable in `config.yaml` — editable live from Telegram
 
 ---
 
-## 📋 Commands
+## 📱 Telegram Controller (Recommended)
+
+Instead of running commands directly on Discord, control everything through a private Telegram bot. This is the **safer and recommended approach** — 100% of management activity stays off Discord.
+
+### Telegram Setup
+
+**Step 1 — Create a Telegram bot**
+1. Message [@BotFather](https://t.me/BotFather) on Telegram
+2. Send `/newbot` and follow the prompts
+3. Copy the bot token it gives you (looks like `123456:ABC-...`)
+
+**Step 2 — Get your Telegram user ID**
+1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
+2. It will reply with your numeric user ID
+
+**Step 3 — Add to your `.env`**
+```
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_OWNER_ID=your_telegram_user_id_here
+```
+
+**Step 4 — Run**
+
+Both `main.py` and the Telegram controller run at the same time. If you use `run.bat` / `run.sh` the controller launches automatically in a separate window. To start it manually:
+```bash
+python telegram/telegram_controller.py
+```
+
+### Multi-Account Support
+
+If you run multiple Discord tokens (`DISCORD_TOKEN_1`, `DISCORD_TOKEN_2` ...), each selfbot instance gets its own IPC channel. Use `/account <n>` in Telegram to switch between them:
+
+```
+/account        — show which account is currently targeted
+/account 2      — switch to account #2
+```
+
+---
+
+## 📋 Telegram Commands
 
 ### 🌙 AI
 | Command | Description |
@@ -52,10 +92,9 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 ### 💬 Replies
 | Command | Description |
 |---|---|
-| `/reply <user>` | Manually trigger a reply to a user's last message |
-| `/reply check` | Show users with unread messages + last message snippet |
-| `/reply all` | Respond to every user listed in `,reply check` |
-| `= [hint]` | Priority reply — instantly respond in any channel |
+| `/reply <user>` · `/response <user>` | Manually trigger a reply to a user's last message |
+| `/reply check` | Show users with unread messages |
+| `/reply all` | Respond to every user with unread messages |
 
 ### ⚙️ Instructions & Config
 | Command | Description |
@@ -63,14 +102,15 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 | `/prompt [text]` | View, set, or clear instructions inline |
 | `/instructions` | Upload a new `instructions.txt` (attach file) |
 | `/getinstructions` | Download the current `instructions.txt` |
-| `/config` | View and edit config inline |
+| `/config` | View full config |
+| `/config <key> <value>` | Edit a config value using dot notation |
 | `/getconfig` | Download the current `config.yaml` |
 | `/setconfig` | Upload a new `config.yaml` (attach file) |
 
 ### 📡 Channels
 | Command | Description |
 |---|---|
-| `/toggleactive` | Toggle the current channel as active |
+| `/toggleactive <id>` | Toggle a channel as active by ID |
 | `/toggledm` | Toggle DM responses |
 | `/togglegc` | Toggle group chat responses |
 | `/toggleserver` | Toggle server mention/reply responses |
@@ -81,16 +121,98 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 |---|---|
 | `/join <channel_id / link>` | Join a voice channel (muted & deafened) |
 | `/leave` | Leave the current voice channel |
-| `/autojoin <channel_id / link>` | Auto-join a voice channel on startup |
+| `/autojoin <channel_id / link>` | Auto-join a voice channel on every startup |
 | `/autojoin off` | Disable auto-join |
 
 ### 🖼️ Images
 | Command | Description |
 |---|---|
-| `/image ls` | List all pictures |
-| `/image upload` | Upload picture(s) (attach file) |
-| `/image download <n>` | Download a picture by number |
-| `/image delete <n>` | Delete a picture by number |
+| `/imagels` · `/imagelist` | List all pictures with descriptions |
+| `/imageupload` | Upload picture(s) (attach photo) — auto-analysed |
+| `/imagedownload <n>` · `/imagedl <n>` | Download a picture by number |
+| `/imagedelete <n> [n2 n3 ...]` | Delete one or more pictures by number |
+| `/imagedeleteall` | Delete all pictures |
+
+### 🎭 Profile & Status
+| Command | Description |
+|---|---|
+| `/setstatus [emoji] [text]` | Set a custom Discord status |
+| `/bio [text]` | Set profile bio |
+| `/pfp <url>` | Change profile picture |
+| `/mood [name]` | View or set the current mood |
+
+### 🛠️ System
+| Command | Description |
+|---|---|
+| `/addfriend <user_id>` | Send a friend request by user ID |
+| `/reload` | Reload all cogs and instructions |
+| `/restart` | Restart the bot |
+| `/shutdown` | Shut down the bot |
+| `/update` | Update to the latest stable release |
+| `/update main` | Update to the latest commit |
+| `/getdb` | Download the memory database |
+| `/leaderboard [filter]` | Show top users (e.g. `/leaderboard 7d`, `/leaderboard 1w`) |
+| `/ping` | Check the controller is running |
+
+---
+
+## 📋 Discord Commands (Owner Only)
+
+These commands are available directly on Discord but are **not recommended** for regular use — prefer Telegram. All commands are owner-only and use the prefix set in `config.yaml` (default `/`).
+
+### 🌙 AI
+| Command | Description |
+|---|---|
+| `/pause` | Pause / unpause AI responses |
+| `/pauseuser <user>` | Stop responding to a user |
+| `/unpauseuser <user>` | Resume responding to a user |
+| `/persona <user> [text]` | Set / clear / show a per-user persona |
+| `/wipe` | Clear conversation history |
+| `/analyse <user>` | Psychological read of a user |
+
+### 💬 Replies
+| Command | Description |
+|---|---|
+| `/reply` · `/response <user>` | Manually reply to a user's last message |
+| `/reply check` | Show users with unread messages |
+| `/reply all` | Respond to all users with unread messages |
+| `= [hint]` | Priority reply — bypass batch wait time instantly |
+
+### ⚙️ Instructions & Config
+| Command | Description |
+|---|---|
+| `/prompt [text]` | View, set, or clear instructions |
+| `/instructions` | Upload a new `instructions.txt` (attach file) |
+| `/getinstructions` · `/gi` | Download current `instructions.txt` |
+| `/config` | View full config |
+| `/config <key> <value>` | Edit a config value using dot notation |
+| `/getconfig` · `/gc` | Download `config.yaml` |
+| `/setconfig` | Upload a new `config.yaml` (attach file, bot restarts) |
+
+### 📡 Channels
+| Command | Description |
+|---|---|
+| `/toggleactive [id]` | Toggle current or specific channel as active |
+| `/toggledm` | Toggle DM responses |
+| `/togglegc` | Toggle group chat responses |
+| `/toggleserver` | Toggle server mention/reply responses |
+| `/ignore <user>` | Ignore / unignore a user |
+
+### 🎙️ Voice
+| Command | Description |
+|---|---|
+| `/join <id / link>` | Join a voice channel (muted & deafened) |
+| `/leave` | Leave the current voice channel |
+| `/autojoin <id / link>` | Auto-join a voice channel on startup |
+| `/autojoin off` | Disable auto-join |
+
+### 🖼️ Images
+| Command | Description |
+|---|---|
+| `/image ls` · `/imagelist` | List all pictures with descriptions |
+| `/image upload` | Upload picture(s) (attach file — auto-analysed) |
+| `/image download <n>` · `/imagedl <n>` | Download a picture by number |
+| `/image delete <n> [n2 n3 ...]` | Delete one or more pictures by number |
 | `/image delete all` | Delete all pictures |
 
 ### 🎭 Profile & Status
@@ -99,20 +221,20 @@ A fully AI-powered Discord selfbot using the Groq API - **completely free**.
 | `/status [emoji] [text]` | Set a custom status |
 | `/bio [text]` | Set profile bio |
 | `/pfp [url / attach]` | Change profile picture |
-| `/mood [name]` | View or set the current mood |
+| `/mood [name]` | View or set current mood |
 
 ### 🛠️ System
 | Command | Description |
 |---|---|
-| `/addfriend <user_id>` | Send a friend request to a user by ID |
-| `/clear` | Clears the chat |
-| `/reload` | Reload all cogs and instructions |
+| `/addfriend <user_id>` | Send a friend request by user ID |
+| `/clear [limit]` | Delete messages in current channel |
+| `/reload` | Reload all cogs + instructions |
 | `/restart` | Restart the bot |
 | `/shutdown` | Shut down the bot |
-| `/update` | Update to the latest stable release |
-| `/update main` | Update to the latest commit |
-| `/getdb` | Download the memory database |
-| `/leaderboard [filter]` | Show top users by message count (e.g. `,leaderboard 3d`, `,leaderboard 1w`) |
+| `/update` | Update to latest release |
+| `/update main` | Update to latest commit |
+| `/getdb` | Download memory database |
+| `/leaderboard` · `/lb [filter]` | Show top users (e.g. `/lb 3d`, `/lb 1w`) |
 | `/ping` | Show latency |
 
 ---
@@ -140,6 +262,7 @@ cd Discord-LLM-Selfbot
 ### Step 4 — Configure credentials
 - Rename `example.env` to `.env`
 - Fill in your Discord token and Groq API key
+- Optionally add your Telegram bot token and owner ID (recommended)
 
 ### Step 5 — Run the bot
 
@@ -153,6 +276,8 @@ python -m venv bot-env
 bot-env\Scripts\activate.bat
 pip install -r requirements.txt
 python main.py
+# In a separate terminal:
+python telegram/telegram_controller.py
 ```
 
 **Linux:**
@@ -166,45 +291,20 @@ chmod +x run.sh updater.sh
 
 ## 💭 Customizing the Personality
 
-Edit `config/instructions.txt` to set the bot's personality, tone, and behavior. You can also update it live from Discord using `,instructions` (attach a `.txt` file) or `,prompt <text>`.
+Edit `config/instructions.txt` to set the bot's personality, tone, and behavior. You can also update it live from Telegram using `/instructions` (attach a `.txt` file) or `/prompt <text>`.
 
 ---
 
-## 📱 Telegram Controller (Recommended)
-
-Instead of running commands directly on Discord (which creates selfbot-detectable activity on your account), you can control everything through a private Telegram bot. This is the safer and recommended approach.
-
-**Why use Telegram?**
-Using Discord commands from your own account is a red flag for Discord's anti-selfbot detection. The Telegram controller keeps 100% of management activity off Discord — you never touch your account to manage the bot.
-
-### Telegram Setup
-
-**Step 1 — Create a Telegram bot**
-1. Message [@BotFather](https://t.me/BotFather) on Telegram
-2. Send `/newbot` and follow the prompts
-3. Copy the bot token it gives you (looks like `123456:ABC-...`)
-
-**Step 2 — Get your Telegram user ID**
-1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
-2. It will reply with your numeric user ID
-
-**Step 3 — Add to your `.env`**
-```
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_OWNER_ID=your_telegram_user_id_here
-```
-
-**Step 4 — Run the controller**
-```bash
-python telegram_controller.py
-```
-Run this in a separate terminal alongside `main.py`. Both run at the same time.
-
-### Multi-Account Support
-
-If you run multiple Discord tokens (`DISCORD_TOKEN_1`, `DISCORD_TOKEN_2` ...), each selfbot instance gets its own IPC channel. Use `/account <n>` in Telegram to switch between them:
+## 🗂️ Project Structure
 
 ```
-/account        — show which account is currently targeted
-/account 2      — switch to account #2
+Discord-LLM-Selfbot/
+├── main.py                  — core bot logic
+├── run.bat / run.sh         — launchers (start bot + Telegram controller together)
+├── requirements.txt
+├── cogs/                    — Discord command cogs (management, general, etc.)
+├── utils/                   — shared helpers (AI, DB, memory, TTS, etc.)
+├── config/                  — runtime files (.env, config.yaml, instructions.txt, db)
+└── telegram/
+    └── telegram_controller.py  — standalone Telegram control panel
 ```
