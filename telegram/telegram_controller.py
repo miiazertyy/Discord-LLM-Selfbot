@@ -1788,9 +1788,16 @@ async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return doc, _ext
         return None, None
 
+    # context.args is only populated for plain /command messages.
+    # When triggered via a captioned photo, parse the URL from the caption instead.
     if context.args:
         url = context.args[0]
-    else:
+    elif update.message.caption:
+        _cap_parts = update.message.caption.split()
+        if len(_cap_parts) > 1:
+            url = _cap_parts[1]
+
+    if not url:
         # Check the command message itself first, then fall back to the replied-to message
         tg_obj, ext = await _tg_obj_from_msg(update.message)
         if tg_obj is None and update.message.reply_to_message:
@@ -1847,9 +1854,16 @@ async def cmd_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return doc, _ext
         return None, None
 
+    # context.args is only populated for plain /command messages.
+    # When triggered via a captioned photo, parse the URL from the caption instead.
     if context.args:
         url = context.args[0]
-    else:
+    elif update.message.caption:
+        _cap_parts = update.message.caption.split()
+        if len(_cap_parts) > 1:
+            url = _cap_parts[1]
+
+    if not url:
         tg_obj, ext = await _tg_obj_from_msg(update.message)
         if tg_obj is None and update.message.reply_to_message:
             tg_obj, ext = await _tg_obj_from_msg(update.message.reply_to_message)
@@ -2227,13 +2241,15 @@ def main():
     app.add_handler(CallbackQueryHandler(_leaderboard_callback, pattern=r"^lb:"))
     app.add_handler(MessageHandler(filters.Document.FileExtension("txt"),  cmd_instructions_file))
     app.add_handler(MessageHandler(filters.Document.FileExtension("yaml"), cmd_setconfig))
-    # Photos/image-documents sent with /pfp or /banner captions are routed to their own handlers.
+    # Photos/image-documents sent with a /pfp or /banner caption are routed to their handlers.
+    # filters.CaptionRegex matches the caption field on media messages (filters.Regex matches text only).
     # All other photos and image documents fall through to cmd_imageupload.
-    _pfp_banner_caption = filters.Regex(r"^/(pfp|banner)(\s|$)")
-    app.add_handler(MessageHandler(filters.PHOTO & _pfp_banner_caption, cmd_pfp))
-    app.add_handler(MessageHandler(filters.Document.IMAGE & _pfp_banner_caption, cmd_pfp))
-    app.add_handler(MessageHandler(filters.PHOTO & ~_pfp_banner_caption, cmd_imageupload))
-    app.add_handler(MessageHandler(filters.Document.IMAGE & ~_pfp_banner_caption, cmd_imageupload))
+    _cap_pfp    = filters.CaptionRegex(r"^/pfp(\s|$)")
+    _cap_banner = filters.CaptionRegex(r"^/banner(\s|$)")
+    _cap_either = _cap_pfp | _cap_banner
+    app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & _cap_pfp,    cmd_pfp))
+    app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & _cap_banner, cmd_banner))
+    app.add_handler(MessageHandler((filters.PHOTO | filters.Document.IMAGE) & ~_cap_either, cmd_imageupload))
     app.add_error_handler(_error_handler)
 
     async def _post_init(application):
