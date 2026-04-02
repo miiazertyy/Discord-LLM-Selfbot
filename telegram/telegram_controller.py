@@ -1842,7 +1842,19 @@ async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result.get("ok"):
             await update.message.reply_text(f"{label}✅ Profile picture updated!")
         else:
-            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+            reason = result.get("reason", "Unknown error")
+            if reason == "captcha_required":
+                await update.message.reply_text(
+                    f"{label}⚠️ Discord is requiring a captcha for this profile change.\n"
+                    "This happens when you change your picture too frequently.\n"
+                    "Wait 10–15 minutes and try again."
+                )
+            elif reason == "rate_limited":
+                await update.message.reply_text(
+                    f"{label}⏱️ You're being rate limited on avatar changes. Try again later."
+                )
+            else:
+                await update.message.reply_text(f"❌ {reason}")
     else:
         await update.message.reply_text(f"{label}⚠️ Selfbot didn't respond in time.")
 
@@ -1906,7 +1918,19 @@ async def cmd_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result.get("ok"):
             await update.message.reply_text(f"{label}✅ Profile banner updated!")
         else:
-            await update.message.reply_text(f"❌ {result.get('reason', 'Unknown error')}")
+            reason = result.get("reason", "Unknown error")
+            if reason == "captcha_required":
+                await update.message.reply_text(
+                    f"{label}⚠️ Discord is requiring a captcha for this profile change.\n"
+                    "This happens when you change your banner too frequently.\n"
+                    "Wait 10–15 minutes and try again."
+                )
+            elif reason == "rate_limited":
+                await update.message.reply_text(
+                    f"{label}⏱️ You're being rate limited on banner changes. Try again later."
+                )
+            else:
+                await update.message.reply_text(f"❌ {reason}")
     else:
         await update.message.reply_text(f"{label}⚠️ Selfbot didn't respond in time.")
 
