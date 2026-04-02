@@ -1771,25 +1771,48 @@ async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account = _get_account(context)
     label = _account_label(account)
     url = None
+    image_b64 = None
+    _valid_img_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+
+    async def _tg_obj_from_msg(msg):
+        """Return (tg_file_obj, ext) from a message's photo or document, or (None, None)."""
+        if msg.photo:
+            return msg.photo[-1], ".jpg"
+        if msg.document:
+            doc = msg.document
+            _mime = doc.mime_type or ""
+            _fname = doc.file_name or ""
+            _ext = os.path.splitext(_fname)[1].lower() or ".png"
+            if _mime.startswith("image/") or any(_fname.lower().endswith(e) for e in _valid_img_exts):
+                return doc, _ext
+        return None, None
+
     if context.args:
         url = context.args[0]
-    elif update.message.photo:
-        tg_file = await update.message.photo[-1].get_file()
-        url = tg_file.file_path
-    elif update.message.document:
-        doc = update.message.document
-        _valid_img_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp")
-        _mime = doc.mime_type or ""
-        _fname = doc.file_name or ""
-        if _mime.startswith("image/") or any(_fname.lower().endswith(e) for e in _valid_img_exts):
-            tg_file = await doc.get_file()
-            url = tg_file.file_path
+    else:
+        # Check the command message itself first, then fall back to the replied-to message
+        tg_obj, ext = await _tg_obj_from_msg(update.message)
+        if tg_obj is None and update.message.reply_to_message:
+            tg_obj, ext = await _tg_obj_from_msg(update.message.reply_to_message)
+        if tg_obj is not None:
+            try:
+                import base64 as _b64
+                tg_file = await tg_obj.get_file()
+                img_bytes = await tg_file.download_as_bytearray()
+                image_b64 = _b64.b64encode(bytes(img_bytes)).decode()
+            except Exception as e:
+                await update.message.reply_text(f"❌ Failed to download image: {e}")
+                return
 
-    if not url:
-        await update.message.reply_text("Usage: /pfp <image_url>\nOr send /pfp with an image attached.")
+    if not url and not image_b64:
+        await update.message.reply_text(
+            "Usage: /pfp <image_url>\n"
+            "Or attach an image (as photo or document) and send /pfp,\n"
+            "or reply to an image with /pfp."
+        )
         return
 
-    cmd_id = _send_command(account, "set_pfp", {"url": url})
+    cmd_id = _send_command(account, "set_pfp", {"url": url, "b64": image_b64})
     await update.message.reply_text(f"{label}⏳ Updating profile picture...")
     result = await _wait_for_result(account, cmd_id, timeout=20.0)
     if result:
