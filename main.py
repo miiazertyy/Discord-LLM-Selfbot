@@ -1251,6 +1251,15 @@ async def _tg_ipc_loop():
                             continue
                         await bot.user.edit(avatar=_pfp_data)
                         _write_result(cmd_id, {"ok": True})
+                    except discord.CaptchaRequired:
+                        _write_result(cmd_id, {"ok": False, "reason": "captcha_required"})
+                    except discord.HTTPException as _e:
+                        if "captcha" in str(_e).lower() or getattr(_e, "code", None) == -1:
+                            _write_result(cmd_id, {"ok": False, "reason": "captcha_required"})
+                        elif "rate" in str(_e).lower():
+                            _write_result(cmd_id, {"ok": False, "reason": "rate_limited"})
+                        else:
+                            _write_result(cmd_id, {"ok": False, "reason": str(_e)})
                     except Exception as _e:
                         _write_result(cmd_id, {"ok": False, "reason": str(_e)})
 
@@ -1274,6 +1283,15 @@ async def _tg_ipc_loop():
                             continue
                         await bot.user.edit(banner=_banner_data)
                         _write_result(cmd_id, {"ok": True})
+                    except discord.CaptchaRequired:
+                        _write_result(cmd_id, {"ok": False, "reason": "captcha_required"})
+                    except discord.HTTPException as _e:
+                        if "captcha" in str(_e).lower() or getattr(_e, "code", None) == -1:
+                            _write_result(cmd_id, {"ok": False, "reason": "captcha_required"})
+                        elif "rate" in str(_e).lower():
+                            _write_result(cmd_id, {"ok": False, "reason": "rate_limited"})
+                        else:
+                            _write_result(cmd_id, {"ok": False, "reason": str(_e)})
                     except Exception as _e:
                         _write_result(cmd_id, {"ok": False, "reason": str(_e)})
 
