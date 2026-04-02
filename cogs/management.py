@@ -1234,8 +1234,13 @@ class Management(commands.Cog):
 
         if ctx.message.attachments:
             attachment = ctx.message.attachments[0]
-            if not attachment.content_type or not attachment.content_type.startswith("image/"):
-                await ctx.send("Please attach a valid image file.", delete_after=10)
+            _img_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+            _ext = os.path.splitext(attachment.filename)[1].lower()
+            _ct = attachment.content_type or ""
+            # Accept if content_type says image/, OR if the file extension is a known image type
+            # (Telegram sends attachments as documents, which often have content_type=None or octet-stream)
+            if not (_ct.startswith("image/") or _ext in _img_exts):
+                await ctx.send("Please attach a valid image file (.jpg, .jpeg, .png, .gif, .webp).", delete_after=10)
                 return
             image_data = await attachment.read()
         elif url:
@@ -1674,8 +1679,17 @@ class Management(commands.Cog):
             results = []
             for att in ctx.message.attachments:
                 ext = os.path.splitext(att.filename)[1].lower()
+                # Telegram may send images as documents with a missing or generic content_type.
+                # Fall back to deriving the extension from content_type when the filename has none.
                 if ext not in exts:
-                    continue
+                    _ct = att.content_type or ""
+                    _ct_ext_map = {
+                        "image/jpeg": ".jpg", "image/png": ".png",
+                        "image/gif": ".gif", "image/webp": ".webp",
+                    }
+                    ext = _ct_ext_map.get(_ct.split(";")[0].strip(), "")
+                    if ext not in exts:
+                        continue
                 data = await att.read()
                 new_name = f"IMG_{next_index}{ext}"
                 dest = os.path.join(folder, new_name)
@@ -1713,7 +1727,10 @@ class Management(commands.Cog):
 
                 saved.append(new_name)
                 results.append((new_name, description))
+                used_indices.add(next_index)
                 next_index += 1
+                while next_index in used_indices:
+                    next_index += 1
 
             await status_msg.delete()
 
@@ -1885,21 +1902,28 @@ class Management(commands.Cog):
     async def clear(self, ctx, limit: int = 100):
         if ctx.author.id != self.bot.owner_id:
             return
+        deleted = 0
+        failed = 0
+        # Collect history BEFORE deleting the command message so Discord doesn't
+        # return stale/already-deleted entries in the snapshot.
+        to_delete = []
+        async for msg in ctx.channel.history(limit=limit):
+            to_delete.append(msg)
+        # Now delete the command message itself (already captured in history above if present)
         try:
             await ctx.message.delete()
         except Exception:
             pass
-        deleted = 0
-        failed = 0
-        # Collect messages to delete — history() is an async generator
-        to_delete = []
-        async for msg in ctx.channel.history(limit=limit):
-            to_delete.append(msg)
         for msg in to_delete:
+            # Skip the command message — already handled above
+            if msg.id == ctx.message.id:
+                continue
             try:
                 await msg.delete()
                 deleted += 1
                 await asyncio.sleep(0.35)  # avoid hitting Discord rate limits
+            except discord.NotFound:
+                pass  # already deleted — don't count as a failure
             except Exception:
                 failed += 1
         # Send a confirmation that self-deletes
