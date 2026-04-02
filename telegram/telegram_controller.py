@@ -1159,15 +1159,11 @@ async def _process_images(account, label, msg, file_infos):
             except Exception:
                 pass
         try:
-            image_bytes = await tg_obj.get_file().download_as_bytearray()                 if hasattr(tg_obj, "get_file") else await (await tg_obj.get_file()).download_as_bytearray()
-        except Exception:
-            # Try alternate form
-            try:
-                tg_file = await tg_obj.get_file()
-                image_bytes = await tg_file.download_as_bytearray()
-            except Exception as e:
-                await status.edit_text(f"❌ Failed to download image {i}: {e}")
-                return
+            tg_file = await tg_obj.get_file()
+            image_bytes = await tg_file.download_as_bytearray()
+        except Exception as e:
+            await status.edit_text(f"❌ Failed to download image {i}: {e}")
+            return
 
         ext = ".jpg"
         if filename_hint:
@@ -1780,9 +1776,14 @@ async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update.message.photo:
         tg_file = await update.message.photo[-1].get_file()
         url = tg_file.file_path
-    elif update.message.document and update.message.document.mime_type.startswith("image/"):
-        tg_file = await update.message.document.get_file()
-        url = tg_file.file_path
+    elif update.message.document:
+        doc = update.message.document
+        _valid_img_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+        _mime = doc.mime_type or ""
+        _fname = doc.file_name or ""
+        if _mime.startswith("image/") or any(_fname.lower().endswith(e) for e in _valid_img_exts):
+            tg_file = await doc.get_file()
+            url = tg_file.file_path
 
     if not url:
         await update.message.reply_text("Usage: /pfp <image_url>\nOr send /pfp with an image attached.")
