@@ -408,6 +408,7 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             late = bot_cfg.get("late_reply") or {}
             nudge = bot_cfg.get("nudge") or {}
             fr = bot_cfg.get("friend_requests") or {}
+            stale = bot_cfg.get("stale_reply") or {}
             status = bot_cfg.get("status") or {}
             notif = cfg.get("notifications") or {}
             wait_times = bot_cfg.get("batch_wait_times") or []
@@ -487,6 +488,11 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "  💬  *Late Reply*",
                 brow("late_reply.enabled",    late.get("enabled")),
                 row("late_reply.threshold",   late.get("threshold")),
+                SEP,
+                "  🗑️  *Stale Reply* _\\(servers & GCs only\\)_",
+                brow("stale_reply.enabled",      stale.get("enabled", False)),
+                row("stale_reply.max_messages",  stale.get("max_messages", 10)),
+                row("stale_reply.min_age",       f"{stale.get('min_age', 120)}s"),
                 SEP,
                 "  💤  *Nudge*",
                 brow("nudge.enabled",              nudge.get("enabled", False)),
