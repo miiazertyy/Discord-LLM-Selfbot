@@ -67,7 +67,7 @@ from utils.memory import init_memory, get_memory, set_memory, delete_memory, for
 from utils.tts import generate_voice_message
 from utils.tts_trigger import is_tts_request
 from utils.voice_send import send_voice_message
-from utils.captcha import init_captcha, solve_hcaptcha
+from utils.captcha import init_captcha, solve_hcaptcha, solve_discord_captcha
 
 
 init()
@@ -168,7 +168,14 @@ REFUSAL_PHRASES = [
 
 def create_bot() -> commands.Bot:
     """Instantiate a fully configured bot. Called once per token."""
-    b = commands.Bot(command_prefix=PREFIX, help_command=None, mobile=True)
+
+    async def _discord_captcha_handler(exc: discord.CaptchaRequired, b: commands.Bot) -> str:
+        token = await solve_discord_captcha(exc)
+        if token is None:
+            raise exc  # re-raise so discord.py-self surfaces the error normally
+        return token
+
+    b = commands.Bot(command_prefix=PREFIX, help_command=None, mobile=True, captcha_handler=_discord_captcha_handler)
     b.retry_queue = deque()
     b.owner_id = OWNER_ID
     b.active_channels = set(get_channels())
@@ -1251,15 +1258,6 @@ async def _tg_ipc_loop():
                             continue
                         await bot.user.edit(avatar=_pfp_data)
                         _write_result(cmd_id, {"ok": True})
-                    except discord.CaptchaRequired:
-                        _write_result(cmd_id, {"ok": False, "reason": "captcha_required"})
-                    except discord.HTTPException as _e:
-                        if "captcha" in str(_e).lower() or getattr(_e, "code", None) == -1:
-                            _write_result(cmd_id, {"ok": False, "reason": "captcha_required"})
-                        elif "rate" in str(_e).lower():
-                            _write_result(cmd_id, {"ok": False, "reason": "rate_limited"})
-                        else:
-                            _write_result(cmd_id, {"ok": False, "reason": str(_e)})
                     except Exception as _e:
                         _write_result(cmd_id, {"ok": False, "reason": str(_e)})
 
@@ -1283,15 +1281,6 @@ async def _tg_ipc_loop():
                             continue
                         await bot.user.edit(banner=_banner_data)
                         _write_result(cmd_id, {"ok": True})
-                    except discord.CaptchaRequired:
-                        _write_result(cmd_id, {"ok": False, "reason": "captcha_required"})
-                    except discord.HTTPException as _e:
-                        if "captcha" in str(_e).lower() or getattr(_e, "code", None) == -1:
-                            _write_result(cmd_id, {"ok": False, "reason": "captcha_required"})
-                        elif "rate" in str(_e).lower():
-                            _write_result(cmd_id, {"ok": False, "reason": "rate_limited"})
-                        else:
-                            _write_result(cmd_id, {"ok": False, "reason": str(_e)})
                     except Exception as _e:
                         _write_result(cmd_id, {"ok": False, "reason": str(_e)})
 
