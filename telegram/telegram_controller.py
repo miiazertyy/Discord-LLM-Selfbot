@@ -433,7 +433,7 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
             def brow(key: str, val) -> str:
                 """key in monospace — true/false for booleans."""
                 word = "true" if val else "false"
-                return f"  `{key}` \u2014 `{word}`"
+                return f"  `{key}` \u2014 {word}"
 
             title_label = f" \u2014 {e(label.strip())}" if label else ""
             lines = [
