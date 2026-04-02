@@ -154,9 +154,10 @@ async def send_voice_message(channel, wav_bytes: bytes, reply_to=None, mention_a
 
         # Step 2: upload OGG bytes to CDN
         # No auth header needed for the CDN PUT — override Content-Type only
+        # curl_cffi uses `data=` for raw bytes, not `content=` (that's httpx syntax)
         await session.put(
             upload_url,
-            content=ogg_bytes,
+            data=ogg_bytes,
             headers={"Content-Type": "audio/ogg"},
         )
 
