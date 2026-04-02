@@ -1234,13 +1234,22 @@ async def _tg_ipc_loop():
                 # ── set_pfp ───────────────────────────────────────────────────
                 elif cmd == "set_pfp":
                     _pfp_url = payload.get("url", "")
+                    _pfp_b64 = payload.get("b64", "")
                     try:
-                        async with AsyncSession(impersonate="chrome") as _pfp_s:
-                            _pfp_r = await _pfp_s.get(_pfp_url)
-                            if _pfp_r.status_code != 200:
-                                _write_result(cmd_id, {"ok": False, "reason": f"Failed to fetch image (status {_pfp_r.status_code})."})
-                                continue
-                            await bot.user.edit(avatar=_pfp_r.content)
+                        if _pfp_b64:
+                            import base64 as _b64mod
+                            _pfp_data = _b64mod.b64decode(_pfp_b64)
+                        elif _pfp_url:
+                            async with AsyncSession(impersonate="chrome") as _pfp_s:
+                                _pfp_r = await _pfp_s.get(_pfp_url)
+                                if _pfp_r.status_code != 200:
+                                    _write_result(cmd_id, {"ok": False, "reason": f"Failed to fetch image (status {_pfp_r.status_code})."})
+                                    continue
+                                _pfp_data = _pfp_r.content
+                        else:
+                            _write_result(cmd_id, {"ok": False, "reason": "No image URL or data provided."})
+                            continue
+                        await bot.user.edit(avatar=_pfp_data)
                         _write_result(cmd_id, {"ok": True})
                     except Exception as _e:
                         _write_result(cmd_id, {"ok": False, "reason": str(_e)})
