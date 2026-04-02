@@ -1160,8 +1160,7 @@ async def _process_images(account, label, msg, file_infos):
             except Exception:
                 pass
         try:
-            tg_file = await tg_obj.get_file()
-            image_bytes = await tg_file.download_as_bytearray()
+            image_bytes = await _tg_download_image(tg_obj)
         except Exception as e:
             await status.edit_text(f"❌ Failed to download image {i}: {e}")
             return
@@ -1767,6 +1766,23 @@ async def cmd_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"{label}⚠️ Selfbot didn't respond in time.")
 
 
+async def _tg_download_image(tg_obj) -> bytes:
+    """Download a Telegram photo/document as bytes.
+
+    python-telegram-bot's built-in download_as_bytearray() uses httpx internally,
+    which fails with ConnectError on some network setups. Instead we resolve the
+    file's HTTPS URL from Telegram's API and fetch it with aiohttp, which honours
+    the system proxy and is more reliable for larger binary payloads.
+    """
+    import aiohttp
+    tg_file = await tg_obj.get_file()
+    file_url = tg_file.file_path  # already a full https://api.telegram.org/file/... URL
+    async with aiohttp.ClientSession() as session:
+        async with session.get(file_url) as resp:
+            resp.raise_for_status()
+            return await resp.read()
+
+
 @owner_only
 async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account = _get_account(context)
@@ -1805,9 +1821,8 @@ async def cmd_pfp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if tg_obj is not None:
             try:
                 import base64 as _b64
-                tg_file = await tg_obj.get_file()
-                img_bytes = await tg_file.download_as_bytearray()
-                image_b64 = _b64.b64encode(bytes(img_bytes)).decode()
+                img_bytes = await _tg_download_image(tg_obj)
+                image_b64 = _b64.b64encode(img_bytes).decode()
             except Exception as e:
                 await update.message.reply_text(f"❌ Failed to download image: {e}")
                 return
@@ -1870,9 +1885,8 @@ async def cmd_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if tg_obj is not None:
             try:
                 import base64 as _b64
-                tg_file = await tg_obj.get_file()
-                img_bytes = await tg_file.download_as_bytearray()
-                image_b64 = _b64.b64encode(bytes(img_bytes)).decode()
+                img_bytes = await _tg_download_image(tg_obj)
+                image_b64 = _b64.b64encode(img_bytes).decode()
             except Exception as e:
                 await update.message.reply_text(f"❌ Failed to download image: {e}")
                 return
