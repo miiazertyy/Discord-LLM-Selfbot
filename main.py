@@ -2279,7 +2279,23 @@ async def on_message(message):
             for _att in message.attachments:
                 if _att.content_type and _att.content_type.startswith("image/"):
                     try:
-                        _captcha_answer = await solve_hcaptcha(_att.url)
+                        # Try to extract the challenge label from:
+                        # 1. The message content itself (user may have pasted the label)
+                        # 2. Any embed description/title in the message
+                        _captcha_label: str | None = None
+                        _content_lower = message.content.lower()
+                        if any(kw in _content_lower for kw in ("click", "select", "containing", "captcha")):
+                            _captcha_label = message.content.strip() or None
+                        if not _captcha_label:
+                            for _emb in message.embeds:
+                                if _emb.description:
+                                    _captcha_label = _emb.description.strip()
+                                    break
+                                if _emb.title:
+                                    _captcha_label = _emb.title.strip()
+                                    break
+
+                        _captcha_answer = await solve_hcaptcha(_att.url, label=_captcha_label)
                         if _captcha_answer:
                             log_system(f"hCaptcha solved for {message.author.name}: {_captcha_answer}")
                             # Patch the message content so the rest of the pipeline
