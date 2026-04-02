@@ -431,9 +431,9 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return f"  `{key}` \u2014 {e(v)}"
 
             def brow(key: str, val) -> str:
-                """key in monospace — ✅/❌ for booleans."""
-                icon = "✅" if val else "❌"
-                return f"  `{key}` \u2014 {icon}"
+                """key in monospace — true/false for booleans."""
+                word = "true" if val else "false"
+                return f"  `{key}` \u2014 `{word}`"
 
             title_label = f" \u2014 {e(label.strip())}" if label else ""
             lines = [
@@ -504,7 +504,8 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 brow("ratelimit_notifications",        notif.get("ratelimit_notifications")),
                 brow("telegram_error_notifications",   notif.get("telegram_error_notifications", False)),
                 SEP,
-                "✏️ /config `key` `value` to edit",
+                "*✏️ To edit:* `/config key value`",
+                "_e\\.g\\. /config tts\\.enabled true_",
             ]
             await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN_V2)
         except Exception as e:
