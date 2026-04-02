@@ -1767,18 +1767,38 @@ async def cmd_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _tg_download_image(tg_obj) -> bytes:
-    """Download a Telegram photo/document as bytes.
+    """Download a Telegram photo/document as bytes using pure aiohttp.
 
-    python-telegram-bot's built-in download_as_bytearray() uses httpx internally,
-    which fails with ConnectError on some network setups. Instead we resolve the
-    file's HTTPS URL from Telegram's API and fetch it with aiohttp, which honours
-    the system proxy and is more reliable for larger binary payloads.
+    python-telegram-bot uses httpx for ALL Bot API calls — including get_file() —
+    which raises httpx.ConnectError on some network setups (e.g. when a document
+    is sent instead of a compressed photo).  We bypass httpx entirely by calling
+    the Telegram getFile endpoint ourselves with aiohttp, then downloading the
+    resulting file URL also with aiohttp.
     """
     import aiohttp
-    tg_file = await tg_obj.get_file()
-    file_url = tg_file.file_path  # already a full https://api.telegram.org/file/... URL
+
+    file_id = tg_obj.file_id
+    api_base = f"https://api.telegram.org/bot{TG_TOKEN}"
+
     async with aiohttp.ClientSession() as session:
-        async with session.get(file_url) as resp:
+        # Step 1: resolve file_id → file_path via getFile
+        async with session.get(
+            f"{api_base}/getFile",
+            params={"file_id": file_id},
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            if not data.get("ok"):
+                raise RuntimeError(f"Telegram getFile error: {data.get('description', data)}")
+            file_path = data["result"]["file_path"]
+
+        # Step 2: download the actual file bytes
+        file_url = f"https://api.telegram.org/file/bot{TG_TOKEN}/{file_path}"
+        async with session.get(
+            file_url,
+            timeout=aiohttp.ClientTimeout(total=60),
+        ) as resp:
             resp.raise_for_status()
             return await resp.read()
 
