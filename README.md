@@ -209,19 +209,3 @@ chmod +x run.sh updater.sh
 ## 💭 Customizing the Personality
 
 Edit `config/instructions.txt` to set the bot's personality, tone, and behavior. You can also update it live from Telegram using `/instructions` (attach a `.txt` file) or `/prompt <text>`.
-
----
-
-## 🗂️ Project Structure
-
-```
-Discord-LLM-Selfbot/
-├── main.py                  — core bot logic
-├── run.bat / run.sh         — launchers (start bot + Telegram controller together)
-├── requirements.txt
-├── cogs/                    — Discord command cogs (management, general, etc.)
-├── utils/                   — shared helpers (AI, DB, memory, TTS, etc.)
-├── config/                  — runtime files (.env, config.yaml, instructions.txt, db)
-└── telegram/
-    └── telegram_controller.py  — standalone Telegram control panel
-```
